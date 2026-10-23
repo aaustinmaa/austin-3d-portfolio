@@ -505,6 +505,22 @@ const SPEED = 7, GRAV = 26, JUMP = 9.6, STEP_UP = .6, ASCEND = 7.5, CEILING = 47
 function jumpPress(){ if (P.flight) return; skipIntro(); if (P.onGround){ P.vel.y = JUMP; P.onGround = false; P.jumpT = T; } else P.jumpT = T - 1; }
 function supportAt(x,z,y){ return floorAt(x, z, y, STEP_UP, groundH(x,z)); }
 function flyTo(dest){ const from = P.pos.clone(), dist = from.distanceTo(dest); P.flight = { from, to:dest.clone(), t:0, dur:Math.min(3.6, Math.max(1.2, dist/12)), arc:2 + dist*.12 }; P.target = null; P.vel.set(0,0,0); }
+/* Catch a descent over open water and ease onto dry ground instead of snapping to the bank. */
+function glideToShore(){
+  const r = Math.hypot(P.pos.x, P.pos.z), angle = r > .1 ? Math.atan2(P.pos.x, P.pos.z) : camS.yaw;
+  const radius = LAKE_BLOCK + .6;
+  for (let i=0;i<24;i++){
+    // Try the nearest bank first, then nearby directions if a rock or stair blocks the landing.
+    const a = angle + (i%2 ? 1 : -1)*Math.ceil(i/2)*Math.PI/12;
+    const to = new V3(Math.sin(a)*radius, 0, Math.cos(a)*radius); to.y = groundH(to.x,to.z);
+    const check = { x:to.x, z:to.z };
+    if (to.y < WATER_Y + .15 || pushOut(check, to.y + STEP_UP, to.y + HEAD, BODY_R)) continue;
+    const from = P.pos.clone(), dist = from.distanceTo(to);
+    P.flight = { from, to, t:0, dur:Math.max(.6, dist/7), arc:.35 };
+    P.target = null; P.vel.set(0,0,0); P.onGround = false; P.flying = false; P.soared = true; P.speed = 0;
+    return;
+  }
+}
 
 /* ---------- arrows: guided arrows fly to their relic; drawn arrows stick in whatever they meet ---------- */
 const arrows = [];
@@ -768,7 +784,11 @@ function updatePlayer(dt){
   const k = 1 - Math.exp(-dt*(P.onGround ? 14 : P.soared ? 6 : 4)); P.vel.x = lerp(P.vel.x, mx*spd, k); P.vel.z = lerp(P.vel.z, mz*spd, k);
   let nx = P.pos.x + P.vel.x*dt, nz = P.pos.z + P.vel.z*dt; const nr = Math.hypot(nx,nz);
   const lim = P.onGround ? WORLD_R : AIR_R; if (nr > lim){ nx *= lim/nr; nz *= lim/nr; }
-  const s0 = supportAt(nx, nz, P.pos.y); if (!s0.onPlatform && P.pos.y < 2 && nr < LAKE_BLOCK){ const s = LAKE_BLOCK/Math.max(nr,.001); nx *= s; nz *= s; P.target = null; }
+  const s0 = supportAt(nx, nz, P.pos.y);
+  // Stop a step into the water at the bank; never project a fall from the lake's interior onto this circle.
+  if (!s0.onPlatform && P.pos.y < 2 && nr < LAKE_BLOCK && Math.hypot(P.pos.x,P.pos.z) >= LAKE_BLOCK - 1e-4){
+    const s = LAKE_BLOCK/nr; nx *= s; nz *= s; P.target = null;
+  }
   /* walls: anything taller than a step between the feet and the head pushes the body back out */
   pushP.x = nx; pushP.z = nz; if (pushOut(pushP, P.pos.y + STEP_UP, P.pos.y + HEAD, BODY_R)){ nx = pushP.x; nz = pushP.z; }
   const moved = Math.hypot(nx - P.pos.x, nz - P.pos.z);
@@ -789,6 +809,9 @@ function updatePlayer(dt){
   /* ceilings: platform undersides stop the head */
   if (P.vel.y > 0){ const ceil = ceilingAt(nx, nz, P.pos.y + HEAD); if (ny + HEAD > ceil){ ny = Math.max(P.pos.y, ceil - HEAD); P.vel.y = 0; } }
   const sup = supportAt(nx, nz, P.pos.y);
+  if (!sup.onPlatform && !P.flying && P.vel.y <= 0 && ny < 2 && Math.hypot(nx,nz) < LAKE_BLOCK - 1e-4){
+    glideToShore(); if (P.flight) return;
+  }
   if (ny > CEILING){ ny = CEILING; P.vel.y = Math.min(P.vel.y, 0); }
   if (ny <= sup.h){ ny = sup.h; P.vel.y = 0; P.onGround = true; } else P.onGround = ny - sup.h < .05;
   if (P.onGround){ P.soared = false; P.energy = Math.min(1, P.energy + dt/1.4); }
