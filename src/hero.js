@@ -311,7 +311,7 @@ export function animateHero(h, s){
   updateClothMotion(h, s);
   h.body.position.y = .025;
   h.body.rotation.z = 0;
-  h.body.rotation.x += (motion*(up ? .16 : moving*.16) - h.body.rotation.x)*k;
+  h.body.rotation.x += (motion*(up ? .16 : moving*.1) - h.body.rotation.x)*k;
   h.head.rotation.x = s.aiming ? -s.pitch*.25 : 0;
   h.head.rotation.z = 0;
   /* blink every few seconds; the eyes light up while flying */
