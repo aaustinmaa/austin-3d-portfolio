@@ -525,8 +525,9 @@ function glideToShore(){
 /* ---------- arrows: guided arrows fly to their relic; drawn arrows stick in whatever they meet ---------- */
 const arrows = [];
 const ARROW_TRAIL_POINTS = 14;
-// Preserve the original 60 FPS look: 14 samples span 13 frame intervals.
-const ARROW_TRAIL_SECONDS = (ARROW_TRAIL_POINTS - 1)/60;
+// Match the original trail at a fixed 200 FPS reference: 14 samples span 13 frame intervals.
+// Keep this reference fixed so slower frames or a different display cannot stretch the tail.
+const ARROW_TRAIL_SECONDS = (ARROW_TRAIL_POINTS - 1)/200;
 const arrowShaft = new THREE.CylinderGeometry(.018,.018,1,5).rotateX(Math.PI/2);
 const fletchGeo = new THREE.ConeGeometry(.05,.14,3).rotateX(-Math.PI/2).translate(0,0,-.46);
 function bowWorld(){ return hero.localToWorld(H.bow.position.clone()); }
