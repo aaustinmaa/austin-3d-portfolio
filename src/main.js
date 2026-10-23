@@ -9,6 +9,7 @@ import { createOracle } from './oracle.js';
 import { createConstellation } from './constellation.js';
 import { buildForm } from './relics.js';
 import { buildHero, animateHero } from './hero.js';
+import { createLake } from './lake.js';
 
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const V3 = THREE.Vector3, UP = new V3(0,1,0), ZAX = new V3(0,0,1);
@@ -41,6 +42,8 @@ renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadow
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0x0A0E22, 16, 100);
 const camera = new THREE.PerspectiveCamera(60, 1, .08, 900);
+/* Screen-sized atmospheric glow belongs to the main view, not the lake's reflection camera. */
+camera.layers.enable(1);
 let baseFov = 60;
 const wispScale = { value:1 };
 function resize(){ const w = innerWidth, h = innerHeight; renderer.setSize(w,h,false); camera.aspect = w/h; baseFov = w < h ? 72 : 60; camera.updateProjectionMatrix(); wispScale.value = h*PIXEL/2; }
@@ -146,17 +149,8 @@ const pickables = [];
 }
 
 /* ---------- lake ---------- */
-const lakeMat = new THREE.ShaderMaterial({ transparent:true, uniforms:{ t:{value:0}, energy:{value:0}, glow:{value:0} },
-  vertexShader:'varying vec3 vW; void main(){ vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }',
-  fragmentShader:`uniform float t; uniform float energy; uniform float glow; varying vec3 vW;
-    void main(){ float r = length(vW.xz);
-      vec3 c = mix(vec3(.012,.025,.05), vec3(.04,.08,.12), smoothstep(${(LAKE_R-3).toFixed(1)}, ${(LAKE_R+2).toFixed(1)}, r));
-      float ring = exp(-pow(r-2.6,2.)*3.)*(.3+energy*.5+glow*.25); c += vec3(.55,.92,1.)*ring*.5;
-      c += vec3(.4,.85,1.)*exp(-r*r/2.)*(.22+energy*.4+glow*.3);
-      float rip = pow(.5+.5*sin(r*2.4 - t*1.2), 16.); c += vec3(.4,.7,1.)*rip*.06*(1.-smoothstep(3.,9.,r));
-      float sp = step(.988, fract(sin(dot(floor(vW.xz*3.), vec2(12.9898,78.233)))*43758.5453 + t*.12)); c += sp*vec3(.5,.8,1.)*(.25+glow*.2);
-      gl_FragColor = vec4(c,.95); }` });
-{ const lake = new THREE.Mesh(new THREE.CircleGeometry(LAKE_R+3.4, 72), lakeMat); lake.rotation.x = -Math.PI/2; lake.position.y = WATER_Y; scene.add(lake); }
+const lake = createLake(scene, { radius:LAKE_R+3.4, height:WATER_Y, groundH, reduceMotion,
+  reflectionSize:innerWidth < 800 ? 256 : 512 });
 
 /* ---------- basalt walls ---------- */
 const cliffCol = (t,c,n,y) => {
@@ -300,7 +294,7 @@ const wispMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, b
     void main(){ float s = .5 + .5*sin(t*(.6 + fract(ph*.37)*1.1) + ph); vA = (.12 + .88*s*s*s)*smoothstep(3., 6., distance((modelMatrix*vec4(position,1.)).xyz, hero)); vW = fract(ph*.71);
       vec4 mv = modelViewMatrix*vec4(position,1.); gl_PointSize = (.5 + .3*vA)*scale/-mv.z; gl_Position = projectionMatrix*mv; }`,
   fragmentShader:`uniform float glow; varying float vA; varying float vW; void main(){ vec2 p = gl_PointCoord - .5; float a = exp(-dot(p,p)*28.)*vA*glow; vec3 c = mix(vec3(.55,.92,1.), vec3(.78,.66,1.), step(.55, vW)); gl_FragColor = vec4(c*a, a); }` });
-const wisps = new THREE.Points(wispG, wispMat); wisps.frustumCulled = false; scene.add(wisps);
+const wisps = new THREE.Points(wispG, wispMat); wisps.frustumCulled = false; wisps.layers.set(1); scene.add(wisps);
 /* soft points of light: each pulses on its own rhythm, can drift, can keep clear of the wanderer, and brightens with the star's light */
 const heroU = { value:new V3() }, lightPointMats = [];
 function lightPoints(items, { size, near=0, drift=0, base=.6 }){
@@ -316,7 +310,7 @@ function lightPoints(items, { size, near=0, drift=0, base=.6 }){
         if (near > 0.) vA *= smoothstep(near, near*2., distance((modelMatrix*vec4(p,1.)).xyz, hero));
         vC = col; vec4 mv = modelViewMatrix*vec4(p,1.); gl_PointSize = size*(.75 + .25*s)*scale/-mv.z; gl_Position = projectionMatrix*mv; }`,
     fragmentShader:`varying vec3 vC; varying float vA; void main(){ vec2 q = gl_PointCoord - .5; float d = dot(q,q); float a = (exp(-d*36.) + exp(-d*9.)*.3)*vA; gl_FragColor = vec4(vC*a, a); }` });
-  const m = new THREE.Points(g, mat); m.frustumCulled = false; scene.add(m); mat.userData.base = base; lightPointMats.push(mat); return mat;
+  const m = new THREE.Points(g, mat); m.frustumCulled = false; m.layers.set(1); scene.add(m); mat.userData.base = base; lightPointMats.push(mat); return mat;
 }
 { const sq = seq(71), palette = ['#7FE9F2','#8FA8FF','#B49CFF','#8FA8FF','#D8E2FF'].map(C), meadow = [], air = [];
   /* just above the grass tops, all across the meadow */
@@ -676,7 +670,8 @@ function updateWorld(dt){
   moon.intensity = lerp(.06, .2, L) + D*.04;
   scene.fog.color.copy(fogCol[0]).lerp(fogCol[1], L).lerp(fogCol[2], D*.4); scene.fog.near = lerp(14, 26, L); scene.fog.far = lerp(95, 150, L);
   skyMat.uniforms.glow.value = L; skyMat.uniforms.dawn.value = D;
-  columnMat.uniforms.t.value = T; columnMat.uniforms.fade.value = .1 + ey*.25 + L*.12; lakeMat.uniforms.t.value = T; lakeMat.uniforms.energy.value = ey; lakeMat.uniforms.glow.value = L; fallMat.uniforms.t.value = T; beamMat.uniforms.t.value = T;
+  columnMat.uniforms.t.value = T; columnMat.uniforms.fade.value = .1 + ey*.25 + L*.12;
+  lake.update(dt, T, ey, L); fallMat.uniforms.t.value = T; beamMat.uniforms.t.value = T;
   if (beamState.life > 0){ beamState.life -= dt; const from = oracle.position.clone(), to = beamState.relic.pos.clone(); const dir = to.clone().sub(from), len = dir.length(); dir.normalize();
     beam.scale.set(1,len,1); beam.position.copy(from).addScaledVector(dir, len/2); beam.quaternion.setFromUnitVectors(UP, dir.clone().negate());
     beamMat.uniforms.rep.value = len/1.5; beamMat.uniforms.fade.value = Math.min(1, beamState.life/.8)*Math.min(1,(3.2-beamState.life)/.25)*1.3;
