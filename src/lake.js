@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 
-/* A still, shallow-edged pool. Clear scene reflections sit over a faint cyan
-   and violet sheen; the slow colour drift leaves the surface almost motionless. */
-export function createLake(scene, { radius, height, groundH, reduceMotion, reflectionSize = 512 }){
+/* Clear scene reflections sit over a faint cyan and violet sheen. Long, slow
+   swells move their silhouettes together, without fine ripples breaking them up. */
+export function createLake(scene, { radius, height, groundH, reduceMotion }){
   const geometry = new THREE.PlaneGeometry(radius*2, radius*2, 128, 128);
   const positions = geometry.attributes.position, depths = new Float32Array(positions.count);
   for (let i=0; i<positions.count; i++){
@@ -20,15 +20,15 @@ export function createLake(scene, { radius, height, groundH, reduceMotion, refle
       return vec3(amplitude*sin(phase), amplitude*frequency*cos(phase)*direction);
     }
     vec3 surface(vec2 p){
-      return wave(p, vec2(.94,.342), .0006, .75, -.035)
-        + wave(p, vec2(-.4,.9165), .0003, 1.1, .028);
+      return wave(p, vec2(.94,.342), .012, .22, -.12)
+        + wave(p, vec2(-.4,.9165), .004, .38, .085);
     }`;
   const lake = new Reflector(geometry, {
-    textureWidth:reflectionSize, textureHeight:reflectionSize, clipBias:.003,
+    textureWidth:1024, textureHeight:1024, clipBias:.003,
     shader:{
       uniforms:THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
         color:{value:new THREE.Color(0x17223D)}, tDiffuse:{value:null}, textureMatrix:{value:new THREE.Matrix4()},
-        t:{value:0}, energy:{value:0}, glow:{value:0}, radius:{value:radius}, texel:{value:1/reflectionSize}
+        t:{value:0}, energy:{value:0}, glow:{value:0}, radius:{value:radius}, texel:{value:new THREE.Vector2(1/1024, 1/1024)}
       }]),
       vertexShader:`
         uniform float t;
@@ -52,7 +52,8 @@ export function createLake(scene, { radius, height, groundH, reduceMotion, refle
         }`,
       fragmentShader:`
         uniform sampler2D tDiffuse;
-        uniform float t, energy, glow, radius, texel;
+        uniform float t, energy, glow, radius;
+        uniform vec2 texel;
         varying vec3 vWorld;
         varying vec4 vReflection;
         varying float vDepth;
@@ -70,17 +71,14 @@ export function createLake(scene, { radius, height, groundH, reduceMotion, refle
           float fresnel = .08 + .78*pow(1. - facing, 3.);
 
           vec2 uv = vReflection.xy/vReflection.w;
-          uv += normal.xz*(.012 + .025/max(length(cameraPosition - vWorld), 2.));
-          uv = clamp(uv, vec2(texel*2.), vec2(1. - texel*2.));
-          vec2 blur = vec2(texel*.35, 0.);
-          vec3 reflected = texture2D(tDiffuse, uv).rgb*.84;
-          reflected += (texture2D(tDiffuse, uv + blur).rgb + texture2D(tDiffuse, uv - blur).rgb
-            + texture2D(tDiffuse, uv + blur.yx).rgb + texture2D(tDiffuse, uv - blur.yx).rgb)*.04;
+          uv += normal.xz*(.35 + .4/max(length(cameraPosition - vWorld), 2.));
+          uv = clamp(uv, texel*2., vec2(1.) - texel*2.);
+          vec3 reflected = texture2D(tDiffuse, uv).rgb;
           reflected *= vec3(.95, 1.02, 1.12);
 
           vec3 water = mix(vec3(.055,.092,.15), vec3(.032,.05,.106), deep);
           water *= 1. + glow*.45;
-          vec3 c = mix(water, reflected, (.24 + fresnel*.66)*mix(.5, 1., shore));
+          vec3 c = mix(water, reflected, (.32 + fresnel*.62)*mix(.5, 1., shore));
 
           // Broad, slow ribbons of colour brighten the pool without moving or
           // warping its reflected silhouettes. No fine stripes or sparkle noise.
@@ -112,8 +110,9 @@ export function createLake(scene, { radius, height, groundH, reduceMotion, refle
   lake.position.y = height;
   lake.material.transparent = true;
   lake.material.fog = true;
-  lake.getRenderTarget().texture.minFilter = THREE.LinearMipmapLinearFilter;
-  lake.getRenderTarget().texture.generateMipmaps = true;
+  const reflectionTarget = lake.getRenderTarget();
+  reflectionTarget.texture.minFilter = THREE.LinearFilter;
+  reflectionTarget.texture.generateMipmaps = false;
   lake.geometry.computeBoundingSphere();
   lake.geometry.boundingSphere.radius += .05;
 
@@ -122,11 +121,24 @@ export function createLake(scene, { radius, height, groundH, reduceMotion, refle
   const renderReflection = lake.onBeforeRender;
   const previousPosition = new THREE.Vector3(Infinity, Infinity, Infinity);
   const previousRotation = new THREE.Quaternion();
+  const drawingSize = new THREE.Vector2();
   let elapsed = 0, lastReflection = -Infinity;
   lake.onBeforeRender = (renderer, world, camera) => {
+    // Match actual drawing pixels and aspect ratio instead of stretching a tiny
+    // square image across the water. Resizing also invalidates the cached view.
+    renderer.getDrawingBufferSize(drawingSize);
+    const limit = Math.min(2048, renderer.capabilities.maxTextureSize);
+    const scale = Math.min(1, limit/Math.max(drawingSize.x, drawingSize.y));
+    const width = Math.max(1, Math.round(drawingSize.x*scale));
+    const height = Math.max(1, Math.round(drawingSize.y*scale));
+    const resized = reflectionTarget.width !== width || reflectionTarget.height !== height;
+    if (resized){
+      reflectionTarget.setSize(width, height);
+      lake.material.uniforms.texel.value.set(1/width, 1/height);
+    }
     const moved = previousPosition.distanceToSquared(camera.position) > .000001
       || 1 - Math.abs(previousRotation.dot(camera.quaternion)) > .000001;
-    if (!moved && elapsed - lastReflection < 1/24) return;
+    if (!resized && !moved && elapsed - lastReflection < 1/24) return;
     renderReflection(renderer, world, camera);
     previousPosition.copy(camera.position); previousRotation.copy(camera.quaternion);
     lastReflection = elapsed;

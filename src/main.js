@@ -149,8 +149,7 @@ const pickables = [];
 }
 
 /* ---------- lake ---------- */
-const lake = createLake(scene, { radius:LAKE_R+3.4, height:WATER_Y, groundH, reduceMotion,
-  reflectionSize:innerWidth < 800 ? 256 : 512 });
+const lake = createLake(scene, { radius:LAKE_R+3.4, height:WATER_Y, groundH, reduceMotion });
 
 /* ---------- basalt walls ---------- */
 const cliffCol = (t,c,n,y) => {
