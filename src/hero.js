@@ -50,9 +50,6 @@ export function buildHero(scene){
     clothPanels.push({ mesh:o, rest:p.array.slice(), weights, kind }); return o;
   };
   const goldMat = M(COL.gold, { metalness:.3, roughness:.45, emissive:0x4A3510, emissiveIntensity:.5 });
-  /* press a flat outline onto a sphere of radius R (seen from its centre), for the eyes */
-  const onSphere = (g, R) => { const p = g.attributes.position, v = new V3(); for (let i=0;i<p.count;i++){ v.set(p.getX(i), p.getY(i), R).normalize().multiplyScalar(R); p.setXYZ(i, v.x, v.y, v.z); } g.computeVertexNormals(); return g; };
-
   const body = new THREE.Group(); root.add(body);
   const headLift = .17, neckLift = .12;
 
@@ -74,9 +71,9 @@ export function buildHero(scene){
      hood; the cloth behind the opening stays full enough to cover the head. */
   const faceY = -.035 + headLift, faceZ = -.018;
   const rimPoint = new V3(), rimCurves = [
-    new THREE.CubicBezierCurve3(new V3(0,faceY+.225,.365), new V3(.065,faceY+.170,.365), new V3(.165,faceY+.125,.325), new V3(.175,faceY+.025,.300)),
-    new THREE.CubicBezierCurve3(new V3(.175,faceY+.025,.300), new V3(.177,faceY-.065,.285), new V3(.205,faceY-.180,.260), new V3(.210,faceY-.230,.245)),
-    new THREE.CubicBezierCurve3(new V3(.210,faceY-.230,.245), new V3(.140,faceY-.230,.245), new V3(.060,faceY-.200,.250), new V3(0,faceY-.200,.250)),
+    new THREE.CubicBezierCurve3(new V3(0,faceY+.205,.330), new V3(.059,faceY+.155,.330), new V3(.149,faceY+.113,.293), new V3(.158,faceY+.020,.268)),
+    new THREE.CubicBezierCurve3(new V3(.158,faceY+.020,.268), new V3(.160,faceY-.060,.253), new V3(.180,faceY-.160,.230), new V3(.183,faceY-.205,.219)),
+    new THREE.CubicBezierCurve3(new V3(.183,faceY-.205,.219), new V3(.124,faceY-.205,.219), new V3(.053,faceY-.180,.222), new V3(0,faceY-.180,.222)),
   ];
   const hoodAt = (u, depth, out) => {
     const a = u*Math.PI*2, c = Math.cos(a), sn = Math.sin(a);
@@ -91,7 +88,7 @@ export function buildHero(scene){
     const t = depth, s = 1-t, b0 = s*s*s, b1 = 3*s*s*t, b2 = 3*s*t*t, b3 = t*t*t;
     const fold = Math.sin(Math.PI*t)**2*(1-top);
     return out.set(
-      b0*rimX + b1*.340*sn + b2*(.350*sn + seamX*.45) + b3*seamX + .004*sn*Math.sin(a*5+t*4)*fold,
+      b0*rimX + b1*.315*sn + b2*(.320*sn + seamX*.45) + b3*seamX + .004*sn*Math.sin(a*5+t*4)*fold,
       b0*rimY + b1*(rimY+.020*top-.035*bottom) + b2*(seamY-.040*top-.010*bottom) + b3*seamY - .008*fold,
       b0*rimZ + b1*THREE.MathUtils.lerp(rimZ,seamZ,.16) + b2*THREE.MathUtils.lerp(rimZ,seamZ,.88) + b3*seamZ);
   };
@@ -104,20 +101,41 @@ export function buildHero(scene){
   /* A narrow fold follows the actual open edge of the sewn panels. */
   panel(gridGeo(2, 72, (u,v,p) => { hoodAt(u,v*.018,p); p.z += .0015; }, inside), head, 'hood',
     (u,v) => hoodWeight(u,v*.018), 'hero-hood-edge', edgeCloth);
-  /* The lower cloth falls over the neckline and shoulders, joining the hood to the robe. */
+  /* Continue the lower opening into a short neck drape. Its upper edge shares the mouth's lower curve and
+     then tucks under the side panels; the lower edge lies against the robe rather than flaring into a cape. */
+  const neckTop = new V3(), neckBase = new V3();
   panel(gridGeo(12, 64, (u,v,p) => {
-    const a = u*Math.PI*2, folds = (.006*Math.sin(a*7+.3) + .003*Math.sin(a*11))*v*v;
-    const r = .205 + .18*v + folds;
-    const clasp = smooth(Math.cos(a),.35,1)*(1-v)*(1-v);
-    return p.set(Math.sin(a)*r, -.125 - v*.19 + .012*Math.cos(a*3)*v*v + .060*clasp,
-      -.015 + Math.cos(a)*r*.82 + .097*clasp);
-  }, new V3(0,-.25,0)), head, 'hood', (u,v) => .12*v*v, 'hero-cowl');
-  /* inside the hood: a face in shadow with two small glowing eyes */
+    const half = u <= .5 ? u*2 : (1-u)*2, sd = u <= .5 ? 1 : -1;
+    if (half <= .5){ rimCurves[2].getPoint(1-half*2,neckTop); neckTop.x *= sd; }
+    else hoodAt(sd > 0 ? .41 : .59,(half-.5)*2,neckTop);
+    coatAt(u,v*.16,neckBase); neckBase.y -= head.position.y;
+    p.copy(neckTop).lerp(neckBase,smooth(v,0,.85));
+    const tuck = 1-.012*smooth(v,.6,1); p.x *= tuck; p.z *= tuck;
+    return p;
+  }, new V3(0,-.25,0)), head, 'neck', (u,v) => .08*Math.sin(Math.PI*v)**2, 'hero-cowl');
+  /* A shallow head with a flat face, rounded temples and a tapered chin, rather than a ball inside the hood.
+     The bevel rounds the outline and sides; the middle of the face stays flat, with a receding upper forehead. */
   const face = new THREE.Group(); face.position.set(0,faceY,faceZ); head.add(face);
-  mesh(new THREE.SphereGeometry(.255,32,24), new THREE.MeshBasicMaterial({ color:COL.shade }), face, false);
+  const faceOutline = new THREE.Shape(); faceOutline.moveTo(0,-.205);
+  faceOutline.bezierCurveTo(-.065,-.205,-.139,-.163,-.163,-.095);
+  faceOutline.bezierCurveTo(-.180,-.041,-.181,.080,-.162,.137);
+  faceOutline.bezierCurveTo(-.150,.174,-.085,.185,0,.185);
+  faceOutline.bezierCurveTo(.085,.185,.150,.174,.162,.137);
+  faceOutline.bezierCurveTo(.181,.080,.180,-.041,.163,-.095);
+  faceOutline.bezierCurveTo(.139,-.163,.065,-.205,0,-.205);
+  const faceGeo = new THREE.ExtrudeGeometry(faceOutline,{ depth:.23, steps:1, curveSegments:12,
+    bevelEnabled:true, bevelThickness:.024, bevelSize:.018, bevelSegments:4 }).translate(0,0,-.022);
+  const facePos = faceGeo.attributes.position;
+  for (let i=0;i<facePos.count;i++){
+    const y = facePos.getY(i), front = smooth(facePos.getZ(i),-.046,.232);
+    facePos.setX(i,facePos.getX(i)*(1-.18*smooth(y,.04,.18)));
+    facePos.setZ(i,facePos.getZ(i)-front*(.070*smooth(y,.075,.203)+.045*smooth(-y,.11,.223)));
+  }
+  faceGeo.computeVertexNormals();
+  const faceMesh = mesh(faceGeo,new THREE.MeshBasicMaterial({ color:COL.shade }),face,false); faceMesh.name = 'hero-face';
   const eyeMat = new THREE.MeshBasicMaterial({ color:COL.eye }), eyes = [-1,1].map(sd => {
-    const g = onSphere(new THREE.RingGeometry(0,1,24,4).scale(.034,.048,1).translate(sd*.085,0,0), .260); g.computeBoundingSphere(); const c = g.boundingSphere.center.clone(); g.translate(-c.x, -c.y, -c.z);
-    const e = new THREE.Mesh(g, eyeMat); e.position.copy(c); face.add(e); return e; });
+    const g = new THREE.RingGeometry(0,1,24,4).scale(.031,.044,1);
+    const e = new THREE.Mesh(g, eyeMat); e.position.set(sd*.077,0,.237); face.add(e); return e; });
 
   /* Tapered fabric sleeves, open at the cuff, with small hands kept inside the opening. */
   const sleeves = [], hands = [];
@@ -154,7 +172,7 @@ export function buildHero(scene){
 
 /* World-space springs retain their direction while the character turns. Actual displacement also covers guided
    flights and blocked movement, where the player's requested velocity does not describe what happened. */
-const measured = new V3(), panelDrift = new V3(), clothQ = new THREE.Quaternion();
+const measured = new V3(), panelDrift = new V3(), clothQ = new THREE.Quaternion(), neckAnchor = new V3(), neckInverse = new THREE.Matrix4();
 function updateClothMotion(h, s){
   const m = h.motion, dt = clamp(s.dt, .0001, .05), yaw = h.root.rotation.y;
   measured.subVectors(h.root.position, m.previous);
@@ -192,15 +210,24 @@ function clothNormals(g){
 
 function deformCloth(h, s){
   const m = h.motion;
-  if (s.reduceMotion && m.reduced) return;
+  const settled = s.reduceMotion && m.reduced;
   const amplitude = s.reduceMotion ? 0 : .0012 + Math.min(1, m.speed/7)*.004;
+  h.head.updateMatrix(); neckInverse.copy(h.head.matrix).invert();
   for (const panel of h.clothPanels){
     const { mesh, rest, weights, kind } = panel, g = mesh.geometry, p = g.attributes.position;
+    if (settled && kind !== 'neck') continue;
     mesh.parent.getWorldQuaternion(clothQ).invert(); panelDrift.copy(m.offset).applyQuaternion(clothQ);
     /* Sleeve length follows the reaching hand; compensate so its small flutter stays the same size. */
     panelDrift.y /= mesh.parent.scale.y;
     for (let i=0;i<p.count;i++){
-      const j = i*3, x = rest[j], y = rest[j+1], z = rest[j+2], w = s.reduceMotion ? 0 : weights[i];
+      const j = i*3, w = s.reduceMotion ? 0 : weights[i];
+      let x = rest[j], y = rest[j+1], z = rest[j+2];
+      /* The mouth follows the head, but the neck drape's lower edge stays tucked into the body when aiming. */
+      if (kind === 'neck'){
+        const { rows, cols } = g.userData.grid, anchor = smooth(Math.floor(i/(cols+1))/rows,0,.85);
+        neckAnchor.set(x,y,z).add(h.head.position).applyMatrix4(neckInverse);
+        x += (neckAnchor.x-x)*anchor; y += (neckAnchor.y-y)*anchor; z += (neckAnchor.z-z)*anchor;
+      }
       const a = Math.atan2(x,z), ripple = amplitude*(Math.sin(s.T*2.3 + a*2 + y*7)*.65 + Math.sin(s.T*3.7 - a*3 + y*5)*.35);
       const twist = m.turn*w, dx = panelDrift.x*w, dz = panelDrift.z*w;
       p.setXYZ(i, x + dx + z*twist + Math.sin(a)*ripple*w,
