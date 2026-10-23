@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 
-/* A quiet, shallow-edged lake. The reflection uses the existing r128 renderer;
-   small wind waves break it up instead of painting light rings onto a flat disc. */
+/* A still, shallow-edged pool. The existing r128 renderer provides clear scene
+   reflections, with only a trace of slow surface movement. */
 export function createLake(scene, { radius, height, groundH, reduceMotion, reflectionSize = 512 }){
   const geometry = new THREE.PlaneGeometry(radius*2, radius*2, 128, 128);
   const positions = geometry.attributes.position, depths = new Float32Array(positions.count);
@@ -20,10 +20,8 @@ export function createLake(scene, { radius, height, groundH, reduceMotion, refle
       return vec3(amplitude*sin(phase), amplitude*frequency*cos(phase)*direction);
     }
     vec3 surface(vec2 p){
-      return wave(p, vec2(.94,.342), .018, 2.3, -.72)
-        + wave(p, vec2(-.4,.9165), .010, 3.9, .58)
-        + wave(p, vec2(.65,-.76), .004, 8.2, -.95)
-        + wave(p, vec2(.97,.243), .0018, 15.5, 1.2);
+      return wave(p, vec2(.94,.342), .0025, 1.25, -.12)
+        + wave(p, vec2(-.4,.9165), .0012, 1.9, .09);
     }`;
   const lake = new Reflector(geometry, {
     textureWidth:reflectionSize, textureHeight:reflectionSize, clipBias:.003,
@@ -66,18 +64,18 @@ export function createLake(scene, { radius, height, groundH, reduceMotion, refle
           float deep = smoothstep(0., 1.7, vDepth);
           float shore = smoothstep(0., .45, vDepth);
           vec3 w = surface(vWorld.xz);
-          vec3 normal = normalize(vec3(-w.y*shore*1.25, 1., -w.z*shore*1.25));
+          vec3 normal = normalize(vec3(-w.y*shore, 1., -w.z*shore));
           vec3 view = normalize(cameraPosition - vWorld);
           float facing = max(dot(normal, view), 0.);
           float fresnel = .08 + .78*pow(1. - facing, 3.);
 
           vec2 uv = vReflection.xy/vReflection.w;
-          uv += normal.xz*(.08 + .18/max(length(cameraPosition - vWorld), 2.));
+          uv += normal.xz*(.035 + .08/max(length(cameraPosition - vWorld), 2.));
           uv = clamp(uv, vec2(texel*2.), vec2(1. - texel*2.));
-          vec2 blur = vec2(texel*.75, 0.);
-          vec3 reflected = texture2D(tDiffuse, uv).rgb*.6;
+          vec2 blur = vec2(texel*.35, 0.);
+          vec3 reflected = texture2D(tDiffuse, uv).rgb*.84;
           reflected += (texture2D(tDiffuse, uv + blur).rgb + texture2D(tDiffuse, uv - blur).rgb
-            + texture2D(tDiffuse, uv + blur.yx).rgb + texture2D(tDiffuse, uv - blur.yx).rgb)*.1;
+            + texture2D(tDiffuse, uv + blur.yx).rgb + texture2D(tDiffuse, uv - blur.yx).rgb)*.04;
           reflected *= vec3(.78, .85, 1.);
 
           vec3 water = mix(vec3(.042,.071,.119), vec3(.019,.033,.075), deep);
@@ -89,10 +87,9 @@ export function createLake(scene, { radius, height, groundH, reduceMotion, refle
           float skySheen = pow(max(dot(normal, normalize(vec3(.12, 1., .18))), 0.), 60.);
           c += vec3(.018,.027,.048)*skySheen*(.3 + fresnel*.9)*shore;
 
-          // A faint, broken trace of the Oracle's light, never a solid neon ring.
+          // The Oracle leaves a soft, steady pool of light on the still surface.
           float lightPool = exp(-r*r*.23)*(.018 + energy*.045 + glow*.025);
-          float ripple = pow(.5 + .5*sin(r*4.1 - t*.8 + w.x*24.), 5.);
-          c += vec3(.24,.55,.72)*lightPool*(.65 + ripple*.35);
+          c += vec3(.24,.55,.72)*lightPool*.75;
           float edge = (1. - smoothstep(.03, .24, vDepth))*shore;
           c += vec3(.06,.10,.16)*edge*(.6 + .4*sin(vWorld.x*3. + w.x*12.));
           float alpha = smoothstep(.002, .22, vDepth)*(1. - smoothstep(radius - .2, radius, r));
