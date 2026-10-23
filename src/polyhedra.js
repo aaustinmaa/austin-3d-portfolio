@@ -61,22 +61,23 @@ export function edgeGlow({ color='#9FE8FF', lit=1, fill=.5, width=1.4, halo=7, l
 }
 
 /* clear, bright glass: nearly invisible where a face looks straight at you, tinted toward its rims, with soft edges
-   (a glow, not a drawn line) and glints that slide across the facets as the solid turns. Additive, so it is light */
-export function glass({ color='#9FE8FF', lit=1, edge=.45, halo=9, fog=false } = {}){
+   and glints that slide across the facets as the solid turns. Additive, so it is light.
+   body scales the glass itself; wire adds a fine, crisp line along the true edges, for solids drawn as line work */
+export function glass({ color='#9FE8FF', lit=1, edge=.45, halo=9, body=1, wire=0, fog=false } = {}){
   return new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide, fog, extensions:{ derivatives:true },
-    uniforms:THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { col:{value:new THREE.Color(color)}, lit:{value:lit}, edgeK:{value:edge}, halo:{value:halo} }]),
+    uniforms:THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { col:{value:new THREE.Color(color)}, lit:{value:lit}, edgeK:{value:edge}, halo:{value:halo}, body:{value:body}, wire:{value:wire} }]),
     vertexShader:`attribute vec3 edge; varying vec3 vE; varying vec3 vN; varying vec3 vV; varying vec3 vO;
       void main(){ vE = edge; vO = normal; vec4 mv = modelViewMatrix*vec4(position,1.); vN = normalize(normalMatrix*normal); vV = -mv.xyz; gl_Position = projectionMatrix*mv; }`,
-    fragmentShader:`uniform vec3 col; uniform float lit; uniform float edgeK; uniform float halo; uniform float fogNear; uniform float fogFar; varying vec3 vE; varying vec3 vN; varying vec3 vV; varying vec3 vO;
+    fragmentShader:`uniform vec3 col; uniform float lit; uniform float edgeK; uniform float halo; uniform float body; uniform float wire; uniform float fogNear; uniform float fogFar; varying vec3 vE; varying vec3 vN; varying vec3 vV; varying vec3 vO;
       void main(){ vec3 n = normalize(vN) * (gl_FrontFacing ? 1. : -1.), v = normalize(vV);
         float f = abs(dot(n, v)), rim = pow(1. - f, 2.2);
         vec3 r = reflect(-v, n);
         float glint = pow(max(dot(r, normalize(vec3(-.35,.75,.55))), 0.), 30.) + pow(max(dot(r, normalize(vec3(.6,-.25,.75))), 0.), 70.)*.6;
         float facet = fract(sin(dot(floor(vO*7. + .5), vec3(12.9898,78.233,37.719)))*43758.5453);
-        float d = min(min(vE.x, vE.y), vE.z), w = max(fwidth(d), 1e-4), soft = exp(-d/(w*halo));
-        float a = (.07 + rim*.62 + facet*.07 + soft*edgeK + glint*.85)*lit;
+        float d = min(min(vE.x, vE.y), vE.z), w = max(fwidth(d), 1e-4), soft = exp(-d/(w*halo)), fine = 1. - smoothstep(w*.5, w*1.4, d);
+        float a = ((.07 + rim*.62 + facet*.07 + glint*.85)*body + soft*edgeK + fine*wire)*lit;
         #ifdef USE_FOG
           a *= 1. - smoothstep(fogNear, fogFar, length(vV))*.6;
         #endif
-        gl_FragColor = vec4(mix(col, vec3(1.), glint*.8 + soft*.15)*a, a); }` });
+        gl_FragColor = vec4(mix(col, vec3(1.), glint*.8*body + soft*.15 + fine*wire*.3)*a, a); }` });
 }
