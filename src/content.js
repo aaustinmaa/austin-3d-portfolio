@@ -51,7 +51,7 @@ export const INTENTS = [
   { k:['star','stars','constellation','sky','light','星'], to:null,
     a:"Each relic you open gives me back a little light, and the skills it used wake as stars overhead. Projects that share a skill are joined by a line. Press C to look up, and touch a star to ask what it is." },
   { k:['waterloo','school','study','student','university','education','degree'], to:null,
-    a:"Austin studies Computer Science at the University of Waterloo. The monolith by the path at the valley's edge tells the rest." },
+    a:"Austin studies Computer Science at the University of Waterloo. Click his name in the top bar for the short introduction." },
   { k:['who','about','austin','yourself','介绍'], to:null,
     a:"Austin Ma is a Computer Science student at Waterloo who builds data pipelines and AI tools. His work drifts above you, sealed. Shoot a relic down, or name one and I'll bring it." },
   { k:['hello','hi','hey','你好','嗨'], to:null, a:"Welcome, wanderer. Name any of Austin's work and I'll bring it down, or try the bow yourself." },

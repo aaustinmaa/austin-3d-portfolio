@@ -54,13 +54,4 @@ const paperTex = (() => { const w = 256, h = 192, [c,g] = canvas2d(w,h);
 const sealTex = (() => { const s = 128, [c,g] = canvas2d(s); g.fillStyle = '#fff'; g.font = '600 78px Georgia, serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('W', s/2, s/2+4);
   g.lineWidth = 4; g.strokeStyle = '#fff'; g.beginPath(); g.arc(s/2,s/2,s*.44,0,Math.PI*2); g.stroke(); return new THREE.CanvasTexture(c); })();
 
-/* a moth's forewing and hindwing, soft-edged with an eye spot */
-const mothTex = (() => { const s = 128, [c,g] = canvas2d(s);
-  const wing = (pts, fill) => { g.beginPath(); g.moveTo(pts[0], pts[1]); for (let i=2;i<pts.length;i+=6) g.bezierCurveTo(pts[i],pts[i+1],pts[i+2],pts[i+3],pts[i+4],pts[i+5]); g.closePath(); g.fillStyle = fill; g.fill(); };
-  const gr = g.createRadialGradient(8,64,4,40,60,110); gr.addColorStop(0,'rgba(255,255,255,1)'); gr.addColorStop(.6,'rgba(255,255,255,.55)'); gr.addColorStop(1,'rgba(255,255,255,.08)');
-  wing([4,64, 30,20, 90,4, 124,18, 112,40, 70,58, 6,70], gr);
-  wing([4,66, 40,72, 90,90, 92,116, 60,124, 24,100, 4,70], gr);
-  g.globalCompositeOperation = 'destination-out'; g.fillStyle = 'rgba(0,0,0,.55)'; g.beginPath(); g.arc(76,30,9,0,Math.PI*2); g.fill(); g.beginPath(); g.arc(62,98,6,0,Math.PI*2); g.fill();
-  return new THREE.CanvasTexture(c); })();
-
-export { glowTex, softTex, hazeTex, ringTex, rayTex, runeTex, sigilTex, dialTex, paperTex, sealTex, mothTex };
+export { glowTex, softTex, hazeTex, ringTex, rayTex, runeTex, sigilTex, dialTex, paperTex, sealTex };

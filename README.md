@@ -30,7 +30,7 @@ Requires Node 18 or newer.
 | Click a star | The Oracle names the relics that use that skill |
 | Esc | Send the open relic back to the sky |
 
-Light the four braziers on the spiral stairs to wake a hidden seventh relic. Column capitals, basalt columns, boulders and stair stones can all be stood on; click a column to fly up onto it.
+Light the four braziers on the spiral stairs to wake a hidden seventh relic. Basalt columns, boulders, stair stones and the brazier landings can all be stood on. The short introduction opens on arrival and again whenever you click Austin's name in the top bar.
 
 ## Project layout
 
@@ -41,7 +41,6 @@ src/oracle.js         The star (the Oracle): core, rings, shards, the rays it re
 src/constellation.js  The skill constellation: star layout, figures, labels, wake-up animation
 src/relics.js         The seven relic models and how each one unfolds when opened
 src/hero.js           The wanderer model, bow and scarf, and their animation
-src/moths.js          Lantern moths around the wanderer and the crystals
 src/colliders.js      Solid shapes for standing, walls, ceilings and arrow hits
 src/content.js        Everything visitors read: relic text, skills, the Oracle's lines and answers
 src/noise.js          Seeded random and value noise (the valley is identical on every visit)
