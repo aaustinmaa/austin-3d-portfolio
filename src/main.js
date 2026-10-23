@@ -49,14 +49,13 @@ addEventListener('resize', resize); resize();
 
 /* ---------- night sky: darker at first, lifting toward a deep blue with a warm horizon as the star's light returns ---------- */
 const skyGroup = new THREE.Group(); scene.add(skyGroup);
-const skyMat = new THREE.ShaderMaterial({ side:THREE.BackSide, depthWrite:false, fog:false, uniforms:{ glow:{value:0}, dawn:{value:0} },
-  vertexShader:'varying vec3 vD; void main(){ vD = position; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
-  fragmentShader:`uniform float glow; uniform float dawn; varying vec3 vD;
+/* the sky's colour in a direction */
+const SKY_GLSL = `
     float h3(vec3 p){ p = fract(p*.3183099 + .1); p *= 17.; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
     float n3(vec3 x){ vec3 i = floor(x), f = fract(x); f = f*f*(3.-2.*f);
       return mix(mix(mix(h3(i),h3(i+vec3(1,0,0)),f.x), mix(h3(i+vec3(0,1,0)),h3(i+vec3(1,1,0)),f.x), f.y), mix(mix(h3(i+vec3(0,0,1)),h3(i+vec3(1,0,1)),f.x), mix(h3(i+vec3(0,1,1)),h3(i+vec3(1,1,1)),f.x), f.y), f.z); }
     float fb(vec3 p){ float a=.5, t=0.; for (int i=0;i<5;i++){ t += a*n3(p); p *= 2.03; a *= .5; } return t; }
-    void main(){ vec3 d = normalize(vD); float h = d.y;
+    vec3 skyCol(vec3 d, float glow, float dawn){ float h = d.y;
       vec3 zen = mix(vec3(.01,.013,.042), vec3(.022,.03,.09), glow), mid = mix(vec3(.022,.026,.075), vec3(.05,.055,.15), glow), hor = mix(vec3(.045,.045,.115), vec3(.1,.09,.22), glow);
       hor = mix(hor, vec3(.24,.15,.3), dawn*.5); mid = mix(mid, vec3(.1,.07,.18), dawn*.3);
       vec3 c = h > 0. ? mix(hor, mid, smoothstep(0.,.28,h)) : mix(hor, vec3(.012,.015,.03), smoothstep(0.,-.3,h));
@@ -64,7 +63,11 @@ const skyMat = new THREE.ShaderMaterial({ side:THREE.BackSide, depthWrite:false,
       float n = fb(d*2.6 + 4.);
       c += vec3(.2,.13,.42)*pow(n,3.)*(1.15 + glow*.8)*smoothstep(-.05,.6,h);
       c += vec3(.04,.22,.26)*pow(max(fb(d*4.4 - 9.) - .5, 0.), 1.4)*(1. + glow)*smoothstep(.1,.8,h);
-      gl_FragColor = vec4(c,1.); }` });
+      return c; }`;
+const skyMat = new THREE.ShaderMaterial({ side:THREE.BackSide, depthWrite:false, fog:false, uniforms:{ glow:{value:0}, dawn:{value:0} },
+  vertexShader:'varying vec3 vD; void main(){ vD = position; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
+  fragmentShader:`uniform float glow; uniform float dawn; varying vec3 vD;${SKY_GLSL}
+    void main(){ gl_FragColor = vec4(skyCol(normalize(vD), glow, dawn), 1.); }` });
 skyGroup.add(new THREE.Mesh(new THREE.SphereGeometry(600,48,24), skyMat));
 /* a small seeded generator for decoration added later, so the shared sequence (and the valley layout) stays unchanged */
 const seq = sd => { let s = sd; return () => (s = s*16807 % 2147483647)/2147483647; };
@@ -147,17 +150,67 @@ const pickables = [];
 }
 
 /* ---------- lake ---------- */
-const lakeMat = new THREE.ShaderMaterial({ transparent:true, uniforms:{ t:{value:0}, energy:{value:0}, glow:{value:0} },
-  vertexShader:'varying vec3 vW; void main(){ vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }',
-  fragmentShader:`uniform float t; uniform float energy; uniform float glow; varying vec3 vW;
-    void main(){ float r = length(vW.xz);
-      vec3 c = mix(vec3(.012,.025,.05), vec3(.04,.08,.12), smoothstep(${(LAKE_R-3).toFixed(1)}, ${(LAKE_R+2).toFixed(1)}, r));
-      float ring = exp(-pow(r-2.6,2.)*3.)*(.3+energy*.5+glow*.25); c += vec3(.55,.92,1.)*ring*.5;
-      c += vec3(.4,.85,1.)*exp(-r*r/2.)*(.22+energy*.4+glow*.3);
-      float rip = pow(.5+.5*sin(r*2.4 - t*1.2), 16.); c += vec3(.4,.7,1.)*rip*.06*(1.-smoothstep(3.,9.,r));
-      float sp = step(.988, fract(sin(dot(floor(vW.xz*3.), vec2(12.9898,78.233)))*43758.5453 + t*.12)); c += sp*vec3(.5,.8,1.)*(.25+glow*.2);
-      gl_FragColor = vec4(c,.95); }` });
-{ const lake = new THREE.Mesh(new THREE.CircleGeometry(LAKE_R+3.4, 72), lakeMat); lake.rotation.x = -Math.PI/2; lake.position.y = WATER_Y; scene.add(lake); }
+/* the lake: still, clear water. Its flat surface is a true mirror of the valley (see reflectLake below), with the light column,
+   the star overhead and the path lanterns drawn out into soft paths of light the way calm water does. Through the water the
+   shallows are clear, deeper water turns blue-violet, and the spring in the middle where the relic sleeps glows cyan */
+const LAKE_EDGE = LAKE_R + 3.4;
+const lakeMat = new THREE.ShaderMaterial({ transparent:true,
+  uniforms:{ t:{value:0}, energy:{value:0}, glow:{value:0}, star:{value:new V3(0, ORACLE_Y, 0)}, lamps:{value:[new V3(0,-99,0), new V3(0,-99,0), new V3(0,-99,0)]},
+    mirror:{value:null}, mirrorM:{value:new THREE.Matrix4()} },
+  vertexShader:`attribute float depth; uniform mat4 mirrorM; varying vec3 vW; varying float vDepth; varying vec4 vM;
+    void main(){ vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; vDepth = depth; vM = mirrorM*w; gl_Position = projectionMatrix*viewMatrix*w; }`,
+  fragmentShader:`uniform float t; uniform float energy; uniform float glow; uniform vec3 star; uniform vec3 lamps[3]; uniform sampler2D mirror; varying vec3 vW; varying float vDepth; varying vec4 vM;
+    /* a reflected light, drawn out into a vertical path toward the viewer the way calm water does */
+    float streak(vec3 R, vec3 L, float w, float len){ float az = acos(clamp(dot(normalize(R.xz), normalize(L.xz)), -1., 1.)), el = asin(clamp(R.y, -1., 1.)) - asin(clamp(L.y, -1., 1.));
+      return exp(-az*az*w - el*el*len); }
+    void main(){ vec2 p = vW.xz; float r = length(p); if (vDepth < 0. || r > ${LAKE_EDGE.toFixed(2)}) discard;
+      vec3 V = normalize(vW - cameraPosition), R = vec3(V.x, -V.y, V.z);
+      float fres = .45 + .55*pow(1. - abs(V.y), 3.);
+      /* the mirror: the valley drawn upside down under the water */
+      vec3 col = texture2DProj(mirror, vM).rgb*vec3(1.3,1.38,1.55);
+      /* soft paths of light under the light column, the star overhead and the lanterns */
+      float rl = length(R.xz), s = -dot(vW.xz, R.xz)/max(rl*rl, 1e-4), hc = vW.y + R.y*s, dc = abs(vW.x*R.z - vW.z*R.x)/max(rl, 1e-4);
+      col += vec3(.5,.88,1.)*exp(-dc*dc*3.)*step(0., s)*step(hc, star.y)*(.14 + energy*.3 + glow*.06);
+      col += mix(vec3(.55,.9,1.), vec3(.8,.78,1.), glow)*streak(R, normalize(star - vW), 900., 50.)*(.3 + glow*.25 + energy*.3);
+      for (int i = 0; i < 3; i++) col += vec3(1.,.76,.5)*streak(R, normalize(lamps[i] - vW), 2400., 60.)*.25;
+      /* through the water: clear over the shallows, deep blue-violet further out, the spring glowing in the middle */
+      float deep = smoothstep(0., 1.6, vDepth), spring = exp(-r*r/(12. + energy*8.));
+      vec3 body = mix(vec3(.03,.08,.12), vec3(.014,.02,.06), deep) + vec3(.25,.75,.9)*spring*(.35 + energy*.4 + glow*.12)*(.9 + .1*sin(t*.6));
+      float hide = mix(.25, .78, deep), a = fres + (1. - fres)*hide;
+      vec3 c = (col*fres + body*hide*(1. - fres))/a;
+      a *= smoothstep(0., .05, vDepth)*(1. - smoothstep(${(LAKE_EDGE - .6).toFixed(2)}, ${LAKE_EDGE.toFixed(2)}, r));
+      gl_FragColor = vec4(c, a); }` });
+let lake;
+{ const g = new THREE.PlaneGeometry(LAKE_EDGE*2, LAKE_EDGE*2, 100, 100); g.rotateX(-Math.PI/2);
+  const p = g.attributes.position, depth = new Float32Array(p.count); for (let i=0;i<p.count;i++) depth[i] = WATER_Y - groundH(p.getX(i), p.getZ(i));
+  g.setAttribute('depth', new THREE.BufferAttribute(depth, 1));
+  lake = new THREE.Mesh(g, lakeMat); lake.position.y = WATER_Y; scene.add(lake); }
+/* the lake's reflection: each frame the lake is in view, the scene is drawn again at three-quarter size (multisampled where WebGL2 allows)
+   from a camera mirrored under the water, with an oblique near plane so nothing below the surface shows (three's Reflector approach) */
+const mirror = { rt:renderer.capabilities.isWebGL2 ? new THREE.WebGLMultisampleRenderTarget(1, 1) : new THREE.WebGLRenderTarget(1, 1), cam:new THREE.PerspectiveCamera(), size:new THREE.Vector2(), frustum:new THREE.Frustum(), pv:new THREE.Matrix4(),
+  rot:new THREE.Matrix4(), o:new V3(0, WATER_Y, 0), cp:new V3(), view:new V3(), look:new V3(), target:new V3(), plane:new THREE.Plane(), clip:new THREE.Vector4(), q:new THREE.Vector4() };
+lakeMat.uniforms.mirror.value = mirror.rt.texture;
+function reflectLake(){
+  renderer.getDrawingBufferSize(mirror.size); const w = Math.max(1, Math.round(mirror.size.x*.75)), h = Math.max(1, Math.round(mirror.size.y*.75));
+  if (mirror.rt.width !== w || mirror.rt.height !== h) mirror.rt.setSize(w, h);
+  camera.updateMatrixWorld(); mirror.pv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); mirror.frustum.setFromProjectionMatrix(mirror.pv);
+  if (camera.position.y < WATER_Y + .05 || !mirror.frustum.intersectsObject(lake)) return;
+  const { o, cam:c } = mirror, cp = mirror.cp.setFromMatrixPosition(camera.matrixWorld);
+  mirror.view.subVectors(o, cp).reflect(UP).negate().add(o);
+  mirror.rot.extractRotation(camera.matrixWorld);
+  mirror.look.set(0, 0, -1).applyMatrix4(mirror.rot).add(cp);
+  mirror.target.subVectors(o, mirror.look).reflect(UP).negate().add(o);
+  c.position.copy(mirror.view); c.up.set(0, 1, 0).applyMatrix4(mirror.rot).reflect(UP); c.lookAt(mirror.target);
+  c.far = camera.far; c.updateMatrixWorld(); c.projectionMatrix.copy(camera.projectionMatrix);
+  lakeMat.uniforms.mirrorM.value.set(.5,0,0,.5, 0,.5,0,.5, 0,0,.5,.5, 0,0,0,1).multiply(c.projectionMatrix).multiply(c.matrixWorldInverse);
+  mirror.plane.setFromNormalAndCoplanarPoint(UP, mirror.cp.set(0, WATER_Y + .02, 0)).applyMatrix4(c.matrixWorldInverse);
+  const cl = mirror.clip.set(mirror.plane.normal.x, mirror.plane.normal.y, mirror.plane.normal.z, mirror.plane.constant), e = c.projectionMatrix.elements;
+  mirror.q.set((Math.sign(cl.x) + e[8])/e[0], (Math.sign(cl.y) + e[9])/e[5], -1, (1 + e[10])/e[14]);
+  cl.multiplyScalar(2/cl.dot(mirror.q)); e[2] = cl.x; e[6] = cl.y; e[10] = cl.z + 1; e[14] = cl.w;
+  const shadows = renderer.shadowMap.autoUpdate; lake.visible = false; renderer.shadowMap.autoUpdate = false;
+  renderer.setRenderTarget(mirror.rt); renderer.clear(); renderer.render(scene, c); renderer.setRenderTarget(null);
+  renderer.shadowMap.autoUpdate = shadows; lake.visible = true;
+}
 
 /* ---------- basalt walls ---------- */
 const cliffCol = (t,c,n,y) => {
@@ -301,6 +354,7 @@ const braziers = [];
   const footG = new THREE.CylinderGeometry(.2,.26,.16,8).translate(0,.08,0), glassG = new THREE.CylinderGeometry(.1,.1,.2,6).translate(0,1.54,0);
   const spots = [[22.6,-1],[22.6,1],[19.7,-1],[16.9,1],[14.1,-1],[11.4,-1],[11.4,1]].map(([z,sd]) => { const x = Math.sin(z*.35)*.8 + sd*1.75; return { x, z, y:groundH(x,z) }; });
   const items = spots.map(o => ({ p:new V3(o.x, o.y - .04, o.z), q:yawQ(o.x*3) }));
+  spots.slice(-3).forEach((o, i) => lakeMat.uniforms.lamps.value[i].set(o.x, o.y + 1.54, o.z));   // the lanterns closest to the lake show in it
   inst(bronzeG, bronze, items, { cast:true }); inst(footG, stone, items, { cast:true, receive:true }); inst(glassG, new THREE.MeshBasicMaterial({ color:0xFFD6A0 }), items);
   spots.forEach(o => {
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xFFB86B, transparent:true, opacity:.6, depthWrite:false, blending:THREE.AdditiveBlending })); glow.position.set(o.x, o.y + 1.54, o.z); glow.scale.setScalar(1.5); scene.add(glow);
@@ -404,7 +458,15 @@ function beamTo(r){ beamState = { life:3.2, relic:r }; beamMat.uniforms.col.valu
 
 /* ---------- the skill constellation ---------- */
 const starLabels = document.createElement('div'); starLabels.id = 'starLabels'; document.body.appendChild(starLabels);
-const sky = createConstellation(scene, { skills:SKILLS, relics:RELICS, labelsEl:starLabels, reduceMotion });
+/* is a direction from o blocked by a basalt wall? Stars behind rock are hidden by depth; their names hide with them */
+function skyBlocked(o, d){ const hl2 = d.x*d.x + d.z*d.z; if (hl2 < 1e-8) return false;
+  for (const c of cliffs){ const x = Math.sin(c.a)*c.R, z = Math.cos(c.a)*c.R, along = ((x - o.x)*d.x + (z - o.z)*d.z)/hl2;
+    const miss = Math.hypot(o.x + d.x*along - x, o.z + d.z*along - z); if (along <= 0 || miss > c.rb) continue;
+    const half = Math.sqrt(c.rb*c.rb - miss*miss)/Math.sqrt(hl2);
+    for (let k = 0; k <= 6; k++){ const t = Math.max(0, along - half + half*k/3), y = o.y + d.y*t - c.by; if (y < 0 || y > c.h) continue;
+      const r = c.rb + (c.rt - c.rb)*y/c.h, qx = o.x + d.x*t - x, qz = o.z + d.z*t - z; if (qx*qx + qz*qz < r*r) return true; } }
+  return false; }
+const sky = createConstellation(scene, { skills:SKILLS, relics:RELICS, labelsEl:starLabels, reduceMotion, blocked:skyBlocked });
 
 /* ---------- relics ---------- */
 const sealMatBase = new THREE.MeshBasicMaterial({ map:runeTex, transparent:true, side:THREE.DoubleSide, depthWrite:false, blending:THREE.AdditiveBlending });
@@ -555,17 +617,29 @@ addEventListener('blur', () => { for (const k in keys) keys[k] = false; P.drawin
 const camS = { yaw:0, pitch:-.12, dist:9 };
 let drag = null, pointer = null; const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
 canvas.addEventListener('contextmenu', e => e.preventDefault());
-canvas.addEventListener('pointerdown', e => { canvas.setPointerCapture(e.pointerId); skipIntro();
+/* while a mouse button is held in aim mode the cursor is locked in place, so a long draw can never run off the screen;
+   it reappears where the press began. Touch and pens keep the plain drag. */
+let unlocking = false;
+const isLocked = () => document.pointerLockElement === canvas;
+function lockPointer(){ try { const p = canvas.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (err) {} }
+function unlockPointer(){ if (isLocked()){ unlocking = true; document.exitPointerLock(); } }
+document.addEventListener('pointerlockchange', () => {
+  if (isLocked()){ if (!drag) unlockPointer(); return; }
+  /* the browser dropped the lock mid-draw on its own (Esc): cancel the shot, as Esc does */
+  if (!unlocking && drag){ drag = null; P.drawing = false; P.draw = 0; } unlocking = false; });
+canvas.addEventListener('pointerdown', e => { try { canvas.setPointerCapture(e.pointerId); } catch (err) {} skipIntro();
   drag = { x:e.clientX, y:e.clientY, moved:false, button:e.button };
+  if (mode === 'aim' && e.pointerType === 'mouse') lockPointer();
   if (mode === 'aim' && e.button === 0){ P.drawing = true; P.draw = 0; } });
-canvas.addEventListener('pointermove', e => { pointer = { x:e.clientX, y:e.clientY, dirty:true }; if (!drag) return; const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+canvas.addEventListener('pointermove', e => { pointer = { x:e.clientX, y:e.clientY, dirty:true }; if (!drag) return;
+  const locked = isLocked(), dx = locked ? e.movementX : e.clientX - drag.x, dy = locked ? e.movementY : e.clientY - drag.y;
   if (!drag.moved && Math.hypot(dx,dy) > 6){ drag.moved = true; if (mode !== 'aim') canvas.classList.add('dragging'); }
   if (drag.moved || mode === 'aim'){ const k = mode === 'aim' ? .0032 : .0055; camS.yaw -= dx*k; camS.pitch = Math.min(gaze ? 1.5 : 1.32, Math.max(-.62, camS.pitch - dy*k*.8)); drag.x = e.clientX; drag.y = e.clientY; gazeT = 9; } });
 canvas.addEventListener('pointerleave', () => { pointer = null; });
-canvas.addEventListener('pointerup', e => { if (!drag) return; const was = drag.moved; drag = null; canvas.classList.remove('dragging');
+canvas.addEventListener('pointerup', e => { if (!drag) return; const was = drag.moved; drag = null; canvas.classList.remove('dragging'); unlockPointer();
   if (mode === 'aim'){ if (P.drawing){ P.drawing = false; if (P.draw > .12) fireManual(); else P.draw = 0; } return; }
   if (!was) clickAt(e.clientX, e.clientY); });
-canvas.addEventListener('pointercancel', () => { drag = null; P.drawing = false; canvas.classList.remove('dragging'); });
+canvas.addEventListener('pointercancel', () => { drag = null; P.drawing = false; canvas.classList.remove('dragging'); unlockPointer(); });
 canvas.addEventListener('wheel', e => { e.preventDefault(); camS.dist = Math.min(20, Math.max(4, camS.dist*(1 + e.deltaY*.0011))); }, { passive:false });
 function clickAt(cx, cy){
   ndc.set(cx/innerWidth*2-1, -(cy/innerHeight)*2+1); ray.setFromCamera(ndc, camera);
@@ -725,7 +799,7 @@ function updateWorld(dt){
   moon.intensity = lerp(.06, .2, L) + D*.04;
   scene.fog.color.copy(fogCol[0]).lerp(fogCol[1], L).lerp(fogCol[2], D*.4); scene.fog.near = lerp(14, 26, L); scene.fog.far = lerp(95, 150, L);
   skyMat.uniforms.glow.value = L; skyMat.uniforms.dawn.value = D;
-  columnMat.uniforms.t.value = T; columnMat.uniforms.fade.value = .1 + ey*.25 + L*.12; lakeMat.uniforms.t.value = T; lakeMat.uniforms.energy.value = ey; lakeMat.uniforms.glow.value = L; fallMat.uniforms.t.value = T; beamMat.uniforms.t.value = T;
+  columnMat.uniforms.t.value = T; columnMat.uniforms.fade.value = .1 + ey*.25 + L*.12; lakeMat.uniforms.t.value = reduceMotion ? 0 : T; lakeMat.uniforms.energy.value = ey; lakeMat.uniforms.glow.value = L; fallMat.uniforms.t.value = T; beamMat.uniforms.t.value = T;
   if (beamState.life > 0){ beamState.life -= dt; const from = oracle.position.clone(), to = beamState.relic.pos.clone(); const dir = to.clone().sub(from), len = dir.length(); dir.normalize();
     beam.scale.set(1,len,1); beam.position.copy(from).addScaledVector(dir, len/2); beam.quaternion.setFromUnitVectors(UP, dir.clone().negate());
     beamMat.uniforms.rep.value = len/1.5; beamMat.uniforms.fade.value = Math.min(1, beamState.life/.8)*Math.min(1,(3.2-beamState.life)/.25)*1.3;
@@ -842,12 +916,12 @@ let last = performance.now();
 function simulate(dt){
   T += dt;
   updatePlayer(dt); updateHero(dt); updateRelics(dt); updateArrows(dt); updateCamera(dt); updateWorld(dt); updateHover();
-  sky.update(dt, T, camera, { showAll:gaze, hover:hoverStar });
+  sky.update(dt, T, camera, { showAll:gaze, hover:hoverStar, focus:openRelic });
   updateLabels(); updateCross(); updateStamina();
 }
 function frame(now){
   const dt = Math.min(.05, (now-last)/1000); last = now;
-  simulate(dt); renderer.render(scene, camera); requestAnimationFrame(frame);
+  simulate(dt); reflectLake(); renderer.render(scene, camera); requestAnimationFrame(frame);
 }
 RELICS.forEach(r => { if (r.state === 'orbit') orbitPos(r, r.pos); });
 requestAnimationFrame(frame);
@@ -856,4 +930,4 @@ if (!intro) setTimeout(welcome, 600);
 
 /* dev-only handle for poking at the scene from the browser console; stripped from production builds */
 if (import.meta.env.DEV) window.__valley = { P, camS, RELICS, sky, oracle, world, colliders, summon, setGaze, scene, camera, renderer, keys, fireArrow, arrows,
-  step(n=60, dt=1/60){ for (let i=0;i<n;i++) simulate(dt); renderer.render(scene, camera); } };
+  step(n=60, dt=1/60){ for (let i=0;i<n;i++) simulate(dt); reflectLake(); renderer.render(scene, camera); } };
