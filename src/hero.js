@@ -167,9 +167,13 @@ export function buildHero(scene){
     sleeveMesh.geometry.boundingSphere.radius += .4;
     const hand = mesh(new THREE.SphereGeometry(.048,16,12).scale(.86,1,1), cloth, a); hand.position.y = -.30; hands.push(hand); return a; });
 
-  /* a little round lantern hanging at the side: it is the wanderer's own light */
-  const lanternPivot = new THREE.Group(); lanternPivot.position.set(.31,.58,.12); body.add(lanternPivot);
-  mesh(new THREE.CylinderGeometry(.008,.008,.1,6).translate(0,-.05,0), goldMat, lanternPivot, false);
+  /* The right palm grips the top of a real loop handle, slightly forward of the hip. A small hip hook
+     supports the same handle when that hand is needed to draw the bow. */
+  const lanternPivot = new THREE.Group(); lanternPivot.position.set(.36,.60,.24); body.add(lanternPivot);
+  const handleCurve = new THREE.CatmullRomCurve3([[-.05,-.13,0],[-.045,-.035,0],[0,0,0],[.045,-.035,0],[.05,-.13,0]].map(p => new V3(...p)));
+  const handle = mesh(new THREE.TubeGeometry(handleCurve,24,.008,6),goldMat,lanternPivot,false); handle.name = 'hero-lantern-handle';
+  const hookCurve = new THREE.CatmullRomCurve3([[-.092,.025,-.075],[-.052,.032,-.045],[-.014,.018,-.012],[0,0,0]].map(p => new V3(...p).add(lanternPivot.position)));
+  const hook = mesh(new THREE.TubeGeometry(hookCurve,12,.006,6),goldMat,body,false); hook.name = 'hero-lantern-hook';
   mesh(new THREE.ConeGeometry(.075,.06,16).translate(0,-.12,0), goldMat, lanternPivot, false);
   mesh(new THREE.SphereGeometry(.068,20,14).translate(0,-.19,0), new THREE.MeshBasicMaterial({ color:COL.glass }), lanternPivot, false);
   mesh(new THREE.CylinderGeometry(.05,.035,.03,16).translate(0,-.265,0), goldMat, lanternPivot, false);
@@ -288,7 +292,7 @@ function deformCloth(h, s){
 }
 
 /* one frame of animation. s includes reduceMotion in addition to the player's movement and bow state. */
-const tv = new V3(), tq = new THREE.Quaternion(), te = new THREE.Euler(), grip = new V3(), str = new V3(), hemPoint = new V3(), bodyInverse = new THREE.Matrix4(), cyan = new THREE.Color(0x5FE6F0), warm = new THREE.Color(COL.glowBase), dark = new THREE.Color(COL.eye), eyeLit = new THREE.Color(0xFFFFFF);
+const tv = new V3(), te = new THREE.Euler(), grip = new V3(), str = new V3(), hemPoint = new V3(), bodyInverse = new THREE.Matrix4(), cyan = new THREE.Color(0x5FE6F0), warm = new THREE.Color(COL.glowBase), dark = new THREE.Color(COL.eye), eyeLit = new THREE.Color(0xFFFFFF);
 const armX = new V3(), armY = new V3(), armZ = new V3(), armBasis = new THREE.Matrix4();
 function reach(h, index, target){
   tv.copy(target).sub(h.arms[index].position);
@@ -305,11 +309,11 @@ export function animateHero(h, s){
   /* Undo last frame's common visual offset before interpolating the bow and solving the hands. */
   h.bow.position.y -= h.grounding;
   updateClothMotion(h, s);
-  h.body.position.y = .025 + motion*(Math.sin(T*2.2)*.008 + Math.abs(Math.sin(s.walk))*.025*moving);
-  h.body.rotation.z = motion*Math.sin(s.walk)*.025*moving;
+  h.body.position.y = .025;
+  h.body.rotation.z = 0;
   h.body.rotation.x += (motion*(up ? .16 : moving*.055) - h.body.rotation.x)*k;
-  h.head.rotation.x = s.aiming ? -s.pitch*.25 : motion*Math.sin(T*.9)*.015;
-  h.head.rotation.z = motion*Math.sin(T*.7)*.018;
+  h.head.rotation.x = s.aiming ? -s.pitch*.25 : 0;
+  h.head.rotation.z = 0;
   /* blink every few seconds; the eyes light up while flying */
   const blink = (T % 4.3) < .11 ? .12 : 1; h.eyes.forEach(e => { e.scale.y = blink; });
   h.eyeMat.color.copy(s.flying ? eyeLit : dark);
@@ -324,12 +328,13 @@ export function animateHero(h, s){
   h.strGeo.attributes.position.array.set([TIP_X, TIP_Y, 0, midX, 0, 0, TIP_X, -TIP_Y, 0]); h.strGeo.attributes.position.needsUpdate = true;
   h.nock.visible = s.draw > .02; h.nock.position.set(midX + .35, 0, 0); h.nockGlow.position.set(midX + .7, 0, 0); h.nockGlow.material.opacity = s.draw*.9;
 
-  /* arms: one hand holds the bow, the other draws the string or swings gently */
+  /* Hands follow their actual grips. The lantern stays upright and rests on the hip hook while drawing. */
   h.body.updateMatrix(); bodyInverse.copy(h.body.matrix).invert();
+  h.lanternPivot.quaternion.copy(h.body.quaternion).invert();
   grip.set(GRIP_X, 0, 0).applyQuaternion(h.bow.quaternion).add(h.bow.position).applyMatrix4(bodyInverse);
   reach(h, 0, grip);
   if (s.aiming && s.draw > .01){ str.set(midX, 0, 0).applyQuaternion(h.bow.quaternion).add(h.bow.position).applyMatrix4(bodyInverse); reach(h, 1, str); }
-  else { tq.setFromEuler(te.set(motion*Math.sin(s.walk)*.35*moving + (up ? -.4 : 0), 0, .18 + (up ? .3 : 0))); h.arms[1].quaternion.slerp(tq, 1 - Math.exp(-dt*10)); h.sleeves[1].scale.y = 1; h.hands[1].position.y = -.30; }
+  else reach(h,1,h.lanternPivot.position);
   deformCloth(h, s);
 
   /* The player's root is the support surface. Fit the actual posed, deformed hem to that surface while
@@ -342,8 +347,6 @@ export function animateHero(h, s){
   }
   h.body.position.y += grounding; h.bow.position.y += grounding; h.grounding = grounding;
 
-  /* the lantern swings a little with the movement */
-  h.lanternPivot.rotation.x = motion*(Math.sin(s.walk + .8)*.18*moving - (up ? .4 : 0)*Math.min(1, h.motion.speed/6));
-  h.lanternPivot.rotation.z = motion*Math.sin(T*1.3)*.035;
+  /* Only the light flickers; there is no periodic body, arm or lantern sway. */
   h.lanternGlow.material.opacity = .62 + motion*Math.sin(T*3)*.1; h.lanternLight.intensity = (s.lantern ?? 1.7) + motion*Math.sin(T*3)*.15;
 }
