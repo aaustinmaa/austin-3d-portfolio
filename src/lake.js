@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 
-/* Clear scene reflections sit over a faint cool jade and teal sheen. Long, slow
+/* Clear scene reflections sit over a luminous blue sheen, echoing the aerial lights. Long, slow
    swells move their silhouettes together, without fine ripples breaking them up. */
 export function createLake(scene, { radius, height, groundH, reduceMotion }){
   const geometry = new THREE.PlaneGeometry(radius*2, radius*2, 128, 128);
@@ -74,9 +74,9 @@ export function createLake(scene, { radius, height, groundH, reduceMotion }){
           uv += normal.xz*(.35 + .4/max(length(cameraPosition - vWorld), 2.));
           uv = clamp(uv, texel*2., vec2(1.) - texel*2.);
           vec3 reflected = texture2D(tDiffuse, uv).rgb;
-          reflected *= vec3(.92, 1.05, 1.03);
+          reflected *= vec3(.89, 1., 1.16);
 
-          vec3 water = mix(vec3(.045,.105,.093), vec3(.025,.065,.061), deep);
+          vec3 water = mix(vec3(.04,.10,.17), vec3(.02,.05,.105), deep);
           water *= 1. + glow*.45;
           vec3 c = mix(water, reflected, (.32 + fresnel*.62)*mix(.5, 1., shore));
 
@@ -85,20 +85,20 @@ export function createLake(scene, { radius, height, groundH, reduceMotion }){
           float flow = dot(vWorld.xz, vec2(.23, .16))
             + .8*sin(vWorld.z*.21 - vWorld.x*.12) + t*.018;
           float silk = pow(.5 + .5*sin(flow), 2.);
-          vec3 sheen = mix(vec3(.012,.057,.06), vec3(.025,.075,.052), .5 + .5*sin(flow*.75 + .7));
+          vec3 sheen = mix(vec3(.012,.07,.155), vec3(.025,.125,.23), .5 + .5*sin(flow*.75 + .7));
           float veil = shore*(1. - smoothstep(radius*.5, radius, r));
           c += sheen*silk*veil*(.55 + fresnel*.45)*(.65 + glow*.25);
           vec3 moonDirection = normalize(vec3(-.6, 1., .4));
           float glint = pow(max(dot(reflect(-moonDirection, normal), view), 0.), 110.);
           c += vec3(.28,.38,.62)*glint*(.12 + glow*.12)*shore;
           float skySheen = pow(max(dot(normal, normalize(vec3(.12, 1., .18))), 0.), 60.);
-          c += vec3(.018,.038,.037)*skySheen*(.3 + fresnel*.9)*shore;
+          c += vec3(.014,.04,.078)*skySheen*(.3 + fresnel*.9)*shore;
 
           // The Oracle leaves a soft, steady pool of light on the still surface.
           float lightPool = exp(-r*r*.18)*(.035 + energy*.045 + glow*.035);
-          c += vec3(.22,.62,.60)*lightPool*.75;
+          c += vec3(.18,.52,.92)*lightPool*.75;
           float edge = (1. - smoothstep(.03, .24, vDepth))*shore;
-          c += vec3(.05,.115,.10)*edge*(.6 + .4*sin(vWorld.x*3. + w.x*12.));
+          c += vec3(.035,.11,.20)*edge*(.6 + .4*sin(vWorld.x*3. + w.x*12.));
           float alpha = smoothstep(.002, .22, vDepth)*(1. - smoothstep(radius - .2, radius, r));
           gl_FragColor = vec4(c, alpha);
           #include <fog_fragment>
