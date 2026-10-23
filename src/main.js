@@ -23,6 +23,9 @@ function groundH(x,z){ const r = Math.hypot(x,z); let h = (fbm(x*.07+3.1, z*.07+
   if (r > 26) h += Math.min(Math.pow((r-26)/10,2)*6, 34); return h; }
 function spiralPt(i){ const a = SP.a0 + i*SP.ang; return { x:Math.sin(a)*SP.R, z:Math.cos(a)*SP.R, y:SP.base + i*SP.rise, a }; }
 const onPath = (x,z) => z > 12 && Math.abs(x) < 6.5;
+/* the ring of wish pillars: fixed spots, so trees, rocks and grass can keep clear of them */
+const PILLARS = []; for (let i=0;i<14;i++){ const a = i/14*Math.PI*2 + .12, r = 23 + (i%2)*2.5, x = Math.sin(a)*r, z = Math.cos(a)*r; if (!onPath(x,z)) PILLARS.push({ x, z }); }
+const nearPillar = (x,z,d) => PILLARS.some(p => Math.hypot(x - p.x, z - p.z) < d);
 
 const byId = Object.fromEntries(RELICS.map(r => [r.id, r]));
 const MAIN = RELICS.filter(r => !r.secret);
@@ -137,8 +140,8 @@ const pickables = [];
   /* scattered boulders, some big enough to stand on */
   const bGeo = rockify(new THREE.IcosahedronGeometry(1,1), .55, 3.3, (t,c,n) => c.copy(mixHex('#191E2C','#2C3244', t)).lerp(C('#283252'), t > .78 ? .55 : 0), .4), boulders = [];
   for (let i=0;i<34;i++){ const a = rand()*6.283, d = 11 + rand()*17, x = Math.cos(a)*d, z = Math.sin(a)*d; if (onPath(x,z) || Math.hypot(x, z-21.5) < 4) continue;
-    const s = .35 + Math.pow(rand(),1.6)*1.3, gy = groundH(x,z); boulders.push({ p:new V3(x, gy - s*.2, z), q:yawQ(rand()*6), s:new V3(s, s*.72, s*(.8+rand()*.4)) });
-    addFrustum(x, z, gy - .5, gy + s*.48, s*.9, s*.62, { stand: s > .55 }); }
+    const s = .35 + Math.pow(rand(),1.6)*1.3, gy = groundH(x,z), q = yawQ(rand()*6), sz = s*(.8+rand()*.4); if (nearPillar(x, z, 1.5 + s)) continue;
+    boulders.push({ p:new V3(x, gy - s*.2, z), q, s:new V3(s, s*.72, sz) }); addFrustum(x, z, gy - .5, gy + s*.48, s*.9, s*.62, { stand: s > .55 }); }
   inst(bGeo, rockMat, boulders, { cast:true, receive:true });
 }
 
@@ -186,18 +189,16 @@ const fallMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, s
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pts.flatMap(v=>[v.x,v.y,v.z]),3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute([0,0,1,0,0,1,1,1],2)); g.setIndex([0,1,2,2,1,3]); scene.add(new THREE.Mesh(g, fallMat)); });
 
-/* ---------- basalt columns: hexagonal prisms stepped up toward the valley wall ---------- */
+/* ---------- wish pillars: tall stone pillars ringing the meadow, each with a glowing band; you can stand on their caps ---------- */
+const bandMat = new THREE.MeshBasicMaterial({ color:0x78E6F0, transparent:true, opacity:.55 });
 {
-  const hexG = paint(new THREE.CylinderGeometry(1,1,1,6).translate(0,.5,0), (x,y,z,c) => c.copy(y > .99 ? C('#3A4258') : mixHex('#151926','#232838', y)));
-  const cols = [];
-  for (let i=0;i<7;i++){ const a = (i+.5)/7*Math.PI*2 + .3, d = 26.4 + rand()*1.2, cx = Math.sin(a)*d, cz = Math.cos(a)*d; if (onPath(cx, cz)) continue;
-    const out = new V3(cx, 0, cz).normalize(), rad = .5 + rand()*.15, step = rad*1.78, base = .4 + rand()*.6;
-    for (let q=-2;q<=2;q++) for (let rr=-2;rr<=2;rr++){ if (Math.abs(q + rr) > 2 || rand() < .2) continue;
-      const lx = step*(q + rr*.5), lz = step*rr*.866, x = cx + lx*Math.cos(a) + lz*Math.sin(a), z = cz - lx*Math.sin(a) + lz*Math.cos(a);
-      const gy = groundH(x, z), h = Math.max(.35, base + ((x - cx)*out.x + (z - cz)*out.z + 2.6)*.95 + rand()*.35);
-      cols.push({ p:new V3(x, gy - 1, z), q:yawQ(a), s:new V3(rad, h + 1, rad), c:mixHex('#BFC6D8','#E2E6F0', rand()) });
-      addFrustum(x, z, gy - 1, gy + h, rad*.92, rad*.92); } }
-  inst(hexG, new THREE.MeshStandardMaterial({ vertexColors:true, roughness:.9, metalness:.05, flatShading:true }), cols, { cast:true, receive:true });
+  const sq = seq(53), stone = new THREE.MeshStandardMaterial({ color:0x3A4054, roughness:.95, flatShading:true });
+  PILLARS.forEach(o => { const h = 6 + sq()*3, gy = groundH(o.x, o.z) - .2, rot = sq()*Math.PI;
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(.55,.7,h,8).translate(0,h/2,0), stone); shaft.position.set(o.x, gy, o.z); shaft.rotation.y = rot; scene.add(shaft);
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(1.7,.4,1.7), stone); cap.position.y = h + .2; shaft.add(cap);
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(.6,.6,.12,24,1,true), bandMat); band.position.y = h*.62; shaft.add(band);
+    [shaft, cap].forEach(m => { m.castShadow = m.receiveShadow = true; m.userData.perch = new V3(o.x, gy + h + .4, o.z); pickables.push(m); });
+    addFrustum(o.x, o.z, gy - .3, gy + h, .7, .55, { stand:false }); addBox(o.x, o.z, gy + h, gy + h + .4, .85, .85, rot); });
 }
 
 /* ---------- spiral stair, landings, braziers ---------- */
@@ -278,15 +279,16 @@ function grassGeo(){
 /* the grass sways in a slow wind, and its tips take on a faint glow as the star's light returns */
 const grassU = { t:{ value:0 }, glow:{ value:0 } };
 {
-  inst(pineGeo(), new THREE.MeshStandardMaterial({ vertexColors:true, roughness:1, flatShading:true }), pines.map(t => ({ p:new V3(t.x,t.y,t.z), q:yawQ(rand()*6), s:new V3(t.s,t.s*(.9+rand()*.45),t.s), c:mixHex('#C4C8E4','#FFFFFF',rand()) })), { cast:true, receive:true });
-  pines.filter(t => t.valley).forEach(t => { addFrustum(t.x, t.z, t.y, t.y + 1.2*t.s, .17*t.s, .12*t.s, { stand:false }); addFrustum(t.x, t.z, t.y + .75*t.s, t.y + 3.6*t.s, .95*t.s, .05, { stand:false, ceil:false }); });
+  const clear = t => !t.valley || !nearPillar(t.x, t.z, 1.2 + 1.1*t.s);
+  inst(pineGeo(), new THREE.MeshStandardMaterial({ vertexColors:true, roughness:1, flatShading:true }), pines.map(t => ({ p:new V3(t.x,t.y,t.z), q:yawQ(rand()*6), s:new V3(t.s,t.s*(.9+rand()*.45),t.s), c:mixHex('#C4C8E4','#FFFFFF',rand()) })).filter((it,i) => clear(pines[i])), { cast:true, receive:true });
+  pines.filter(t => t.valley && clear(t)).forEach(t => { addFrustum(t.x, t.z, t.y, t.y + 1.2*t.s, .17*t.s, .12*t.s, { stand:false }); addFrustum(t.x, t.z, t.y + .75*t.s, t.y + 3.6*t.s, .95*t.s, .05, { stand:false, ceil:false }); });
   const grassMat = new THREE.MeshStandardMaterial({ vertexColors:true, roughness:1, side:THREE.DoubleSide });
   grassMat.onBeforeCompile = sh => { sh.uniforms.gT = grassU.t; sh.uniforms.gGlow = grassU.glow;
     sh.vertexShader = 'uniform float gT;\nvarying float vTip;\n' + sh.vertexShader.replace('#include <begin_vertex>', `vec3 transformed = vec3(position); vTip = uv.y;
       vec4 root = instanceMatrix*vec4(0.,0.,0.,1.); float sway = sin(gT*1.1 + root.x*.23 + root.z*.17)*.6 + sin(gT*2.3 + root.x*.7 - root.z*.4)*.22;
       transformed.x += sway*uv.y*uv.y*.12; transformed.z += sway*uv.y*uv.y*.06;`);
     sh.fragmentShader = 'uniform float gGlow;\nvarying float vTip;\n' + sh.fragmentShader.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n  totalEmissiveRadiance += vec3(.26,.34,.72)*smoothstep(.72,1.,vTip)*gGlow;'); };
-  inst(grassGeo(), grassMat, grass.map(([x,y,z]) => ({ p:new V3(x, y - .03, z), q:yawQ(rand()*6.28), s:new V3(1, .7 + rand()*.7, 1).multiplyScalar(.75 + rand()*.6), c:mixHex('#B4C4F4','#E4D8FF', rand()) })), { receive:true });
+  inst(grassGeo(), grassMat, grass.map(([x,y,z]) => ({ p:new V3(x, y - .03, z), q:yawQ(rand()*6.28), s:new V3(1, .7 + rand()*.7, 1).multiplyScalar(.75 + rand()*.6), c:mixHex('#B4C4F4','#E4D8FF', rand()) })).filter((it,i) => !nearPillar(grass[i][0], grass[i][2], .9)), { receive:true });
 }
 
 /* a few fireflies drifting over the meadows, blinking slowly; they keep their distance from the wanderer */
@@ -325,6 +327,25 @@ function lightPoints(items, { size, near=0, drift=0, base=.6 }){
   for (let i=0;i<420;i++){ const a = sq()*6.283, d = 3 + Math.sqrt(sq())*30, x = Math.cos(a)*d, z = Math.sin(a)*d;
     air.push({ x, y:Math.max(groundH(x,z), 0) + 1.6 + sq()*sq()*16, z, c:palette[Math.floor(sq()*palette.length)], ph:sq() }); }
   lightPoints(meadow, { size:.65, base:.85 }); lightPoints(air, { size:.85, near:3, drift:1.4, base:.7 }); }
+/* ---------- sky lanterns: wishes let go from the valley, drifting up toward the star ---------- */
+const updateSkyLanterns = (() => {
+  const N = 28, sq = seq(97), mat = new THREE.MeshBasicMaterial({ vertexColors:true, side:THREE.DoubleSide, fog:false });
+  const geo = paint(merge([new THREE.CylinderGeometry(.17,.12,.34,8,1,true).translate(0,.17,0), new THREE.CircleGeometry(.17,8).rotateX(-Math.PI/2).translate(0,.34,0)]),
+    (x,y,z,c) => c.copy(mixHex('#FFE2B0','#B8703C', Math.min(1, y/.34))));
+  const mesh = new THREE.InstancedMesh(geo, mat, N); mesh.frustumCulled = false; scene.add(mesh);
+  const spawn = (L, lift, hero) => { for (let k=0;k<5;k++){ const a = sq()*6.283, d = 8 + Math.sqrt(sq())*22; L.x = Math.cos(a)*d; L.z = Math.sin(a)*d; if (!hero || Math.hypot(L.x - hero.x, L.z - hero.z) > 7) break; }
+    L.base = Math.max(groundH(L.x, L.z), WATER_Y) + 1.2; L.y = L.base + lift; };
+  const items = Array.from({ length:N }, () => { const L = { sp:.35 + sq()*.4, ph:sq()*6.28, s:1.5 + sq()*.8, glow:new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xFFB066, transparent:true, opacity:0, depthWrite:false, blending:THREE.AdditiveBlending, fog:false })) };
+    L.glow.scale.setScalar(2.2*L.s); scene.add(L.glow); spawn(L, 2 + sq()*58); return L; });
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new V3(), pos = new V3();
+  return (dt, T, hero) => { items.forEach((L, i) => {
+      if (!reduceMotion){ L.y += L.sp*dt; L.x += Math.sin(T*.25 + L.ph)*.15*dt; L.z += Math.cos(T*.21 + L.ph)*.15*dt; }
+      if (L.y > 74) spawn(L, 0, hero);
+      const f = Math.min(1, (L.y - L.base)/2.5)*Math.min(1, Math.max(0, (74 - L.y)/14));
+      m4.compose(pos.set(L.x, L.y, L.z), q.setFromAxisAngle(UP, T*.2 + L.ph), sc.setScalar(Math.max(.001, L.s*f))); mesh.setMatrixAt(i, m4);
+      L.glow.position.set(L.x, L.y + .12*L.s, L.z); L.glow.material.opacity = .55*f*(.85 + .15*Math.sin(T*6 + L.ph*5)); });
+    mesh.instanceMatrix.needsUpdate = true; };
+})();
 const MIST = 26; const mists = []; for (let i=0;i<MIST;i++){ const a=rand()*6.283, d=10+rand()*20; const s = new THREE.Sprite(new THREE.SpriteMaterial({ map:softTex, color:0x4A4E8E, transparent:true, opacity:.11, depthWrite:false }));
   s.position.set(Math.sin(a)*d, groundH(Math.sin(a)*d, Math.cos(a)*d)+1.2, Math.cos(a)*d); s.scale.set(16,4,1); scene.add(s); mists.push({ s, a, d, sp:(rand()-.5)*.02 }); }
 
@@ -515,6 +536,7 @@ function clickAt(cx, cy){
   if (relicHit){ const r = relicHit.object.userData.relic; if (r.state === 'open' || r.state === 'falling') showRelicCard(r); else if (r.state === 'orbit' || r.state === 'rising') autoShoot(r); return; }
   const h = hits.find(x => !x.object.userData.relic); if (!h) return;
   if (h.object.userData.star){ touchStar(h.object.userData.star); return; }
+  if (h.object.userData.perch){ flyTo(h.object.userData.perch); return; }
   const p = h.point.clone(); if (Math.abs(p.y - P.pos.y) > 2.4) flyTo(p); else P.target = p;
 }
 /* which star the pointer is over, if any (checked once per frame) */
@@ -661,6 +683,7 @@ function updateWorld(dt){
     beamMat.uniforms.rep.value = len/1.5; beamMat.uniforms.fade.value = Math.min(1, beamState.life/.8)*Math.min(1,(3.2-beamState.life)/.25)*1.3;
     if (beamState.life <= 0){ beam.visible = false; oracleState.eyeTarget = 0; } }
   wispMat.uniforms.t.value = T; wispMat.uniforms.glow.value = .45 + L*.55; wispMat.uniforms.hero.value.copy(P.pos); heroU.value.copy(P.pos); starU.t.value = T; starU.glow.value = L;
+  updateSkyLanterns(dt, T, P.pos); bandMat.opacity = .5 + L*.35 + Math.sin(T*1.3)*.05;
   lightPointMats.forEach(m => { m.uniforms.t.value = T; m.uniforms.glow.value = m.userData.base + L*(1 - m.userData.base); }); grassU.t.value = reduceMotion ? 0 : T; grassU.glow.value = .08 + L*.3;
   if (!reduceMotion){ const wp = wispG.attributes.position.array; for (let i=0;i<WISP;i++){ const v = wispV[i]; wp[i*3] += Math.sin(T*v[1] + v[0])*dt*.4; wp[i*3+1] += Math.cos(T*v[1]*.7 + v[0])*dt*.25; wp[i*3+2] += Math.cos(T*v[1] + v[0]*2)*dt*.4; } wispG.attributes.position.needsUpdate = true; }
   mists.forEach(m => { m.a += m.sp*dt; m.s.position.x = Math.sin(m.a)*m.d; m.s.position.z = Math.cos(m.a)*m.d; });

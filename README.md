@@ -30,7 +30,7 @@ Requires Node 18 or newer.
 | Click a star | The Oracle names the relics that use that skill |
 | Esc | Send the open relic back to the sky |
 
-Light the four braziers on the spiral stairs to wake a hidden seventh relic. Basalt columns, boulders, stair stones and the brazier landings can all be stood on. The short introduction opens on arrival and again whenever you click Austin's name in the top bar.
+Light the four braziers on the spiral stairs to wake a hidden seventh relic. The wish pillars' caps, boulders, stair stones and the brazier landings can all be stood on; click a pillar to fly up onto it. The short introduction opens on arrival and again whenever you click Austin's name in the top bar.
 
 ## Project layout
 
