@@ -648,7 +648,7 @@ function updateHero(dt){
   const moving = Math.min(1, P.speed/SPEED); P.walk += dt*P.speed*1.9;
   const airborne = P.flying || (P.soared && !P.onGround), aiming = mode === 'aim' || !!P.auto || P.draw > 0;
   const pitch = mode === 'aim' ? camS.pitch : (P.auto ? Math.atan2(P.auto.r.pos.y - P.pos.y - 1.2, Math.hypot(P.auto.r.pos.x-P.pos.x, P.auto.r.pos.z-P.pos.z)) : 0);
-  animateHero(H, { dt, T, walk:P.walk, moving, onGround:P.onGround, airborne, flying:P.flying, flight:!!P.flight, aiming, pitch, draw:P.draw, vel:P.vel, lantern:1.7 + (1 - world.light)*.6 });
+  animateHero(H, { dt, T, walk:P.walk, moving, onGround:P.onGround, airborne, flying:P.flying, flight:!!P.flight, aiming, pitch, draw:P.draw, vel:P.vel, reduceMotion, lantern:1.7 + (1 - world.light)*.6 });
 }
 let litCount = 0;
 const hemiSky = [C('#34407A'), C('#4A4E98')], fogCol = [C('#0A0E22'), C('#10142E'), C('#1A1636')], oracleCol = [C('#9FE8FF'), C('#D6CCFF')], tmpCol = new THREE.Color();

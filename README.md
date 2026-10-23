@@ -4,6 +4,8 @@ A dark valley under a sleeping star. Austin's projects and experience drift over
 
 Built with [three.js](https://threejs.org/) and [Vite](https://vitejs.dev/). No other runtime dependencies.
 
+The wanderer wears a pale, thin woven robe and a naturally draped hood, with narrow hems and vertical folds. Subtle movement at the hem, cuffs and hood tip uses CPU vertex deformation in the existing three.js r128 runtime, including gentle inertia when starting, stopping and turning. The shoulders and neck stay anchored, and cloth motion respects `prefers-reduced-motion`.
+
 ## Run it locally
 
 ```bash
@@ -41,7 +43,7 @@ src/oracle.js         The star (the Oracle): glass core, six glass shells, the r
 src/polyhedra.js      Polyhedra drawn as light: clear glass and glowing-edge shaders, the star's convex solids
 src/constellation.js  The skill constellation: star layout, figures, labels, wake-up animation
 src/relics.js         The seven relic models (faceted, with soft auras) and how each one unfolds when opened
-src/hero.js           The wanderer (a doll in a down coat and parka hood), its bow and lantern, and their animation
+src/hero.js           The wanderer (a small doll in a thin robe and draped hood), its bow and lantern, and their animation
 src/colliders.js      Solid shapes for standing, walls, ceilings and arrow hits
 src/content.js        Everything visitors read: relic text, skills, the Oracle's lines and answers
 src/noise.js          Seeded random and value noise (the valley is identical on every visit)
