@@ -228,33 +228,61 @@ function floatingStone(sd, R, thick, depth, topCol, rough=1){
   const plan = pts.slice(0, M).sort((a,b) => a.x - b.x || a.z - b.z), rim = chain(plan).slice(0,-1).concat(chain(plan.slice().reverse()).slice(0,-1));
   return { top:geo(top), under:geo(under), rim, thick, depth };
 }
+/* a stone's top outline in plan, placed at (x, z) and turned by yaw, as [x, z] corners */
+const planRim = (s, x, z, yaw) => { const cs = Math.cos(yaw), sn = Math.sin(yaw); return s.rim.map(v => [x + v.x*cs + v.z*sn, z - v.x*sn + v.z*cs]); };
+/* the clear distance between two convex outlines in plan; 0 when they touch or overlap */
+function planGap(A, B){
+  const span = (P, nx, nz) => P.reduce((r,p) => { const d = p[0]*nx + p[1]*nz; return [Math.min(r[0], d), Math.max(r[1], d)]; }, [Infinity, -Infinity]);
+  const apart = (P, Q) => P.some((p,i) => { const q = P[(i+1)%P.length], a = span(P, q[1] - p[1], p[0] - q[0]), b = span(Q, q[1] - p[1], p[0] - q[0]); return a[1] < b[0] || b[1] < a[0]; });
+  if (!apart(A, B) && !apart(B, A)) return 0;
+  const seg = (p, a, b) => { const dx = b[0] - a[0], dz = b[1] - a[1], t = Math.min(1, Math.max(0, ((p[0] - a[0])*dx + (p[1] - a[1])*dz)/(dx*dx + dz*dz))); return Math.hypot(p[0] - a[0] - dx*t, p[1] - a[1] - dz*t); };
+  let m = Infinity; for (const [P, Q] of [[A, B], [B, A]]) for (const p of P) Q.forEach((a,i) => { m = Math.min(m, seg(p, a, Q[(i+1)%Q.length])); });
+  return m;
+}
+/* every stone's top centre, so a click anywhere on a stone can set you down on it */
+const stones = [];
+const stoneAt = pt => stones.filter(s => pt.y > s.y - s.depth - .3 && pt.y < s.y + .1).reduce((b,s) => !b || Math.hypot(s.x - pt.x, s.z - pt.z) < Math.hypot(b.x - pt.x, b.z - pt.z) ? s : b, null);
 /* a stone placed at (x, y, z) turned by yaw: a prism over the top's outline carries you, a cone stands in for the rock underneath */
-function stoneColliders(s, x, y, z, yaw){ const cs = Math.cos(yaw), sn = Math.sin(yaw), rim = s.rim;
-  addPrism(y - s.thick, y, rim.map(v => [x + v.x*cs + v.z*sn, z - v.x*sn + v.z*cs]));
+function placeStone(s, x, y, z, yaw){ const rim = s.rim;
+  addPrism(y - s.thick, y, planRim(s, x, z, yaw));
   const inR = Math.min(...rim.map((a,k) => { const b = rim[(k+1)%rim.length]; return Math.abs(a.x*b.z - a.z*b.x)/Math.hypot(b.x - a.x, b.z - a.z); }));
-  addFrustum(x, z, y - s.depth, y - s.thick, 0, inR*.85, { stand:false, ceil:true }); }
+  addFrustum(x, z, y - s.depth, y - s.thick, 0, inR*.85, { stand:false, ceil:true });
+  stones.push({ x, y, z, depth:s.depth, reach:Math.max(...rim.map(v => Math.hypot(v.x, v.z))) }); }
 function makeIsland(cx, top, cz, r){
   const s = floatingStone(cx*3.1 + cz*1.3, r, .55, .55 + r*1.9, C('#323848'), .5);
   const topM = new THREE.Mesh(s.top, rockMat), under = new THREE.Mesh(s.under, rockMat);
-  [topM, under].forEach(o => { o.position.set(cx, top, cz); o.castShadow = o.receiveShadow = true; scene.add(o); });
-  stoneColliders(s, cx, top, cz, 0);
-  return { topM, rim:s.rim };
+  [topM, under].forEach(o => { o.position.set(cx, top, cz); o.castShadow = o.receiveShadow = true; o.userData.stone = true; scene.add(o); pickables.push(o); });
+  placeStone(s, cx, top, cz, 0);
+  return { rim:s.rim, plan:planRim(s, cx, cz, 0) };
 }
 const braziers = [];
 {
-  const tops = [], unders = [];
-  for (let i=0;i<=SP.N;i++){ if (BRAZIER_AT.includes(i)) continue; const p = spiralPt(i), yaw = p.a + (rand()-.5)*.9;
-    const s = floatingStone(i*13.7 + 2.2, 1.6 + hash(i, 5.3)*.3, .42, 1.9 + hash(i, 3.1)*.9, mixHex('#3D4458','#4A5168', rand()));
-    M4.compose(new V3(p.x,p.y,p.z), Q.setFromAxisAngle(UP, yaw), new V3(1,1,1)); tops.push(s.top.applyMatrix4(M4)); unders.push(s.under.applyMatrix4(M4));
-    stoneColliders(s, p.x, p.y, p.z, yaw);
-    if (i % 4 === 2) pathLights.push(p); }
+  /* the landings first; then each step slides a little along or inward off the path, or shrinks, until it floats clear of its neighbours,
+     and is left out where there is no room for it */
+  const landings = {};
+  BRAZIER_AT.forEach(idx => { const p = spiralPt(idx), out = new V3(Math.sin(p.a),0,Math.cos(p.a)), c = new V3(p.x,0,p.z).addScaledVector(out, 2);
+    landings[idx] = { p, out, c, isl:makeIsland(c.x, p.y, c.z, 3) }; });
+  const tops = [], unders = [], placed = [];
+  for (let i=0, last=0; i<=SP.N; i++){ if (landings[i]){ placed.push(landings[i].isl.plan); last = i; continue; }
+    const p = spiralPt(i), yaw = rand()*Math.PI*2, col = mixHex('#3D4458','#4A5168', rand()), off = (hash(i, 9.1) - .5)*.7, x0 = p.x + Math.sin(p.a)*off, z0 = p.z + Math.cos(p.a)*off;
+    const gap = .4 + hash(i, 7.7)*.4, near = placed.slice(-2).concat([1,2].filter(d => landings[i+d]).map(d => landings[i+d].isl.plan));
+    /* the first size and place that clears its neighbours; failing that the step is left out, unless that would leave too big a climb,
+       in which case it takes whichever came closest */
+    let best = null;
+    for (let k=1; k>.6 && !(best && best.g >= gap); k*=.93){ const t = floatingStone(i*13.7 + 2.2, (.95 + hash(i, 5.3)*.35)*k, .42, (1.8 + hash(i, 3.1)*.8)*k, col, .7);
+      for (const [sh, inw] of [[0,0], [.3,0], [.6,0], [-.3,0], [0,.5], [.4,.5], [-.4,.5]]){ const x = x0 + Math.cos(p.a)*sh - Math.sin(p.a)*inw, z = z0 - Math.sin(p.a)*sh - Math.cos(p.a)*inw;
+        const g = Math.min(...near.map(n => planGap(planRim(t, x, z, yaw), n))); if (!best || g > best.g) best = { s:t, x, z, g }; if (g >= gap) break; } }
+    if (best.g < gap && i - last < 2 && !landings[i+2]) continue;
+    const { s, x, z } = best; last = i;
+    M4.compose(new V3(x, p.y, z), Q.setFromAxisAngle(UP, yaw), new V3(1,1,1)); tops.push(s.top.applyMatrix4(M4)); unders.push(s.under.applyMatrix4(M4));
+    placeStone(s, x, p.y, z, yaw); placed.push(planRim(s, x, z, yaw));
+    if (i % 4 === 2) pathLights.push({ x, y:p.y, z }); }
   const stoneTop = new THREE.Mesh(merge(tops), rockMat), stoneBot = new THREE.Mesh(merge(unders), rockMat);
-  [stoneTop, stoneBot].forEach(o => { o.castShadow = o.receiveShadow = true; scene.add(o); }); pickables.push(stoneTop);
+  [stoneTop, stoneBot].forEach(o => { o.castShadow = o.receiveShadow = true; o.userData.stone = true; scene.add(o); pickables.push(o); });
   const plG = new THREE.BufferGeometry(); plG.setAttribute('position', new THREE.Float32BufferAttribute(pathLights.flatMap(p => [p.x, p.y+.18, p.z]), 3));
   scene.add(new THREE.Points(plG, new THREE.PointsMaterial({ size:.9, map:glowTex, color:0x78E6F0, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending })));
   const bowlMat = new THREE.MeshStandardMaterial({ color:0x4A4F62, roughness:.7, metalness:.3, flatShading:true });
-  BRAZIER_AT.forEach(idx => { const p = spiralPt(idx), out = new V3(Math.sin(p.a),0,Math.cos(p.a)), c = new V3(p.x,0,p.z).addScaledVector(out, 2), r = 3;
-    const isl = makeIsland(c.x, p.y, c.z, r); pickables.push(isl.topM);
+  BRAZIER_AT.forEach(idx => { const { p, out, c, isl } = landings[idx];
     const b = new THREE.Group(); b.position.set(c.x + out.x*.8, p.y, c.z + out.z*.8);
     const stem = new THREE.Mesh(new THREE.CylinderGeometry(.12,.3,.8,6).translate(0,.4,0), bowlMat), bowl = new THREE.Mesh(new THREE.CylinderGeometry(.55,.25,.4,10).translate(0,1,0), bowlMat);
     stem.castShadow = bowl.castShadow = true;
@@ -550,6 +578,10 @@ function clickAt(cx, cy){
   const h = hits.find(x => !x.object.userData.relic); if (!h) return;
   if (h.object.userData.star){ touchStar(h.object.userData.star); return; }
   if (h.object.userData.perch){ flyTo(h.object.userData.perch); return; }
+  /* a stone: land on its top (where you clicked, if you clicked the top), flying across unless you already stand on it */
+  const st = h.object.userData.stone && stoneAt(h.point);
+  if (st){ const p = Math.abs(h.point.y - st.y) < .02 ? h.point.clone() : new V3(st.x, st.y, st.z);
+    if (Math.abs(P.pos.y - st.y) < .05 && Math.hypot(P.pos.x - st.x, P.pos.z - st.z) < st.reach) P.target = p; else flyTo(p); return; }
   const p = h.point.clone(); if (Math.abs(p.y - P.pos.y) > 2.4) flyTo(p); else P.target = p;
 }
 /* which star the pointer is over, if any (checked once per frame) */
@@ -645,6 +677,11 @@ function updatePlayer(dt){
   pushP.x = nx; pushP.z = nz; if (pushOut(pushP, P.pos.y + STEP_UP, P.pos.y + HEAD, BODY_R)){ nx = pushP.x; nz = pushP.z; }
   const moved = Math.hypot(nx - P.pos.x, nz - P.pos.z);
   if (P.target && moved < spd*dt*.25){ if ((P.stall += dt) > .5){ P.target = null; P.stall = 0; } } else P.stall = 0;
+  /* stepping stones: walking off one toward another just ahead hops across the gap and lands a little way onto it */
+  if (P.onGround && ml > 0 && supportAt(nx, nz, P.pos.y).h < P.pos.y - .3)
+    for (let d=.3; d<2.9; d+=.2){ const a = supportAt(nx + mx*d, nz + mz*d, P.pos.y + .5);
+      if (a.onPlatform && a.h > P.pos.y - .9){ const to = new V3(nx + mx*(d + .5), a.h, nz + mz*(d + .5)); if (supportAt(to.x, to.z, a.h).h !== a.h) to.set(nx + mx*d, a.h, nz + mz*d);
+        P.flight = { from:P.pos.clone(), to, t:0, dur:.3 + d*.1, arc:.45 + Math.max(0, a.h - P.pos.y)*.5 }; P.vel.set(0,0,0); return; } }
   const dive = keys.ShiftLeft || keys.ShiftRight;
   P.flying = !!keys.Space && !P.onGround && (T - P.jumpT > .2) && P.energy > .005;
   if (P.flying){ P.soared = true; P.vel.y = lerp(P.vel.y, ASCEND, 1 - Math.exp(-dt*5)); P.energy = Math.max(0, P.energy - dt/FLY_SECONDS); }
