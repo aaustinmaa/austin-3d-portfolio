@@ -48,14 +48,13 @@ addEventListener('resize', resize); resize();
 
 /* ---------- night sky: darker at first, lifting toward a deep blue with a warm horizon as the star's light returns ---------- */
 const skyGroup = new THREE.Group(); scene.add(skyGroup);
-const skyMat = new THREE.ShaderMaterial({ side:THREE.BackSide, depthWrite:false, fog:false, uniforms:{ glow:{value:0}, dawn:{value:0} },
-  vertexShader:'varying vec3 vD; void main(){ vD = position; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
-  fragmentShader:`uniform float glow; uniform float dawn; varying vec3 vD;
+/* the sky's colour in a direction; the lake mirrors it with the same function */
+const SKY_GLSL = `
     float h3(vec3 p){ p = fract(p*.3183099 + .1); p *= 17.; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
     float n3(vec3 x){ vec3 i = floor(x), f = fract(x); f = f*f*(3.-2.*f);
       return mix(mix(mix(h3(i),h3(i+vec3(1,0,0)),f.x), mix(h3(i+vec3(0,1,0)),h3(i+vec3(1,1,0)),f.x), f.y), mix(mix(h3(i+vec3(0,0,1)),h3(i+vec3(1,0,1)),f.x), mix(h3(i+vec3(0,1,1)),h3(i+vec3(1,1,1)),f.x), f.y), f.z); }
     float fb(vec3 p){ float a=.5, t=0.; for (int i=0;i<5;i++){ t += a*n3(p); p *= 2.03; a *= .5; } return t; }
-    void main(){ vec3 d = normalize(vD); float h = d.y;
+    vec3 skyCol(vec3 d, float glow, float dawn){ float h = d.y;
       vec3 zen = mix(vec3(.01,.013,.042), vec3(.022,.03,.09), glow), mid = mix(vec3(.022,.026,.075), vec3(.05,.055,.15), glow), hor = mix(vec3(.045,.045,.115), vec3(.1,.09,.22), glow);
       hor = mix(hor, vec3(.24,.15,.3), dawn*.5); mid = mix(mid, vec3(.1,.07,.18), dawn*.3);
       vec3 c = h > 0. ? mix(hor, mid, smoothstep(0.,.28,h)) : mix(hor, vec3(.012,.015,.03), smoothstep(0.,-.3,h));
@@ -63,7 +62,11 @@ const skyMat = new THREE.ShaderMaterial({ side:THREE.BackSide, depthWrite:false,
       float n = fb(d*2.6 + 4.);
       c += vec3(.2,.13,.42)*pow(n,3.)*(1.15 + glow*.8)*smoothstep(-.05,.6,h);
       c += vec3(.04,.22,.26)*pow(max(fb(d*4.4 - 9.) - .5, 0.), 1.4)*(1. + glow)*smoothstep(.1,.8,h);
-      gl_FragColor = vec4(c,1.); }` });
+      return c; }`;
+const skyMat = new THREE.ShaderMaterial({ side:THREE.BackSide, depthWrite:false, fog:false, uniforms:{ glow:{value:0}, dawn:{value:0} },
+  vertexShader:'varying vec3 vD; void main(){ vD = position; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
+  fragmentShader:`uniform float glow; uniform float dawn; varying vec3 vD;${SKY_GLSL}
+    void main(){ gl_FragColor = vec4(skyCol(normalize(vD), glow, dawn), 1.); }` });
 skyGroup.add(new THREE.Mesh(new THREE.SphereGeometry(600,48,24), skyMat));
 /* a small seeded generator for decoration added later, so the shared sequence (and the valley layout) stays unchanged */
 const seq = sd => { let s = sd; return () => (s = s*16807 % 2147483647)/2147483647; };
@@ -146,17 +149,48 @@ const pickables = [];
 }
 
 /* ---------- lake ---------- */
-const lakeMat = new THREE.ShaderMaterial({ transparent:true, uniforms:{ t:{value:0}, energy:{value:0}, glow:{value:0} },
-  vertexShader:'varying vec3 vW; void main(){ vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }',
-  fragmentShader:`uniform float t; uniform float energy; uniform float glow; varying vec3 vW;
-    void main(){ float r = length(vW.xz);
-      vec3 c = mix(vec3(.012,.025,.05), vec3(.04,.08,.12), smoothstep(${(LAKE_R-3).toFixed(1)}, ${(LAKE_R+2).toFixed(1)}, r));
-      float ring = exp(-pow(r-2.6,2.)*3.)*(.3+energy*.5+glow*.25); c += vec3(.55,.92,1.)*ring*.5;
-      c += vec3(.4,.85,1.)*exp(-r*r/2.)*(.22+energy*.4+glow*.3);
-      float rip = pow(.5+.5*sin(r*2.4 - t*1.2), 16.); c += vec3(.4,.7,1.)*rip*.06*(1.-smoothstep(3.,9.,r));
-      float sp = step(.988, fract(sin(dot(floor(vW.xz*3.), vec2(12.9898,78.233)))*43758.5453 + t*.12)); c += sp*vec3(.5,.8,1.)*(.25+glow*.2);
-      gl_FragColor = vec4(c,.95); }` });
-{ const lake = new THREE.Mesh(new THREE.CircleGeometry(LAKE_R+3.4, 72), lakeMat); lake.rotation.x = -Math.PI/2; lake.position.y = WATER_Y; scene.add(lake); }
+/* still night water: a dark blue-violet body lit from below by the relic asleep in the middle, a mirror of the sky, its stars,
+   the star overhead and the nearest path lanterns, broken up by slow swells and soft rings where the light column meets it */
+const LAKE_EDGE = LAKE_R + 3.4;
+const lakeMat = new THREE.ShaderMaterial({ transparent:true,
+  uniforms:{ t:{value:0}, energy:{value:0}, glow:{value:0}, dawn:{value:0}, star:{value:new V3(0, ORACLE_Y, 0)}, lamps:{value:[new V3(0,-99,0), new V3(0,-99,0), new V3(0,-99,0)]} },
+  vertexShader:'attribute float depth; varying vec3 vW; varying float vDepth; void main(){ vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; vDepth = depth; gl_Position = projectionMatrix*viewMatrix*w; }',
+  fragmentShader:`uniform float t; uniform float energy; uniform float glow; uniform float dawn; uniform vec3 star; uniform vec3 lamps[3]; varying vec3 vW; varying float vDepth;${SKY_GLSL}
+    float h2(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
+    float n2(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f); return mix(mix(h2(i), h2(i+vec2(1,0)), f.x), mix(h2(i+vec2(0,1)), h2(i+vec2(1,1)), f.x), f.y); }
+    float wave(vec2 p){ float r = length(p);
+      return n2(p*.6 + vec2(t*.06, t*.04))*.55 + n2(p*1.5 - vec2(t*.09, -t*.05))*.28 + n2(p*3.6 + vec2(-t*.15, t*.12))*.09
+        + sin(r*3. - t*1.1)*.07*exp(-r*.32); }
+    void main(){ vec2 p = vW.xz; float r = length(p); if (vDepth < 0. || r > ${LAKE_EDGE.toFixed(2)}) discard;
+      float e = .04, w0 = wave(p), calm = .55 + .45*smoothstep(0., .5, vDepth);
+      vec3 N = normalize(vec3((w0 - wave(p + vec2(e,0.)))/e*.16*calm, 1., (w0 - wave(p + vec2(0.,e)))/e*.16*calm));
+      vec3 V = normalize(vW - cameraPosition), R = reflect(V, N);
+      float fres = .4 + .6*pow(1. - max(dot(-V, N), 0.), 3.);
+      /* the sky above, mirrored */
+      float up = max(R.y, 0.);
+      vec3 sky = skyCol(normalize(vec3(R.x, up, R.z)), glow, dawn)*1.7;
+      vec2 sp = R.xz/(up + .3)*22.; vec2 cell = floor(sp), o = vec2(h2(cell), h2(cell + 7.13))*.7 + .15; float sd = length(fract(sp) - o);
+      sky += vec3(.72,.78,1.)*exp(-sd*sd*140.)*step(.76, h2(cell + 3.71))*(.55 + .45*sin(t*1.7 + h2(cell)*40.))*1.1;
+      /* the star overhead and the lanterns, stretched into soft streaks by the ripples */
+      float sa = max(dot(R, normalize(star - vW)), 0.);
+      vec3 col = sky + mix(vec3(.6,.88,1.), vec3(.82,.78,1.), glow)*(pow(sa, 1400.)*3. + pow(sa, 90.)*.3 + pow(sa, 12.)*.05)*(.7 + glow*.7 + energy*.5);
+      /* the light column standing on the middle of the lake */
+      float rl = length(R.xz), s = -dot(vW.xz, R.xz)/max(rl*rl, 1e-4), hc = vW.y + R.y*s;
+      float dc = abs(vW.x*R.z - vW.z*R.x)/max(rl, 1e-4);
+      col += vec3(.5,.85,1.)*exp(-dc*dc*3.)*step(0., s)*step(hc, star.y)*(.18 + energy*.35 + glow*.1);
+      for (int i = 0; i < 3; i++){ float la = max(dot(R, normalize(lamps[i] - vW)), 0.); col += vec3(1.,.74,.46)*(pow(la, 700.)*1. + pow(la, 60.)*.07); }
+      /* the body of the water: deep blue-violet, a little lighter over the shallows, a cyan glow rising from the middle */
+      vec3 body = mix(vec3(.06,.07,.15), vec3(.026,.032,.085), smoothstep(0., 1.4, vDepth));
+      body += vec3(.3,.75,.9)*exp(-r*r/(11. + energy*8.))*(.2 + energy*.35 + glow*.14)*(.88 + .12*sin(t*.7));
+      vec3 c = mix(body, col, fres);
+      /* a faint wet line where the water meets the shore, then the edge fades into the ground */
+      c += vec3(.3,.45,.7)*exp(-vDepth*30.)*.14*(.6 + .4*n2(p*5. + t*.2));
+      float a = smoothstep(0., .06, vDepth)*mix(.7, .96, smoothstep(.05, .6, vDepth))*(1. - smoothstep(${(LAKE_EDGE - .6).toFixed(2)}, ${LAKE_EDGE.toFixed(2)}, r));
+      gl_FragColor = vec4(c, a); }` });
+{ const g = new THREE.PlaneGeometry(LAKE_EDGE*2, LAKE_EDGE*2, 110, 110); g.rotateX(-Math.PI/2);
+  const p = g.attributes.position, depth = new Float32Array(p.count); for (let i=0;i<p.count;i++) depth[i] = WATER_Y - groundH(p.getX(i), p.getZ(i));
+  g.setAttribute('depth', new THREE.BufferAttribute(depth, 1));
+  const lake = new THREE.Mesh(g, lakeMat); lake.position.y = WATER_Y; scene.add(lake); }
 
 /* ---------- basalt walls ---------- */
 const cliffCol = (t,c,n,y) => {
@@ -249,6 +283,7 @@ const braziers = [];
   const footG = new THREE.CylinderGeometry(.2,.26,.16,8).translate(0,.08,0), glassG = new THREE.CylinderGeometry(.1,.1,.2,6).translate(0,1.54,0);
   const spots = [[22.6,-1],[22.6,1],[19.7,-1],[16.9,1],[14.1,-1],[11.4,-1],[11.4,1]].map(([z,sd]) => { const x = Math.sin(z*.35)*.8 + sd*1.75; return { x, z, y:groundH(x,z) }; });
   const items = spots.map(o => ({ p:new V3(o.x, o.y - .04, o.z), q:yawQ(o.x*3) }));
+  spots.slice(-3).forEach((o, i) => lakeMat.uniforms.lamps.value[i].set(o.x, o.y + 1.54, o.z));   // the lanterns closest to the lake show in it
   inst(bronzeG, bronze, items, { cast:true }); inst(footG, stone, items, { cast:true, receive:true }); inst(glassG, new THREE.MeshBasicMaterial({ color:0xFFD6A0 }), items);
   spots.forEach(o => {
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xFFB86B, transparent:true, opacity:.6, depthWrite:false, blending:THREE.AdditiveBlending })); glow.position.set(o.x, o.y + 1.54, o.z); glow.scale.setScalar(1.5); scene.add(glow);
@@ -672,7 +707,7 @@ function updateWorld(dt){
   moon.intensity = lerp(.06, .2, L) + D*.04;
   scene.fog.color.copy(fogCol[0]).lerp(fogCol[1], L).lerp(fogCol[2], D*.4); scene.fog.near = lerp(14, 26, L); scene.fog.far = lerp(95, 150, L);
   skyMat.uniforms.glow.value = L; skyMat.uniforms.dawn.value = D;
-  columnMat.uniforms.t.value = T; columnMat.uniforms.fade.value = .1 + ey*.25 + L*.12; lakeMat.uniforms.t.value = T; lakeMat.uniforms.energy.value = ey; lakeMat.uniforms.glow.value = L; fallMat.uniforms.t.value = T; beamMat.uniforms.t.value = T;
+  columnMat.uniforms.t.value = T; columnMat.uniforms.fade.value = .1 + ey*.25 + L*.12; lakeMat.uniforms.t.value = reduceMotion ? 0 : T; lakeMat.uniforms.energy.value = ey; lakeMat.uniforms.glow.value = L; lakeMat.uniforms.dawn.value = D; fallMat.uniforms.t.value = T; beamMat.uniforms.t.value = T;
   if (beamState.life > 0){ beamState.life -= dt; const from = oracle.position.clone(), to = beamState.relic.pos.clone(); const dir = to.clone().sub(from), len = dir.length(); dir.normalize();
     beam.scale.set(1,len,1); beam.position.copy(from).addScaledVector(dir, len/2); beam.quaternion.setFromUnitVectors(UP, dir.clone().negate());
     beamMat.uniforms.rep.value = len/1.5; beamMat.uniforms.fade.value = Math.min(1, beamState.life/.8)*Math.min(1,(3.2-beamState.life)/.25)*1.3;
