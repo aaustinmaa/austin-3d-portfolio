@@ -503,17 +503,29 @@ addEventListener('blur', () => { for (const k in keys) keys[k] = false; P.drawin
 const camS = { yaw:0, pitch:-.12, dist:9 };
 let drag = null, pointer = null; const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
 canvas.addEventListener('contextmenu', e => e.preventDefault());
-canvas.addEventListener('pointerdown', e => { canvas.setPointerCapture(e.pointerId); skipIntro();
+/* while a mouse button is held in aim mode the cursor is locked in place, so a long draw can never run off the screen;
+   it reappears where the press began. Touch and pens keep the plain drag. */
+let unlocking = false;
+const isLocked = () => document.pointerLockElement === canvas;
+function lockPointer(){ try { const p = canvas.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (err) {} }
+function unlockPointer(){ if (isLocked()){ unlocking = true; document.exitPointerLock(); } }
+document.addEventListener('pointerlockchange', () => {
+  if (isLocked()){ if (!drag) unlockPointer(); return; }
+  /* the browser dropped the lock mid-draw on its own (Esc): cancel the shot, as Esc does */
+  if (!unlocking && drag){ drag = null; P.drawing = false; P.draw = 0; } unlocking = false; });
+canvas.addEventListener('pointerdown', e => { try { canvas.setPointerCapture(e.pointerId); } catch (err) {} skipIntro();
   drag = { x:e.clientX, y:e.clientY, moved:false, button:e.button };
+  if (mode === 'aim' && e.pointerType === 'mouse') lockPointer();
   if (mode === 'aim' && e.button === 0){ P.drawing = true; P.draw = 0; } });
-canvas.addEventListener('pointermove', e => { pointer = { x:e.clientX, y:e.clientY, dirty:true }; if (!drag) return; const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+canvas.addEventListener('pointermove', e => { pointer = { x:e.clientX, y:e.clientY, dirty:true }; if (!drag) return;
+  const locked = isLocked(), dx = locked ? e.movementX : e.clientX - drag.x, dy = locked ? e.movementY : e.clientY - drag.y;
   if (!drag.moved && Math.hypot(dx,dy) > 6){ drag.moved = true; if (mode !== 'aim') canvas.classList.add('dragging'); }
   if (drag.moved || mode === 'aim'){ const k = mode === 'aim' ? .0032 : .0055; camS.yaw -= dx*k; camS.pitch = Math.min(gaze ? 1.5 : 1.32, Math.max(-.62, camS.pitch - dy*k*.8)); drag.x = e.clientX; drag.y = e.clientY; gazeT = 9; } });
 canvas.addEventListener('pointerleave', () => { pointer = null; });
-canvas.addEventListener('pointerup', e => { if (!drag) return; const was = drag.moved; drag = null; canvas.classList.remove('dragging');
+canvas.addEventListener('pointerup', e => { if (!drag) return; const was = drag.moved; drag = null; canvas.classList.remove('dragging'); unlockPointer();
   if (mode === 'aim'){ if (P.drawing){ P.drawing = false; if (P.draw > .12) fireManual(); else P.draw = 0; } return; }
   if (!was) clickAt(e.clientX, e.clientY); });
-canvas.addEventListener('pointercancel', () => { drag = null; P.drawing = false; canvas.classList.remove('dragging'); });
+canvas.addEventListener('pointercancel', () => { drag = null; P.drawing = false; canvas.classList.remove('dragging'); unlockPointer(); });
 canvas.addEventListener('wheel', e => { e.preventDefault(); camS.dist = Math.min(20, Math.max(4, camS.dist*(1 + e.deltaY*.0011))); }, { passive:false });
 function clickAt(cx, cy){
   ndc.set(cx/innerWidth*2-1, -(cy/innerHeight)*2+1); ray.setFromCamera(ndc, camera);
