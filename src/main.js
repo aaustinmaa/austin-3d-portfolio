@@ -48,7 +48,7 @@ addEventListener('resize', resize); resize();
 
 /* ---------- night sky: darker at first, lifting toward a deep blue with a warm horizon as the star's light returns ---------- */
 const skyGroup = new THREE.Group(); scene.add(skyGroup);
-/* the sky's colour in a direction; the lake mirrors it with the same function */
+/* the sky's colour in a direction */
 const SKY_GLSL = `
     float h3(vec3 p){ p = fract(p*.3183099 + .1); p *= 17.; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
     float n3(vec3 x){ vec3 i = floor(x), f = fract(x); f = f*f*(3.-2.*f);
@@ -149,14 +149,16 @@ const pickables = [];
 }
 
 /* ---------- lake ---------- */
-/* the lake: calm, clear water. Its surface mirrors the sky above the far shore's pines; the light column, the star overhead
-   and the path lanterns lie on it as glittering paths that shimmer with the faintest stir of the surface. Through the water,
+/* the lake: calm, clear water. Its surface is a true mirror of the valley (see reflectLake below); the light column, the star
+   overhead and the path lanterns also lie on it as glittering paths that shimmer with the faintest stir. Through the water,
    moving caustics play over the lake bed, cyan near the spring in the middle where the relic sleeps and violet further out */
 const LAKE_EDGE = LAKE_R + 3.4;
 const lakeMat = new THREE.ShaderMaterial({ transparent:true,
-  uniforms:{ t:{value:0}, energy:{value:0}, glow:{value:0}, dawn:{value:0}, star:{value:new V3(0, ORACLE_Y, 0)}, lamps:{value:[new V3(0,-99,0), new V3(0,-99,0), new V3(0,-99,0)]} },
-  vertexShader:'attribute float depth; varying vec3 vW; varying float vDepth; void main(){ vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; vDepth = depth; gl_Position = projectionMatrix*viewMatrix*w; }',
-  fragmentShader:`uniform float t; uniform float energy; uniform float glow; uniform float dawn; uniform vec3 star; uniform vec3 lamps[3]; varying vec3 vW; varying float vDepth;${SKY_GLSL}
+  uniforms:{ t:{value:0}, energy:{value:0}, glow:{value:0}, star:{value:new V3(0, ORACLE_Y, 0)}, lamps:{value:[new V3(0,-99,0), new V3(0,-99,0), new V3(0,-99,0)]},
+    mirror:{value:null}, mirrorM:{value:new THREE.Matrix4()} },
+  vertexShader:`attribute float depth; uniform mat4 mirrorM; varying vec3 vW; varying float vDepth; varying vec4 vM;
+    void main(){ vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; vDepth = depth; vM = mirrorM*w; gl_Position = projectionMatrix*viewMatrix*w; }`,
+  fragmentShader:`uniform float t; uniform float energy; uniform float glow; uniform vec3 star; uniform vec3 lamps[3]; uniform sampler2D mirror; varying vec3 vW; varying float vDepth; varying vec4 vM;
     float h2(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
     float n2(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f); return mix(mix(h2(i), h2(i+vec2(1,0)), f.x), mix(h2(i+vec2(0,1)), h2(i+vec2(1,1)), f.x), f.y); }
     /* a reflected light, drawn out into a vertical streak toward the viewer the way calm water does */
@@ -168,42 +170,66 @@ const lakeMat = new THREE.ShaderMaterial({ transparent:true,
         c += 1./length(vec2(p.x/(sin(i.x + k)/.005), p.y/(cos(i.y + k)/.005))); }
       c = 1.17 - pow(c/4., 1.4); return pow(abs(c), 5.); }
     void main(){ vec2 p = vW.xz; float r = length(p); if (vDepth < 0. || r > ${LAKE_EDGE.toFixed(2)}) discard;
-      vec3 V = normalize(vW - cameraPosition), R = vec3(V.x, -V.y, V.z);
-      float fres = .25 + .75*pow(1. - abs(V.y), 4.);
+      vec3 V = normalize(vW - cameraPosition);
+      float fres = .4 + .6*pow(1. - abs(V.y), 3.);
       /* the faintest stir of the surface, only enough to break reflected lights into glitter */
       float e = .06, s0 = n2(p*1.3 + vec2(t*.12, -t*.09)) + n2(p*2.7 - vec2(t*.07, t*.11))*.5;
       vec3 Ng = normalize(vec3((s0 - n2((p + vec2(e,0.))*1.3 + vec2(t*.12, -t*.09)) - n2((p + vec2(e,0.))*2.7 - vec2(t*.07, t*.11))*.5)/e*.035, 1.,
                                 (s0 - n2((p + vec2(0.,e))*1.3 + vec2(t*.12, -t*.09)) - n2((p + vec2(0.,e))*2.7 - vec2(t*.07, t*.11))*.5)/e*.035));
       vec3 Rg = reflect(V, Ng);
-      /* the mirror: sky and its stars above the far shore's dark pines */
-      float az = atan(R.x, R.z), line = .2 + .1*n2(vec2(az*9., 1.3)) + .05*n2(vec2(az*25., 7.1));
-      float rim = smoothstep(-.02, .02, R.y/max(length(R.xz), 1e-4) - line);
-      vec3 col = mix(mix(vec3(.025,.03,.065), vec3(.045,.05,.11), glow), skyCol(R, glow, dawn)*1.9, rim);
-      vec2 sp = R.xz/(R.y + .3)*20.; vec2 cell = floor(sp), o = vec2(h2(cell), h2(cell + 7.13))*.7 + .15; float sd = length(fract(sp) - o);
-      col += rim*vec3(.72,.8,1.)*exp(-sd*sd*160.)*step(.86, h2(cell + 3.71))*.45;
-      /* glitter paths: the light column, the star overhead and the lanterns, broken up by the stir */
+      /* the mirror: the valley drawn upside down under the water, wavering a touch with the stir */
+      vec4 m = vM; m.xy += Ng.xz*.18*m.w;
+      vec3 col = texture2DProj(mirror, m).rgb*vec3(1.45,1.55,1.75);
+      /* glitter paths: the light column, the star overhead and the lanterns, drawn out and broken up by the stir */
       float rl = length(Rg.xz), s = -dot(vW.xz, Rg.xz)/max(rl*rl, 1e-4), hc = vW.y + Rg.y*s, dc = abs(vW.x*Rg.z - vW.z*Rg.x)/max(rl, 1e-4);
-      col += vec3(.5,.88,1.)*exp(-dc*dc*4.)*step(0., s)*step(hc, star.y)*(.35 + energy*.4 + glow*.12);
-      col += mix(vec3(.55,.9,1.), vec3(.8,.78,1.), glow)*streak(Rg, normalize(star - vW), 1400., 60.)*(.7 + glow*.5 + energy*.4);
-      for (int i = 0; i < 3; i++) col += vec3(1.,.76,.5)*streak(Rg, normalize(lamps[i] - vW), 3000., 70.)*.7;
+      col += vec3(.5,.88,1.)*exp(-dc*dc*4.)*step(0., s)*step(hc, star.y)*(.2 + energy*.3 + glow*.08);
+      col += mix(vec3(.55,.9,1.), vec3(.8,.78,1.), glow)*streak(Rg, normalize(star - vW), 1400., 60.)*(.4 + glow*.3 + energy*.3);
+      for (int i = 0; i < 3; i++) col += vec3(1.,.76,.5)*streak(Rg, normalize(lamps[i] - vW), 3000., 70.)*.4;
       /* through the water: clear over the shallows, deep blue-violet further out, the spring glowing in the middle */
       float deep = smoothstep(0., 1.6, vDepth), spring = exp(-r*r/(12. + energy*8.));
-      vec3 body = mix(vec3(.035,.1,.14), vec3(.016,.024,.07), deep) + vec3(.25,.75,.9)*spring*(.5 + energy*.4 + glow*.15);
+      vec3 body = mix(vec3(.035,.1,.14), vec3(.016,.024,.07), deep) + vec3(.25,.75,.9)*spring*(.4 + energy*.4 + glow*.15);
       /* caustics on the lake bed, seen through the water (offset by depth so they sit below the surface) */
       vec2 bed = p + V.xz/max(-V.y, .15)*vDepth*.75;
       float ca = caustic(bed*.16, t*.22)*.7 + caustic(bed*.16*1.7 + 3.1, t*.17)*.3;
       vec3 tint = mix(vec3(.4,.95,1.), vec3(.62,.55,1.), smoothstep(2.5, 9., r + 1.5*sin(t*.08 + atan(p.y, p.x)*2.)));
-      vec3 caus = tint*ca*(.6 + 1.1*spring)*(1. - deep*.5)*smoothstep(0., .25, vDepth)*(.8 + glow*.3 + energy*.4);
+      vec3 caus = tint*ca*(.4 + .8*spring)*(1. - deep*.5)*smoothstep(0., .25, vDepth)*(.8 + glow*.3 + energy*.4);
       float hide = mix(.22, .74, deep), a = fres + (1. - fres)*hide;
       vec3 c = (col*fres + (body*hide + caus)*(1. - fres))/a;
       /* a soft glow breathing along the shore */
       c += vec3(.4,.8,1.)*smoothstep(.16, .02, vDepth)*smoothstep(0., .03, vDepth)*(.08 + .05*sin(t*.8 + atan(p.y, p.x)*3.));
       a *= smoothstep(0., .04, vDepth)*(1. - smoothstep(${(LAKE_EDGE - .6).toFixed(2)}, ${LAKE_EDGE.toFixed(2)}, r));
       gl_FragColor = vec4(c, a); }` });
+let lake;
 { const g = new THREE.PlaneGeometry(LAKE_EDGE*2, LAKE_EDGE*2, 100, 100); g.rotateX(-Math.PI/2);
   const p = g.attributes.position, depth = new Float32Array(p.count); for (let i=0;i<p.count;i++) depth[i] = WATER_Y - groundH(p.getX(i), p.getZ(i));
   g.setAttribute('depth', new THREE.BufferAttribute(depth, 1));
-  const lake = new THREE.Mesh(g, lakeMat); lake.position.y = WATER_Y; scene.add(lake); }
+  lake = new THREE.Mesh(g, lakeMat); lake.position.y = WATER_Y; scene.add(lake); }
+/* the lake's reflection: each frame the lake is in view, the scene is drawn again at half size from a camera mirrored under the
+   water, with an oblique near plane so nothing below the surface shows (the approach of three's Reflector) */
+const mirror = { rt:new THREE.WebGLRenderTarget(1, 1), cam:new THREE.PerspectiveCamera(), size:new THREE.Vector2(), frustum:new THREE.Frustum(), pv:new THREE.Matrix4(),
+  rot:new THREE.Matrix4(), o:new V3(0, WATER_Y, 0), cp:new V3(), view:new V3(), look:new V3(), target:new V3(), plane:new THREE.Plane(), clip:new THREE.Vector4(), q:new THREE.Vector4() };
+lakeMat.uniforms.mirror.value = mirror.rt.texture;
+function reflectLake(){
+  renderer.getDrawingBufferSize(mirror.size); const w = Math.max(1, Math.floor(mirror.size.x/2)), h = Math.max(1, Math.floor(mirror.size.y/2));
+  if (mirror.rt.width !== w || mirror.rt.height !== h) mirror.rt.setSize(w, h);
+  camera.updateMatrixWorld(); mirror.pv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); mirror.frustum.setFromProjectionMatrix(mirror.pv);
+  if (camera.position.y < WATER_Y + .05 || !mirror.frustum.intersectsObject(lake)) return;
+  const { o, cam:c } = mirror, cp = mirror.cp.setFromMatrixPosition(camera.matrixWorld);
+  mirror.view.subVectors(o, cp).reflect(UP).negate().add(o);
+  mirror.rot.extractRotation(camera.matrixWorld);
+  mirror.look.set(0, 0, -1).applyMatrix4(mirror.rot).add(cp);
+  mirror.target.subVectors(o, mirror.look).reflect(UP).negate().add(o);
+  c.position.copy(mirror.view); c.up.set(0, 1, 0).applyMatrix4(mirror.rot).reflect(UP); c.lookAt(mirror.target);
+  c.far = camera.far; c.updateMatrixWorld(); c.projectionMatrix.copy(camera.projectionMatrix);
+  lakeMat.uniforms.mirrorM.value.set(.5,0,0,.5, 0,.5,0,.5, 0,0,.5,.5, 0,0,0,1).multiply(c.projectionMatrix).multiply(c.matrixWorldInverse);
+  mirror.plane.setFromNormalAndCoplanarPoint(UP, mirror.cp.set(0, WATER_Y + .02, 0)).applyMatrix4(c.matrixWorldInverse);
+  const cl = mirror.clip.set(mirror.plane.normal.x, mirror.plane.normal.y, mirror.plane.normal.z, mirror.plane.constant), e = c.projectionMatrix.elements;
+  mirror.q.set((Math.sign(cl.x) + e[8])/e[0], (Math.sign(cl.y) + e[9])/e[5], -1, (1 + e[10])/e[14]);
+  cl.multiplyScalar(2/cl.dot(mirror.q)); e[2] = cl.x; e[6] = cl.y; e[10] = cl.z + 1; e[14] = cl.w;
+  const shadows = renderer.shadowMap.autoUpdate; lake.visible = false; renderer.shadowMap.autoUpdate = false;
+  renderer.setRenderTarget(mirror.rt); renderer.clear(); renderer.render(scene, c); renderer.setRenderTarget(null);
+  renderer.shadowMap.autoUpdate = shadows; lake.visible = true;
+}
 
 /* ---------- basalt walls ---------- */
 const cliffCol = (t,c,n,y) => {
@@ -720,7 +746,7 @@ function updateWorld(dt){
   moon.intensity = lerp(.06, .2, L) + D*.04;
   scene.fog.color.copy(fogCol[0]).lerp(fogCol[1], L).lerp(fogCol[2], D*.4); scene.fog.near = lerp(14, 26, L); scene.fog.far = lerp(95, 150, L);
   skyMat.uniforms.glow.value = L; skyMat.uniforms.dawn.value = D;
-  columnMat.uniforms.t.value = T; columnMat.uniforms.fade.value = .1 + ey*.25 + L*.12; lakeMat.uniforms.t.value = reduceMotion ? 0 : T; lakeMat.uniforms.energy.value = ey; lakeMat.uniforms.glow.value = L; lakeMat.uniforms.dawn.value = D; fallMat.uniforms.t.value = T; beamMat.uniforms.t.value = T;
+  columnMat.uniforms.t.value = T; columnMat.uniforms.fade.value = .1 + ey*.25 + L*.12; lakeMat.uniforms.t.value = reduceMotion ? 0 : T; lakeMat.uniforms.energy.value = ey; lakeMat.uniforms.glow.value = L; fallMat.uniforms.t.value = T; beamMat.uniforms.t.value = T;
   if (beamState.life > 0){ beamState.life -= dt; const from = oracle.position.clone(), to = beamState.relic.pos.clone(); const dir = to.clone().sub(from), len = dir.length(); dir.normalize();
     beam.scale.set(1,len,1); beam.position.copy(from).addScaledVector(dir, len/2); beam.quaternion.setFromUnitVectors(UP, dir.clone().negate());
     beamMat.uniforms.rep.value = len/1.5; beamMat.uniforms.fade.value = Math.min(1, beamState.life/.8)*Math.min(1,(3.2-beamState.life)/.25)*1.3;
@@ -842,7 +868,7 @@ function simulate(dt){
 }
 function frame(now){
   const dt = Math.min(.05, (now-last)/1000); last = now;
-  simulate(dt); renderer.render(scene, camera); requestAnimationFrame(frame);
+  simulate(dt); reflectLake(); renderer.render(scene, camera); requestAnimationFrame(frame);
 }
 RELICS.forEach(r => { if (r.state === 'orbit') orbitPos(r, r.pos); });
 requestAnimationFrame(frame);
@@ -851,4 +877,4 @@ if (!intro) setTimeout(welcome, 600);
 
 /* dev-only handle for poking at the scene from the browser console; stripped from production builds */
 if (import.meta.env.DEV) window.__valley = { P, camS, RELICS, sky, oracle, world, colliders, summon, setGaze, scene, camera, renderer, keys, fireArrow, arrows,
-  step(n=60, dt=1/60){ for (let i=0;i<n;i++) simulate(dt); renderer.render(scene, camera); } };
+  step(n=60, dt=1/60){ for (let i=0;i<n;i++) simulate(dt); reflectLake(); renderer.render(scene, camera); } };
