@@ -524,7 +524,9 @@ function glideToShore(){
 
 /* ---------- arrows: guided arrows fly to their relic; drawn arrows stick in whatever they meet ---------- */
 const arrows = [];
-const ARROW_TRAIL_POINTS = 14, ARROW_TRAIL_SECONDS = .15, ARROW_TRAIL_MAX_LENGTH = 8;
+const ARROW_TRAIL_POINTS = 14;
+// Preserve the original 60 FPS look: 14 samples span 13 frame intervals.
+const ARROW_TRAIL_SECONDS = (ARROW_TRAIL_POINTS - 1)/60;
 const arrowShaft = new THREE.CylinderGeometry(.018,.018,1,5).rotateX(Math.PI/2);
 const fletchGeo = new THREE.ConeGeometry(.05,.14,3).rotateX(-Math.PI/2).translate(0,0,-.46);
 function bowWorld(){ return hero.localToWorld(H.bow.position.clone()); }
@@ -542,20 +544,14 @@ function updateArrowTrail(a){
   // Keep one sample before the cutoff so the tail can be interpolated exactly.
   while (history.length > 2 && history[1].time <= cutoff) history.shift();
   const attr = a.trail.geometry.attributes.position, tp = attr.array;
-  let segment = history.length - 2, length = 0;
+  let segment = history.length - 2;
   for (let i=0;i<ARROW_TRAIL_POINTS;i++){
     const time = Math.max(history[0].time, a.age - i/(ARROW_TRAIL_POINTS-1)*ARROW_TRAIL_SECONDS);
     while (segment > 0 && history[segment].time > time) segment--;
     const lo = history[segment], hi = history[segment+1];
     const span = hi.time - lo.time, t = span > 0 ? (time - lo.time)/span : 0;
-    let x = lerp(lo.pos.x, hi.pos.x, t), y = lerp(lo.pos.y, hi.pos.y, t), z = lerp(lo.pos.z, hi.pos.z, t);
     const j = i*3;
-    if (i > 0){
-      const dx = x - tp[j-3], dy = y - tp[j-2], dz = z - tp[j-1], d = Math.hypot(dx,dy,dz);
-      const keep = d > 0 ? Math.min(1, Math.max(0, ARROW_TRAIL_MAX_LENGTH-length)/d) : 0;
-      x = tp[j-3] + dx*keep; y = tp[j-2] + dy*keep; z = tp[j-1] + dz*keep; length += d*keep;
-    }
-    tp[j] = x; tp[j+1] = y; tp[j+2] = z;
+    tp[j] = lerp(lo.pos.x, hi.pos.x, t); tp[j+1] = lerp(lo.pos.y, hi.pos.y, t); tp[j+2] = lerp(lo.pos.z, hi.pos.z, t);
   }
   attr.needsUpdate = true;
 }
