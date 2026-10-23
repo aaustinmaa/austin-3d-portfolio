@@ -70,20 +70,28 @@ export function buildHero(scene){
   panel(gridGeo(2, 64, (u,v,p) => { coatAt(u, .985 + v*.015, p); p.x *= 1.004; p.z *= 1.004; }, new V3(0,.15,0)), body, 'coat', (u,v) => coatWeight(u, .985 + v*.015), 'hero-hem', edgeCloth);
 
   const head = new THREE.Group(); head.position.set(0,1.13,0); body.add(head);
-  /* Sewn hood panels run back from a forward-facing front edge to a curved rear seam. The front arch is an
-     independent boundary: raising its crown never pulls it back over the head like a hole in a rounded shell. */
+  /* A small pointed arch frames the face. Its lower corners spread and fall toward the neck like the reference
+     hood; the cloth behind the opening stays full enough to cover the head. */
   const faceY = -.035 + headLift, faceZ = -.018;
+  const rimPoint = new V3(), rimCurves = [
+    new THREE.CubicBezierCurve3(new V3(0,faceY+.225,.365), new V3(.065,faceY+.170,.365), new V3(.165,faceY+.125,.325), new V3(.175,faceY+.025,.300)),
+    new THREE.CubicBezierCurve3(new V3(.175,faceY+.025,.300), new V3(.177,faceY-.065,.285), new V3(.205,faceY-.180,.260), new V3(.210,faceY-.230,.245)),
+    new THREE.CubicBezierCurve3(new V3(.210,faceY-.230,.245), new V3(.140,faceY-.230,.245), new V3(.060,faceY-.200,.250), new V3(0,faceY-.200,.250)),
+  ];
   const hoodAt = (u, depth, out) => {
     const a = u*Math.PI*2, c = Math.cos(a), sn = Math.sin(a);
     const top = smooth(c, .25, 1), bottom = smooth(-c, .25, 1);
-    const rimX = .285*sn*(1-.16*bottom), rimY = faceY-.015 + .305*c;
-    const rimZ = .280 + .085*smooth(c, -.15, .90) - .045*bottom;
+    const half = u <= .5 ? u*2 : (1-u)*2;
+    if (half < .48) rimCurves[0].getPoint(half/.48,rimPoint);
+    else if (half < .82) rimCurves[1].getPoint((half-.48)/.34,rimPoint);
+    else rimCurves[2].getPoint((half-.82)/.18,rimPoint);
+    const rimX = rimPoint.x*(u <= .5 ? 1 : -1), rimY = rimPoint.y, rimZ = rimPoint.z;
     const seamX = -.012 - .068*top, seamY = -.31 + .83*(c+1)/2;
     const seamZ = -.325 - .055*top + .125*bottom;
     const t = depth, s = 1-t, b0 = s*s*s, b1 = 3*s*s*t, b2 = 3*s*t*t, b3 = t*t*t;
     const fold = Math.sin(Math.PI*t)**2*(1-top);
     return out.set(
-      b0*rimX + b1*rimX*1.32 + b2*(rimX*1.12 + seamX*.45) + b3*seamX + .004*sn*Math.sin(a*5+t*4)*fold,
+      b0*rimX + b1*.340*sn + b2*(.350*sn + seamX*.45) + b3*seamX + .004*sn*Math.sin(a*5+t*4)*fold,
       b0*rimY + b1*(rimY+.020*top-.035*bottom) + b2*(seamY-.040*top-.010*bottom) + b3*seamY - .008*fold,
       b0*rimZ + b1*THREE.MathUtils.lerp(rimZ,seamZ,.16) + b2*THREE.MathUtils.lerp(rimZ,seamZ,.88) + b3*seamZ);
   };
@@ -100,7 +108,9 @@ export function buildHero(scene){
   panel(gridGeo(12, 64, (u,v,p) => {
     const a = u*Math.PI*2, folds = (.006*Math.sin(a*7+.3) + .003*Math.sin(a*11))*v*v;
     const r = .205 + .18*v + folds;
-    return p.set(Math.sin(a)*r, -.125 - v*.19 + .012*Math.cos(a*3)*v*v, -.015 + Math.cos(a)*r*.82);
+    const clasp = smooth(Math.cos(a),.35,1)*(1-v)*(1-v);
+    return p.set(Math.sin(a)*r, -.125 - v*.19 + .012*Math.cos(a*3)*v*v + .060*clasp,
+      -.015 + Math.cos(a)*r*.82 + .097*clasp);
   }, new V3(0,-.25,0)), head, 'hood', (u,v) => .12*v*v, 'hero-cowl');
   /* inside the hood: a face in shadow with two small glowing eyes */
   const face = new THREE.Group(); face.position.set(0,faceY,faceZ); head.add(face);

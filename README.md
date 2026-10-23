@@ -4,7 +4,7 @@ A dark valley under a sleeping star. Austin's projects and experience drift over
 
 Built with [three.js](https://threejs.org/) and [Vite](https://vitejs.dev/). No other runtime dependencies.
 
-The wanderer wears a pale, thin woven robe and a sewn hood with a pointed back and a short neck drape. Cloth panels run from a rounded front edge back to the rear seam, so the upper opening projects forward over the forehead as a real hood does. Subtle movement at the hem, cuffs and rear hood tip uses CPU vertex deformation in the existing three.js r128 runtime, including gentle inertia when starting, stopping and turning. The face opening and shoulders stay anchored, and cloth motion respects `prefers-reduced-motion`.
+The wanderer wears a pale, thin woven robe and a sewn hood with a pointed back and a short neck drape. Cloth panels run from a small pointed front opening back to the rear seam. The upper arch projects forward over the forehead, while the lower corners fall outward and down toward the neck. Subtle movement at the hem, cuffs and rear hood tip uses CPU vertex deformation in the existing three.js r128 runtime, including gentle inertia when starting, stopping and turning. The face opening and shoulders stay anchored, and cloth motion respects `prefers-reduced-motion`.
 
 ## Run it locally
 
