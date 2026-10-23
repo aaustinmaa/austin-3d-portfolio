@@ -149,9 +149,9 @@ const pickables = [];
 }
 
 /* ---------- lake ---------- */
-/* the lake: calm, clear water. Its surface is a true mirror of the valley (see reflectLake below); the light column, the star
-   overhead and the path lanterns also lie on it as glittering paths that shimmer with the faintest stir. Through the water,
-   moving caustics play over the lake bed, cyan near the spring in the middle where the relic sleeps and violet further out */
+/* the lake: still, clear water. Its flat surface is a true mirror of the valley (see reflectLake below), with the light column,
+   the star overhead and the path lanterns drawn out into soft paths of light the way calm water does. Through the water the
+   shallows are clear, deeper water turns blue-violet, and the spring in the middle where the relic sleeps glows cyan */
 const LAKE_EDGE = LAKE_R + 3.4;
 const lakeMat = new THREE.ShaderMaterial({ transparent:true,
   uniforms:{ t:{value:0}, energy:{value:0}, glow:{value:0}, star:{value:new V3(0, ORACLE_Y, 0)}, lamps:{value:[new V3(0,-99,0), new V3(0,-99,0), new V3(0,-99,0)]},
@@ -159,58 +159,38 @@ const lakeMat = new THREE.ShaderMaterial({ transparent:true,
   vertexShader:`attribute float depth; uniform mat4 mirrorM; varying vec3 vW; varying float vDepth; varying vec4 vM;
     void main(){ vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; vDepth = depth; vM = mirrorM*w; gl_Position = projectionMatrix*viewMatrix*w; }`,
   fragmentShader:`uniform float t; uniform float energy; uniform float glow; uniform vec3 star; uniform vec3 lamps[3]; uniform sampler2D mirror; varying vec3 vW; varying float vDepth; varying vec4 vM;
-    float h2(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
-    float n2(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f); return mix(mix(h2(i), h2(i+vec2(1,0)), f.x), mix(h2(i+vec2(0,1)), h2(i+vec2(1,1)), f.x), f.y); }
-    /* a reflected light, drawn out into a vertical streak toward the viewer the way calm water does */
+    /* a reflected light, drawn out into a vertical path toward the viewer the way calm water does */
     float streak(vec3 R, vec3 L, float w, float len){ float az = acos(clamp(dot(normalize(R.xz), normalize(L.xz)), -1., 1.)), el = asin(clamp(R.y, -1., 1.)) - asin(clamp(L.y, -1., 1.));
       return exp(-az*az*w - el*el*len); }
-    /* sunlight-through-water caustics: a soft web of light that slowly reforms */
-    float caustic(vec2 uv, float tm){ vec2 p = mod(uv*6.2832, 6.2832) - 250., i = p; float c = 1.;
-      for (int n = 0; n < 4; n++){ float k = tm*(1. - 3.5/float(n + 1)); i = p + vec2(cos(k - i.x) + sin(k + i.y), sin(k - i.y) + cos(k + i.x));
-        c += 1./length(vec2(p.x/(sin(i.x + k)/.005), p.y/(cos(i.y + k)/.005))); }
-      c = 1.17 - pow(c/4., 1.4); return pow(abs(c), 5.); }
     void main(){ vec2 p = vW.xz; float r = length(p); if (vDepth < 0. || r > ${LAKE_EDGE.toFixed(2)}) discard;
-      vec3 V = normalize(vW - cameraPosition);
-      float fres = .4 + .6*pow(1. - abs(V.y), 3.);
-      /* the faintest stir of the surface, only enough to break reflected lights into glitter */
-      float e = .06, s0 = n2(p*1.3 + vec2(t*.12, -t*.09)) + n2(p*2.7 - vec2(t*.07, t*.11))*.5;
-      vec3 Ng = normalize(vec3((s0 - n2((p + vec2(e,0.))*1.3 + vec2(t*.12, -t*.09)) - n2((p + vec2(e,0.))*2.7 - vec2(t*.07, t*.11))*.5)/e*.035, 1.,
-                                (s0 - n2((p + vec2(0.,e))*1.3 + vec2(t*.12, -t*.09)) - n2((p + vec2(0.,e))*2.7 - vec2(t*.07, t*.11))*.5)/e*.035));
-      vec3 Rg = reflect(V, Ng);
-      /* the mirror: the valley drawn upside down under the water, wavering a touch with the stir */
-      vec4 m = vM; m.xy += Ng.xz*.18*m.w;
-      vec3 col = texture2DProj(mirror, m).rgb*vec3(1.45,1.55,1.75);
-      /* glitter paths: the light column, the star overhead and the lanterns, drawn out and broken up by the stir */
-      float rl = length(Rg.xz), s = -dot(vW.xz, Rg.xz)/max(rl*rl, 1e-4), hc = vW.y + Rg.y*s, dc = abs(vW.x*Rg.z - vW.z*Rg.x)/max(rl, 1e-4);
-      col += vec3(.5,.88,1.)*exp(-dc*dc*4.)*step(0., s)*step(hc, star.y)*(.2 + energy*.3 + glow*.08);
-      col += mix(vec3(.55,.9,1.), vec3(.8,.78,1.), glow)*streak(Rg, normalize(star - vW), 1400., 60.)*(.4 + glow*.3 + energy*.3);
-      for (int i = 0; i < 3; i++) col += vec3(1.,.76,.5)*streak(Rg, normalize(lamps[i] - vW), 3000., 70.)*.4;
+      vec3 V = normalize(vW - cameraPosition), R = vec3(V.x, -V.y, V.z);
+      float fres = .45 + .55*pow(1. - abs(V.y), 3.);
+      /* the mirror: the valley drawn upside down under the water */
+      vec3 col = texture2DProj(mirror, vM).rgb*vec3(1.3,1.38,1.55);
+      /* soft paths of light under the light column, the star overhead and the lanterns */
+      float rl = length(R.xz), s = -dot(vW.xz, R.xz)/max(rl*rl, 1e-4), hc = vW.y + R.y*s, dc = abs(vW.x*R.z - vW.z*R.x)/max(rl, 1e-4);
+      col += vec3(.5,.88,1.)*exp(-dc*dc*3.)*step(0., s)*step(hc, star.y)*(.14 + energy*.3 + glow*.06);
+      col += mix(vec3(.55,.9,1.), vec3(.8,.78,1.), glow)*streak(R, normalize(star - vW), 900., 50.)*(.3 + glow*.25 + energy*.3);
+      for (int i = 0; i < 3; i++) col += vec3(1.,.76,.5)*streak(R, normalize(lamps[i] - vW), 2400., 60.)*.25;
       /* through the water: clear over the shallows, deep blue-violet further out, the spring glowing in the middle */
       float deep = smoothstep(0., 1.6, vDepth), spring = exp(-r*r/(12. + energy*8.));
-      vec3 body = mix(vec3(.035,.1,.14), vec3(.016,.024,.07), deep) + vec3(.25,.75,.9)*spring*(.4 + energy*.4 + glow*.15);
-      /* caustics on the lake bed, seen through the water (offset by depth so they sit below the surface) */
-      vec2 bed = p + V.xz/max(-V.y, .15)*vDepth*.75;
-      float ca = caustic(bed*.16, t*.22)*.7 + caustic(bed*.16*1.7 + 3.1, t*.17)*.3;
-      vec3 tint = mix(vec3(.4,.95,1.), vec3(.62,.55,1.), smoothstep(2.5, 9., r + 1.5*sin(t*.08 + atan(p.y, p.x)*2.)));
-      vec3 caus = tint*ca*(.4 + .8*spring)*(1. - deep*.5)*smoothstep(0., .25, vDepth)*(.8 + glow*.3 + energy*.4);
-      float hide = mix(.22, .74, deep), a = fres + (1. - fres)*hide;
-      vec3 c = (col*fres + (body*hide + caus)*(1. - fres))/a;
-      /* a soft glow breathing along the shore */
-      c += vec3(.4,.8,1.)*smoothstep(.16, .02, vDepth)*smoothstep(0., .03, vDepth)*(.08 + .05*sin(t*.8 + atan(p.y, p.x)*3.));
-      a *= smoothstep(0., .04, vDepth)*(1. - smoothstep(${(LAKE_EDGE - .6).toFixed(2)}, ${LAKE_EDGE.toFixed(2)}, r));
+      vec3 body = mix(vec3(.03,.08,.12), vec3(.014,.02,.06), deep) + vec3(.25,.75,.9)*spring*(.35 + energy*.4 + glow*.12)*(.9 + .1*sin(t*.6));
+      float hide = mix(.25, .78, deep), a = fres + (1. - fres)*hide;
+      vec3 c = (col*fres + body*hide*(1. - fres))/a;
+      a *= smoothstep(0., .05, vDepth)*(1. - smoothstep(${(LAKE_EDGE - .6).toFixed(2)}, ${LAKE_EDGE.toFixed(2)}, r));
       gl_FragColor = vec4(c, a); }` });
 let lake;
 { const g = new THREE.PlaneGeometry(LAKE_EDGE*2, LAKE_EDGE*2, 100, 100); g.rotateX(-Math.PI/2);
   const p = g.attributes.position, depth = new Float32Array(p.count); for (let i=0;i<p.count;i++) depth[i] = WATER_Y - groundH(p.getX(i), p.getZ(i));
   g.setAttribute('depth', new THREE.BufferAttribute(depth, 1));
   lake = new THREE.Mesh(g, lakeMat); lake.position.y = WATER_Y; scene.add(lake); }
-/* the lake's reflection: each frame the lake is in view, the scene is drawn again at half size from a camera mirrored under the
-   water, with an oblique near plane so nothing below the surface shows (the approach of three's Reflector) */
-const mirror = { rt:new THREE.WebGLRenderTarget(1, 1), cam:new THREE.PerspectiveCamera(), size:new THREE.Vector2(), frustum:new THREE.Frustum(), pv:new THREE.Matrix4(),
+/* the lake's reflection: each frame the lake is in view, the scene is drawn again at three-quarter size (multisampled where WebGL2 allows)
+   from a camera mirrored under the water, with an oblique near plane so nothing below the surface shows (three's Reflector approach) */
+const mirror = { rt:renderer.capabilities.isWebGL2 ? new THREE.WebGLMultisampleRenderTarget(1, 1) : new THREE.WebGLRenderTarget(1, 1), cam:new THREE.PerspectiveCamera(), size:new THREE.Vector2(), frustum:new THREE.Frustum(), pv:new THREE.Matrix4(),
   rot:new THREE.Matrix4(), o:new V3(0, WATER_Y, 0), cp:new V3(), view:new V3(), look:new V3(), target:new V3(), plane:new THREE.Plane(), clip:new THREE.Vector4(), q:new THREE.Vector4() };
 lakeMat.uniforms.mirror.value = mirror.rt.texture;
 function reflectLake(){
-  renderer.getDrawingBufferSize(mirror.size); const w = Math.max(1, Math.floor(mirror.size.x/2)), h = Math.max(1, Math.floor(mirror.size.y/2));
+  renderer.getDrawingBufferSize(mirror.size); const w = Math.max(1, Math.round(mirror.size.x*.75)), h = Math.max(1, Math.round(mirror.size.y*.75));
   if (mirror.rt.width !== w || mirror.rt.height !== h) mirror.rt.setSize(w, h);
   camera.updateMatrixWorld(); mirror.pv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse); mirror.frustum.setFromProjectionMatrix(mirror.pv);
   if (camera.position.y < WATER_Y + .05 || !mirror.frustum.intersectsObject(lake)) return;
