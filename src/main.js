@@ -149,8 +149,8 @@ const pickables = [];
 }
 
 /* ---------- lake ---------- */
-/* still night water: a dark blue-violet body lit from below by the relic asleep in the middle, a mirror of the sky, its stars,
-   the star overhead and the nearest path lanterns, broken up by slow swells and soft rings where the light column meets it */
+/* still night water: clear and mirror-like, reflecting the sky, its stars, the star overhead and the nearest path lanterns,
+   lit from below by the relic asleep in the middle, and broken up by slow swells and soft rings where the light column meets it */
 const LAKE_EDGE = LAKE_R + 3.4;
 const lakeMat = new THREE.ShaderMaterial({ transparent:true,
   uniforms:{ t:{value:0}, energy:{value:0}, glow:{value:0}, dawn:{value:0}, star:{value:new V3(0, ORACLE_Y, 0)}, lamps:{value:[new V3(0,-99,0), new V3(0,-99,0), new V3(0,-99,0)]} },
@@ -159,33 +159,40 @@ const lakeMat = new THREE.ShaderMaterial({ transparent:true,
     float h2(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
     float n2(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f); return mix(mix(h2(i), h2(i+vec2(1,0)), f.x), mix(h2(i+vec2(0,1)), h2(i+vec2(1,1)), f.x), f.y); }
     float wave(vec2 p){ float r = length(p);
-      return n2(p*.6 + vec2(t*.06, t*.04))*.55 + n2(p*1.5 - vec2(t*.09, -t*.05))*.28 + n2(p*3.6 + vec2(-t*.15, t*.12))*.09
-        + sin(r*3. - t*1.1)*.07*exp(-r*.32); }
+      return n2(p*.6 + vec2(t*.035, t*.025))*.55 + n2(p*1.5 - vec2(t*.05, -t*.03))*.28 + n2(p*3.6 + vec2(-t*.08, t*.06))*.08
+        + sin(r*3. - t*.5)*.05*exp(-r*.32); }
     void main(){ vec2 p = vW.xz; float r = length(p); if (vDepth < 0. || r > ${LAKE_EDGE.toFixed(2)}) discard;
       float e = .04, w0 = wave(p), calm = .55 + .45*smoothstep(0., .5, vDepth);
-      vec3 N = normalize(vec3((w0 - wave(p + vec2(e,0.)))/e*.16*calm, 1., (w0 - wave(p + vec2(0.,e)))/e*.16*calm));
+      vec3 N = normalize(vec3((w0 - wave(p + vec2(e,0.)))/e*.12*calm, 1., (w0 - wave(p + vec2(0.,e)))/e*.12*calm));
       vec3 V = normalize(vW - cameraPosition), R = reflect(V, N);
-      float fres = .4 + .6*pow(1. - max(dot(-V, N), 0.), 3.);
-      /* the sky above, mirrored */
+      float fres = .35 + .65*pow(1. - max(dot(-V, N), 0.), 3.);
+      /* the sky above, mirrored; its stars are read through a calmer surface so they drift instead of flickering */
       float up = max(R.y, 0.);
-      vec3 sky = skyCol(normalize(vec3(R.x, up, R.z)), glow, dawn)*1.7;
-      vec2 sp = R.xz/(up + .3)*22.; vec2 cell = floor(sp), o = vec2(h2(cell), h2(cell + 7.13))*.7 + .15; float sd = length(fract(sp) - o);
-      sky += vec3(.72,.78,1.)*exp(-sd*sd*140.)*step(.76, h2(cell + 3.71))*(.55 + .45*sin(t*1.7 + h2(cell)*40.))*1.1;
+      vec3 sky = skyCol(normalize(vec3(R.x, up, R.z)), glow, dawn)*2.;
+      vec3 Rs = reflect(V, normalize(mix(N, vec3(0.,1.,0.), .7)));
+      /* the far shore's pines, mirrored as a low soft dark rim under the reflected sky */
+      float az = atan(Rs.x, Rs.z), line = .2 + .1*n2(vec2(az*9., 1.3)) + .05*n2(vec2(az*25., 7.1));
+      float rim = smoothstep(-.07, .07, max(Rs.y, 0.)/max(length(Rs.xz), 1e-4) - line);
+      sky = mix(mix(vec3(.02,.024,.055), vec3(.04,.045,.1), glow), sky, rim);
+      vec2 sp = Rs.xz/(max(Rs.y, 0.) + .3)*22.; vec2 cell = floor(sp), o = vec2(h2(cell), h2(cell + 7.13))*.7 + .15; float sd = length(fract(sp) - o);
+      sky += rim*vec3(.72,.78,1.)*exp(-sd*sd*220.)*step(.87, h2(cell + 3.71))*(.75 + .25*sin(t*.4 + h2(cell)*40.))*.4;
       /* the star overhead and the lanterns, stretched into soft streaks by the ripples */
       float sa = max(dot(R, normalize(star - vW)), 0.);
-      vec3 col = sky + mix(vec3(.6,.88,1.), vec3(.82,.78,1.), glow)*(pow(sa, 1400.)*3. + pow(sa, 90.)*.3 + pow(sa, 12.)*.05)*(.7 + glow*.7 + energy*.5);
+      vec3 col = sky + mix(vec3(.6,.88,1.), vec3(.82,.78,1.), glow)*(pow(sa, 900.)*1.4 + pow(sa, 90.)*.3 + pow(sa, 12.)*.05)*(.7 + glow*.7 + energy*.5);
       /* the light column standing on the middle of the lake */
       float rl = length(R.xz), s = -dot(vW.xz, R.xz)/max(rl*rl, 1e-4), hc = vW.y + R.y*s;
       float dc = abs(vW.x*R.z - vW.z*R.x)/max(rl, 1e-4);
       col += vec3(.5,.85,1.)*exp(-dc*dc*3.)*step(0., s)*step(hc, star.y)*(.18 + energy*.35 + glow*.1);
-      for (int i = 0; i < 3; i++){ float la = max(dot(R, normalize(lamps[i] - vW)), 0.); col += vec3(1.,.74,.46)*(pow(la, 700.)*1. + pow(la, 60.)*.07); }
-      /* the body of the water: deep blue-violet, a little lighter over the shallows, a cyan glow rising from the middle */
-      vec3 body = mix(vec3(.06,.07,.15), vec3(.026,.032,.085), smoothstep(0., 1.4, vDepth));
-      body += vec3(.3,.75,.9)*exp(-r*r/(11. + energy*8.))*(.2 + energy*.35 + glow*.14)*(.88 + .12*sin(t*.7));
-      vec3 c = mix(body, col, fres);
+      for (int i = 0; i < 3; i++){ float la = max(dot(R, normalize(lamps[i] - vW)), 0.); col += vec3(1.,.74,.46)*(pow(la, 450.)*.55 + pow(la, 60.)*.06); }
+      /* the water itself: clear over the shallows, a deeper blue-violet further out, a cyan glow rising from the middle.
+         Where it reflects it is a mirror; elsewhere the lake bed shows through */
+      vec3 body = mix(vec3(.05,.06,.13), vec3(.022,.03,.08), smoothstep(0., 1.4, vDepth));
+      body += vec3(.3,.75,.9)*exp(-r*r/(11. + energy*8.))*(.24 + energy*.35 + glow*.14)*(.9 + .1*sin(t*.5));
+      float hide = mix(.12, .6, smoothstep(0., 1.8, vDepth)), a = fres + (1. - fres)*hide;
+      vec3 c = (col*fres + body*(1. - fres)*hide)/a;
       /* a faint wet line where the water meets the shore, then the edge fades into the ground */
-      c += vec3(.3,.45,.7)*exp(-vDepth*30.)*.14*(.6 + .4*n2(p*5. + t*.2));
-      float a = smoothstep(0., .06, vDepth)*mix(.7, .96, smoothstep(.05, .6, vDepth))*(1. - smoothstep(${(LAKE_EDGE - .6).toFixed(2)}, ${LAKE_EDGE.toFixed(2)}, r));
+      c += vec3(.3,.45,.7)*exp(-vDepth*30.)*.12*(.6 + .4*n2(p*5. + t*.1));
+      a *= smoothstep(0., .06, vDepth)*(1. - smoothstep(${(LAKE_EDGE - .6).toFixed(2)}, ${LAKE_EDGE.toFixed(2)}, r));
       gl_FragColor = vec4(c, a); }` });
 { const g = new THREE.PlaneGeometry(LAKE_EDGE*2, LAKE_EDGE*2, 110, 110); g.rotateX(-Math.PI/2);
   const p = g.attributes.position, depth = new Float32Array(p.count); for (let i=0;i<p.count;i++) depth[i] = WATER_Y - groundH(p.getX(i), p.getZ(i));
