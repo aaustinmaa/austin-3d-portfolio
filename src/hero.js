@@ -8,7 +8,7 @@ const V3 = THREE.Vector3;
 /* the bow, in its own space: the limbs bulge toward +x, the string runs between the tips at x = TIP_X */
 export const TIP_X = .08, TIP_Y = .42, GRIP_X = .34;
 /* Leave room in front of the robe for the drawing hand and the fully drawn string. */
-export const BOW_REST = new V3(-.36,.6,-.16), BOW_AIM = new V3(-.06,1.0,.47);
+export const BOW_REST = new V3(-.30,.6,-.14), BOW_AIM = new V3(-.06,1.0,.47);
 export const BOW_TURN = new THREE.Quaternion().setFromAxisAngle(new V3(0,1,0), -Math.PI/2);
 
 const COL = { cloth:0xD2CFE2, sheen:0x777B96, glowBase:0x414164, lining:0x34334C, shade:0x14142A, gold:0xE6C27E, eye:0xCFF6FF, glass:0xFFD9A0 };
@@ -144,9 +144,9 @@ export function buildHero(scene){
   /* A curved sleeve cap joins each sleeve to an oval armhole on the robe. The shoulder seam stays on the
      torso while the lower sleeve follows the arm; only the cuff has an exposed open edge. */
   const sleeves = [], hands = [];
-  const arms = [-1,1].map(sd => { const a = new THREE.Group(); a.position.set(sd*.225,.90,0); body.add(a);
+  const arms = [-1,1].map(sd => { const a = new THREE.Group(); a.position.set(sd*.215,.90,0); body.add(a);
     const sleeve = new THREE.Group(); a.add(sleeve); sleeves.push(sleeve);
-    const sleeveAt = (u,v,p) => { const ang = u*Math.PI*2, r = .072 - v*.012 + Math.sin(ang*5 + v)*.005*v;
+    const sleeveAt = (u,v,p) => { const ang = u*Math.PI*2, r = .066 - v*.010 + Math.sin(ang*5 + v)*.005*v;
       return p.set(Math.sin(ang)*r, -v*.28, Math.cos(ang)*r); };
     const sleeveMesh = panel(gridGeo(20, 32, sleeveAt, new V3(0,-.12,0)), sleeve, 'sleeve', (u,v) => v*v*.35, `hero-sleeve-${sd < 0 ? 'left' : 'right'}`);
     const cols = 32, capEnd = .4, array = () => new Float32Array((cols+1)*3);
@@ -156,9 +156,9 @@ export function buildHero(scene){
       const u = j/cols, ang = u*Math.PI*2, side = sd*Math.sin(ang), top = smooth(side,-.5,.8);
       coatAt((sd > 0 ? .25 : .75)-sd*.05*Math.cos(ang),.16-.08*side,point);
       point.x *= .997; point.z *= .997; point.toArray(shoulder.anchors,j*3);
-      shoulder.bulges.set([sd*.025*top,.025*top,0],j*3);
+      shoulder.bulges.set([sd*.010*top,.020*top,0],j*3);
       sleeveAt(u,capEnd,point); point.toArray(shoulder.ends,j*3);
-      const dr = -.012 + .005*Math.sin(ang*5+capEnd) + .005*capEnd*Math.cos(ang*5+capEnd);
+      const dr = -.010 + .005*Math.sin(ang*5+capEnd) + .005*capEnd*Math.cos(ang*5+capEnd);
       guide.set(Math.sin(ang)*dr,-.28,Math.cos(ang)*dr).multiplyScalar(-capEnd/3).add(point);
       guide.toArray(shoulder.guides,j*3);
     }
@@ -169,7 +169,7 @@ export function buildHero(scene){
 
   /* The right palm grips the top of a real loop handle, slightly forward of the hip. A small hip hook
      supports the same handle when that hand is needed to draw the bow. */
-  const lanternPivot = new THREE.Group(); lanternPivot.position.set(.36,.60,.24); body.add(lanternPivot);
+  const lanternPivot = new THREE.Group(); lanternPivot.position.set(.32,.60,.26); body.add(lanternPivot);
   const handleCurve = new THREE.CatmullRomCurve3([[-.05,-.13,0],[-.045,-.035,0],[0,0,0],[.045,-.035,0],[.05,-.13,0]].map(p => new V3(...p)));
   const handle = mesh(new THREE.TubeGeometry(handleCurve,24,.008,6),goldMat,lanternPivot,false); handle.name = 'hero-lantern-handle';
   const hookCurve = new THREE.CatmullRomCurve3([[-.092,.025,-.075],[-.052,.032,-.045],[-.014,.018,-.012],[0,0,0]].map(p => new V3(...p).add(lanternPivot.position)));
