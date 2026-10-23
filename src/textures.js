@@ -25,15 +25,13 @@ const runeTex = (() => { const w=1024, h=96, [c,g] = canvas2d(w,h);
   g.globalAlpha=.6; g.lineWidth=2; g.beginPath(); g.moveTo(0,14); g.lineTo(w,14); g.moveTo(0,h-14); g.lineTo(w,h-14); g.stroke();
   const t=new THREE.CanvasTexture(c); t.wrapS=THREE.RepeatWrapping; return t; })();
 
-/* a sigil of nested polygons: hexagram, pentagon, square and triangle inside a ticked 24-gon, used on the book cover
-   and behind the star */
+/* a sigil of nested convex polygons (hexagon, pentagon, square, triangle) inside a ticked 24-gon, used on the book
+   cover and behind the star */
 const sigilTex = (() => { const s = 512, [c,g] = canvas2d(s); g.translate(s/2,s/2); g.strokeStyle = '#fff'; g.shadowColor = '#fff'; g.shadowBlur = 8; g.lineCap = 'round'; g.lineJoin = 'round';
   const poly = (n, r, rot=-Math.PI/2, step=1, lw=2.5) => { g.lineWidth = lw; g.beginPath(); for (let i=0;i<=n;i++){ const a = rot + (i*step % n)/n*Math.PI*2; g[i ? 'lineTo' : 'moveTo'](Math.cos(a)*r*s, Math.sin(a)*r*s); } g.stroke(); };
   poly(24, .47, 0, 1, 4); poly(24, .43, Math.PI/24, 1, 1.5);
   g.lineWidth = 2; for (let i=0;i<24;i++){ const a = i/24*Math.PI*2; g.beginPath(); g.moveTo(Math.cos(a)*.43*s, Math.sin(a)*.43*s); g.lineTo(Math.cos(a)*.47*s, Math.sin(a)*.47*s); g.stroke(); }
-  poly(6, .4, -Math.PI/2, 2, 3); poly(6, .4, Math.PI/6 - Math.PI/2 + Math.PI/6, 2, 3); poly(6, .4, -Math.PI/2, 1, 2);
-  poly(5, .23, -Math.PI/2, 2, 2.5); poly(4, .16, Math.PI/4, 1, 2); poly(3, .1, -Math.PI/2, 1, 2);
-  for (let i=0;i<6;i++){ const a = -Math.PI/2 + i/6*Math.PI*2; g.beginPath(); g.moveTo(Math.cos(a)*.23*s, Math.sin(a)*.23*s); g.lineTo(Math.cos(a)*.4*s, Math.sin(a)*.4*s); g.lineWidth = 1.5; g.stroke(); }
+  poly(6, .4, -Math.PI/2, 1, 3); poly(5, .3, -Math.PI/2, 1, 2.5); poly(4, .21, Math.PI/4, 1, 2); poly(3, .13, -Math.PI/2, 1, 2);
   for (let i=0;i<12;i++) rand(); /* the earlier sigil drew 12 random values; keep the seeded sequence so the valley layout does not shift */
   return new THREE.CanvasTexture(c); })();
 

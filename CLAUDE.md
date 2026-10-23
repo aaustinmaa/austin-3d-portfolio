@@ -7,6 +7,7 @@
 - In dev, `window.__valley` exposes the player, camera state, relics and `step(n)` (advance the simulation n frames) for checking things from the browser console.
 - The visual direction is dark and mysterious (night, a glowing star, basalt, cyan and gold accents). Avoid bright or fairytale styling.
 - The star and the relics are faceted, polyhedral shapes, not smooth spheres or flat slabs, and they glow softly: hazy auras and halos rather than crisp outlines or wireframes.
+- Every polyhedron must be convex: no corner pokes out and none folds in (no stellations, star polygons or compounds). The star's solids are translucent glass (the `glass` material in `src/polyhedra.js`), not solid lines and planes.
 - The valley is Austin's own tended place, not someone else's ruin: no broken columns, abandoned structures or crystals stuck in the ground, and no swarms of creatures around the wanderer. Never place anything that can read as a grave marker (a stone, stele or obelisk, least of all one tied to his name). The ground should feel cared for: meadow, pines, natural rock, the lantern-lit path.
 - Keep the résumé, GitHub and LinkedIn links reachable in one click at all times, and keep every 3D interaction available through a shortcut (keys 1–7, the relic tracker, the Oracle) for visitors who will not play.
 - Respect `prefers-reduced-motion` (it skips the intro and particle drift).

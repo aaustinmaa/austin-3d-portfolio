@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js';
 
 // Polyhedra drawn as light: faceted solids whose true edges glow with a soft halo (not the triangle seams inside a
-// face), plus the shapes the star is built from. Used by the star overhead and by the relics.
+// face), the clear glass the star is made of, and the convex solids it is built from. Every solid here is convex:
+// no corner pokes out and none folds in. Used by the star overhead and by the relics.
 const V3 = THREE.Vector3, PHI = (1 + Math.sqrt(5))/2;
 
 /* non-indexed copy with flat normals and an `edge` attribute: a barycentric coordinate per corner, pushed to 1 for
@@ -25,25 +26,20 @@ export function corners(geo){ const p = geo.attributes.position, seen = new Map(
   for (let i=0;i<p.count;i++){ const k = `${p.getX(i).toFixed(3)},${p.getY(i).toFixed(3)},${p.getZ(i).toFixed(3)}`; if (!seen.has(k)) seen.set(k, new V3(p.getX(i), p.getY(i), p.getZ(i))); }
   return [...seen.values()]; }
 
-/* raise a pyramid on every face (faces found by grouping coplanar triangles): a dodecahedron becomes a twelve-point star */
-export function kleetope(geo, apexR){
-  const g = geo.index ? geo.toNonIndexed() : geo.clone(); g.computeVertexNormals(); const p = g.attributes.position, n = g.attributes.normal, faces = new Map();
-  for (let i=0;i<p.count;i+=3){ const k = `${n.getX(i).toFixed(2)},${n.getY(i).toFixed(2)},${n.getZ(i).toFixed(2)}`; if (!faces.has(k)) faces.set(k, { n:new V3(n.getX(i), n.getY(i), n.getZ(i)), pts:[] });
-    for (let j=0;j<3;j++) faces.get(k).pts.push(new V3(p.getX(i+j), p.getY(i+j), p.getZ(i+j))); }
-  const out = [];
-  faces.forEach(f => { const ring = corners(new THREE.BufferGeometry().setFromPoints(f.pts)), c = ring.reduce((a, v) => a.add(v), new V3()).divideScalar(ring.length), apex = f.n.clone().multiplyScalar(apexR);
-    const u = ring[0].clone().sub(c).normalize(), w = f.n.clone().cross(u); ring.sort((a, b) => Math.atan2(a.clone().sub(c).dot(w), a.clone().sub(c).dot(u)) - Math.atan2(b.clone().sub(c).dot(w), b.clone().sub(c).dot(u)));
-    ring.forEach((a, i) => { const b = ring[(i+1) % ring.length]; out.push(a, b, apex); }); });
-  return new THREE.BufferGeometry().setFromPoints(out);
-}
-
 export function icosidodecahedron(r){ const pts = [], s = r/PHI;
   [[0,0,PHI]].concat([[.5, PHI/2, PHI*PHI/2]]).forEach(([a,b,c]) => {
     for (const sa of a ? [-1,1] : [1]) for (const sb of b ? [-1,1] : [1]) for (const sc of [-1,1]) [[a*sa,b*sb,c*sc],[b*sb,c*sc,a*sa],[c*sc,a*sa,b*sb]].forEach(v => pts.push(new V3(...v).multiplyScalar(s))); });
   return new ConvexGeometry(pts); }
-export function stellaOctangula(r){ const a = new THREE.TetrahedronGeometry(r), b = new THREE.TetrahedronGeometry(r).rotateZ(Math.PI/2);
-  const pa = a.attributes.position.array, pb = b.attributes.position.array, g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(Float32Array.from([...pa, ...pb]), 3)); return g; }
+/* the rhombic triacontahedron: thirty identical rhombi, the convex hull of an icosahedron and its dual dodecahedron */
+export function rhombicTriacontahedron(r){ const pts = [];
+  for (const x of [-1,1]) for (const y of [-1,1]) for (const z of [-1,1]) pts.push(new V3(x, y, z));
+  for (const a of [-1,1]) for (const b of [-1,1]) pts.push(new V3(0, a*PHI, b/PHI), new V3(a*PHI, b/PHI, 0), new V3(b/PHI, 0, a*PHI), new V3(0, a, b*PHI), new V3(a, b*PHI, 0), new V3(b*PHI, 0, a));
+  return new ConvexGeometry(pts.map(v => v.multiplyScalar(r/Math.sqrt(1 + PHI*PHI)))); }
+/* the rhombic dodecahedron: twelve rhombi, the convex hull of a cube and an octahedron */
+export function rhombicDodecahedron(r){ const pts = [];
+  for (const x of [-1,1]) for (const y of [-1,1]) for (const z of [-1,1]) pts.push(new V3(x, y, z));
+  [[2,0,0],[0,2,0],[0,0,2]].forEach(v => pts.push(new V3(...v), new V3(...v).negate()));
+  return new ConvexGeometry(pts.map(v => v.multiplyScalar(r/2))); }
 export const cube = r => new THREE.BoxGeometry(2*r/Math.sqrt(3), 2*r/Math.sqrt(3), 2*r/Math.sqrt(3));
 
 /* soft glowing edges over a faint glassy fill. lit 0..1 brightens it; additive, so it reads as light, not matter.
@@ -62,4 +58,25 @@ export function edgeGlow({ color='#9FE8FF', lit=1, fill=.5, width=1.4, halo=7, l
           a *= 1. - smoothstep(fogNear, fogFar, length(vV))*.6;
         #endif
         gl_FragColor = vec4(mix(col, vec3(1.), line*.18)*a, a); }` });
+}
+
+/* clear, bright glass: nearly invisible where a face looks straight at you, tinted toward its rims, with soft edges
+   (a glow, not a drawn line) and glints that slide across the facets as the solid turns. Additive, so it is light */
+export function glass({ color='#9FE8FF', lit=1, edge=.45, halo=9, fog=false } = {}){
+  return new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide, fog, extensions:{ derivatives:true },
+    uniforms:THREE.UniformsUtils.merge([THREE.UniformsLib.fog, { col:{value:new THREE.Color(color)}, lit:{value:lit}, edgeK:{value:edge}, halo:{value:halo} }]),
+    vertexShader:`attribute vec3 edge; varying vec3 vE; varying vec3 vN; varying vec3 vV; varying vec3 vO;
+      void main(){ vE = edge; vO = normal; vec4 mv = modelViewMatrix*vec4(position,1.); vN = normalize(normalMatrix*normal); vV = -mv.xyz; gl_Position = projectionMatrix*mv; }`,
+    fragmentShader:`uniform vec3 col; uniform float lit; uniform float edgeK; uniform float halo; uniform float fogNear; uniform float fogFar; varying vec3 vE; varying vec3 vN; varying vec3 vV; varying vec3 vO;
+      void main(){ vec3 n = normalize(vN) * (gl_FrontFacing ? 1. : -1.), v = normalize(vV);
+        float f = abs(dot(n, v)), rim = pow(1. - f, 2.2);
+        vec3 r = reflect(-v, n);
+        float glint = pow(max(dot(r, normalize(vec3(-.35,.75,.55))), 0.), 30.) + pow(max(dot(r, normalize(vec3(.6,-.25,.75))), 0.), 70.)*.6;
+        float facet = fract(sin(dot(floor(vO*7. + .5), vec3(12.9898,78.233,37.719)))*43758.5453);
+        float d = min(min(vE.x, vE.y), vE.z), w = max(fwidth(d), 1e-4), soft = exp(-d/(w*halo));
+        float a = (.07 + rim*.62 + facet*.07 + soft*edgeK + glint*.85)*lit;
+        #ifdef USE_FOG
+          a *= 1. - smoothstep(fogNear, fogFar, length(vV))*.6;
+        #endif
+        gl_FragColor = vec4(mix(col, vec3(1.), glint*.8 + soft*.15)*a, a); }` });
 }

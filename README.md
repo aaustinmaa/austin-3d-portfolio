@@ -1,6 +1,6 @@
 # Austin's 3D Portfolio
 
-A dark valley under a sleeping star. Austin's projects and experience drift overhead as sealed relics. Visitors shoot them down with a bow, or ask the Oracle (the star) to bring one down. The star is a stellated core nested inside six polyhedral shells drawn in light. Each relic opened sends a beam back to it: one shell ignites in that relic's colour, the star grows a ray, the valley brightens a step, and the skills the project used wake as stars in a constellation overhead. Projects that share a skill are joined by a line, so with all six open the sky becomes one chart of Austin's stack. The résumé, GitHub and LinkedIn links stay in the top bar the whole time.
+A dark valley under a sleeping star. Austin's projects and experience drift overhead as sealed relics. Visitors shoot them down with a bow, or ask the Oracle (the star) to bring one down. The star is a heart of light inside a rhombic triacontahedron of clear glass, nested in six translucent convex shells. Each relic opened sends a beam back to it: one shell ignites in that relic's colour, the star grows a ray, the valley brightens a step, and the skills the project used wake as stars in a constellation overhead. Projects that share a skill are joined by a line, so with all six open the sky becomes one chart of Austin's stack. The résumé, GitHub and LinkedIn links stay in the top bar the whole time.
 
 Built with [three.js](https://threejs.org/) and [Vite](https://vitejs.dev/). No other runtime dependencies.
 
@@ -37,8 +37,8 @@ Light the four braziers on the spiral stairs to wake a hidden seventh relic. Bas
 ```
 index.html          Page markup: top bar, relic tracker, card, chat dock
 src/main.js           The world: scene, valley, lighting, relic logic, player, arrows, camera, UI wiring
-src/oracle.js         The star (the Oracle): stellated core, six polyhedral shells, the rays it regains, returning light
-src/polyhedra.js      Polyhedra drawn as light: glowing-edge shader, stellation, the star's solids
+src/oracle.js         The star (the Oracle): glass core, six glass shells, the rays it regains, returning light
+src/polyhedra.js      Polyhedra drawn as light: clear glass and glowing-edge shaders, the star's convex solids
 src/constellation.js  The skill constellation: star layout, figures, labels, wake-up animation
 src/relics.js         The seven relic models (faceted, with soft auras) and how each one unfolds when opened
 src/hero.js           The wanderer model, bow and scarf, and their animation

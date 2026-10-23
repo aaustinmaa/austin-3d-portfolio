@@ -2,11 +2,13 @@ import * as THREE from 'three';
 import { fbm } from './noise.js';
 import { glowTex, hazeTex, runeTex, sigilTex, dialTex, paperTex, sealTex } from './textures.js';
 import { withEdges, edgeGlow } from './polyhedra.js';
+import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js';
 
 // The relic models. Each form returns a group plus `tick(dt, T, k)`, called every frame with k easing from 0 (sealed,
 // drifting overhead) to 1 (brought down and open), so a relic unfolds when it reaches the wanderer.
-// Shapes are kept faceted rather than smooth, and every larger part carries a soft aura so a relic reads as a hazy
-// light in the sky rather than a crisp object.
+// Shapes are faceted rather than smooth and every solid is convex (no corner pokes out and none folds in); every
+// larger part carries a soft aura so a relic reads as a hazy light in the sky rather than a crisp object.
+const hull = geo => { const p = geo.attributes.position, pts = []; for (let i=0;i<p.count;i++) pts.push(new V3(p.getX(i), p.getY(i), p.getZ(i))); return new ConvexGeometry(pts); };
 const V3 = THREE.Vector3, C = h => new THREE.Color(h);
 const std = (c, o={}) => new THREE.MeshStandardMaterial(Object.assign({ color:c, roughness:.5, metalness:.2, flatShading:true }, o));
 const add = (parent, geo, mat) => { const m = new THREE.Mesh(geo, mat); parent.add(m); return m; };
@@ -22,16 +24,16 @@ const FORMS = {
   /* WatApply: a sealed letter; the flap lifts and the page slides out */
   letter(g, r){
     const paper = std(0xD9E2E6, { emissive:0x2A5260, emissiveIntensity:.8, roughness:.8, metalness:0 }), fold = std(0xC4D3DA, { emissive:0x24485A, emissiveIntensity:.8, roughness:.8, metalness:0 });
-    const body = new THREE.BoxGeometry(1.8,1.2,.05,6,4,1); { const p = body.attributes.position; for (let i=0;i<p.count;i++) p.setZ(i, p.getZ(i) - p.getX(i)*p.getX(i)*.07 + p.getY(i)*p.getY(i)*.05); body.computeVertexNormals(); }
+    const body = new THREE.BoxGeometry(1.8,1.2,.05,6,4,1); { const p = body.attributes.position; for (let i=0;i<p.count;i++) p.setZ(i, p.getZ(i) - p.getX(i)*p.getX(i)*.07 - p.getY(i)*p.getY(i)*.05); body.computeVertexNormals(); }
     add(g, body, paper);
     const page = add(g, new THREE.PlaneGeometry(1.52,1.02), new THREE.MeshStandardMaterial({ map:paperTex, emissive:0x3A4A50, emissiveIntensity:.5, roughness:.9 })); page.position.z = .035;
-    /* the back of the envelope as three folded panels, each tipped slightly out of plane */
+    /* the back of the envelope as three folded panels, each tipped back at its outer edge so the folds rise to the middle */
     [[[-.9,-.6],[-.9,.6],[-.02,-.08]], [[.9,-.6],[.9,.6],[.02,-.08]], [[-.9,-.6],[.9,-.6],[0,-.04]]].forEach((pts, i) => {
-      const panel = add(g, slab(tri(pts), .018, .004), fold); panel.position.z = .05 + i*.004; panel.rotation.set(i === 2 ? -.06 : 0, i === 0 ? .07 : i === 1 ? -.07 : 0, 0); });
+      const panel = add(g, slab(tri(pts), .018, .004), fold); panel.position.z = .05 + i*.004; panel.rotation.set(i === 2 ? .06 : 0, i === 0 ? -.07 : i === 1 ? .07 : 0, 0); });
     const hinge = new THREE.Group(); hinge.position.set(0,.6,.07); g.add(hinge);
     const flap = add(hinge, slab(tri([[-.9,0],[.9,0],[0,-.78]]), .02, .006), fold);
     const seal = new THREE.Group(); seal.position.set(0,-.66,.03); hinge.add(seal);
-    const sg = new THREE.CylinderGeometry(.19,.22,.08,9).rotateX(Math.PI/2); { const p = sg.attributes.position; for (let i=0;i<p.count;i++){ const a = Math.atan2(p.getY(i), p.getX(i)), k = 1 + Math.sin(a*4)*.07; if (Math.hypot(p.getX(i),p.getY(i)) > .1) p.setXY(i, p.getX(i)*k, p.getY(i)*k); } }
+    const sg = new THREE.CylinderGeometry(.19,.22,.08,9).rotateX(Math.PI/2);
     add(seal, sg, std(r.color, { emissive:r.color, emissiveIntensity:1.1, roughness:.4 }));
     const mark = add(seal, new THREE.CircleGeometry(.16,9), new THREE.MeshBasicMaterial(additive({ map:sealTex, color:0xE8FFFF, opacity:.9 }))); mark.position.z = .045;
     return (dt, T, k) => { hinge.rotation.x = -k*2.3; page.position.y = k*.55; page.position.z = .035 + k*.02; seal.scale.setScalar(1 - k*.35); flap.material.emissiveIntensity = .8 + k*.3; };
@@ -40,7 +42,8 @@ const FORMS = {
   /* SuWuDu: a silk cocoon with a pixel creature inside; the silk loosens and the creature wakes */
   cocoon(g, r){
     const prof = []; for (let i=0;i<=8;i++){ const t = i/8; prof.push([Math.max(.001, .86*Math.pow(Math.sin(Math.PI*t), .75)*(1 - (t - .5)*.18)), -1.15 + 2.3*t]); }
-    const shellGeo = lathe(prof, 7); { const p = shellGeo.attributes.position; for (let i=0;i<p.count;i++){ const a = p.getY(i)*.7, x = p.getX(i), z = p.getZ(i); p.setX(i, x*Math.cos(a) - z*Math.sin(a)); p.setZ(i, x*Math.sin(a) + z*Math.cos(a)); } shellGeo.computeVertexNormals(); }
+    const egg = lathe(prof, 7); { const p = egg.attributes.position; for (let i=0;i<p.count;i++){ const a = p.getY(i)*.7, x = p.getX(i), z = p.getZ(i); p.setX(i, x*Math.cos(a) - z*Math.sin(a)); p.setZ(i, x*Math.sin(a) + z*Math.cos(a)); } }
+    const shellGeo = hull(egg);
     const shell = add(g, shellGeo, std(r.color, { transparent:true, opacity:.24, emissive:r.color, emissiveIntensity:.45, depthWrite:false, side:THREE.DoubleSide, roughness:.3 }));
     const rim = add(g, withEdges(shellGeo), edgeGlow({ color:r.color, lit:.85, fill:.9, halo:18, line:.25, fog:true }));
     const silk = new THREE.Group(); g.add(silk); const silkMat = new THREE.MeshBasicMaterial(additive({ color:0xFFE4EF, opacity:.55 }));
@@ -59,9 +62,9 @@ const FORMS = {
 
   /* Aquanow: an iceberg of data, its strata (tables) drift apart when opened and trade cubes ride the rings */
   iceberg(g, r){
-    const bg = new THREE.IcosahedronGeometry(1, 2); { const p = bg.attributes.position; for (let i=0;i<p.count;i++){ const v = new V3(p.getX(i), p.getY(i), p.getZ(i)), n = fbm(v.x*1.7 + 4, v.z*1.7 + v.y*1.3);
-      v.multiplyScalar(.75 + n*.5); v.y = v.y > 0 ? v.y*1.15 : v.y*1.55; v.x *= v.y < 0 ? 1 - Math.min(.45, -v.y*.3) : 1; v.z *= v.y < 0 ? 1 - Math.min(.45, -v.y*.3) : 1; p.setXYZ(i, v.x, v.y, v.z); } bg.computeVertexNormals(); }
-    const berg = add(g, bg, std(0xCFE6F0, { emissive:0x2A6272, emissiveIntensity:.75, roughness:.12, metalness:.1, transparent:true, opacity:.82 }));
+    const rough = new THREE.IcosahedronGeometry(1, 2); { const p = rough.attributes.position; for (let i=0;i<p.count;i++){ const v = new V3(p.getX(i), p.getY(i), p.getZ(i)), n = fbm(v.x*1.7 + 4, v.z*1.7 + v.y*1.3);
+      v.multiplyScalar(.75 + n*.5); v.y = v.y > 0 ? v.y*1.15 : v.y*1.55; v.x *= v.y < 0 ? 1 - Math.min(.45, -v.y*.3) : 1; v.z *= v.y < 0 ? 1 - Math.min(.45, -v.y*.3) : 1; p.setXYZ(i, v.x, v.y, v.z); } }
+    const bg = hull(rough), berg = add(g, bg, std(0xCFE6F0, { emissive:0x2A6272, emissiveIntensity:.75, roughness:.12, metalness:.1, transparent:true, opacity:.82 }));
     add(berg, withEdges(bg), edgeGlow({ color:'#BFF2FF', lit:.55, fill:.7, halo:16, line:.2, fog:true }));
     g.add(glow(0xFFE2A0, .7, 1.9));
     const gold = std(0xE8B866, { emissive:0x6A4A10, emissiveIntensity:.8, metalness:.8, roughness:.3 });
@@ -104,14 +107,15 @@ const FORMS = {
 
   /* StableWake: an hourglass under a crescent moon; sand runs, and once opened it turns over */
   hourglass(g, r){
-    const prof = []; for (let i=0;i<=10;i++){ const y = -.8 + 1.6*i/10, t = Math.abs(y)/.8; prof.push([.045 + .46*Math.pow(Math.sin(Math.min(1,t)*Math.PI*.62), .8), y]); }
-    const glassG = lathe(prof, 6);
-    add(g, glassG, std(r.color, { transparent:true, opacity:.22, emissive:r.color, emissiveIntensity:.4, depthWrite:false, side:THREE.DoubleSide, roughness:.1 }));
-    add(g, withEdges(glassG), edgeGlow({ color:r.color, lit:.8, fill:.9, halo:18, line:.3, fog:true }));
+    /* two bulbs, each convex on its own, meeting at the neck */
+    const prof = []; for (let i=0;i<=6;i++){ const t = i/6; prof.push([.045 + .46*Math.pow(Math.sin(t*Math.PI*.62), .8), .8*t]); }
+    const bulbT = lathe(prof, 6), bulbB = bulbT.clone().rotateX(Math.PI), glassM = std(r.color, { transparent:true, opacity:.22, emissive:r.color, emissiveIntensity:.4, depthWrite:false, side:THREE.DoubleSide, roughness:.1 });
+    const glassE = edgeGlow({ color:r.color, lit:.8, fill:.9, halo:18, line:.3, fog:true });
+    [bulbT, bulbB].forEach(b => { add(g, b, glassM); add(g, withEdges(b), glassE); });
     const gold = std(0xC9A86A, { metalness:.75, roughness:.3, emissive:0x3A2A10, emissiveIntensity:.55 });
-    const capG = lathe([[0,0],[.66,0],[.7,.03],[.66,.07],[.58,.09],[.5,.12],[0,.12]], 6);
+    const capG = lathe([[0,0],[.66,0],[.7,.04],[.62,.1],[.48,.13],[0,.13]], 6);
     const capT = add(g, capG, gold); capT.position.y = .8; const capB = add(g, capG, gold); capB.rotation.x = Math.PI; capB.position.y = -.8;
-    const postG = lathe([[.035,-.8],[.05,-.74],[.03,-.6],[.04,-.3],[.028,0],[.04,.3],[.03,.6],[.05,.74],[.035,.8]], 5);
+    const postG = new THREE.CylinderGeometry(.038,.038,1.6,6);
     for (let i=0;i<3;i++){ const a = i/3*Math.PI*2 + Math.PI/6, p = add(g, postG, gold); p.position.set(Math.cos(a)*.6, 0, Math.sin(a)*.6); }
     const sandM = std(0xFFE1A0, { emissive:0xFFC060, emissiveIntensity:.9 });
     const top = add(g, new THREE.ConeGeometry(.36,.42,6).rotateX(Math.PI).translate(0,.21,0), sandM); top.position.y = .08;
@@ -151,7 +155,8 @@ const FORMS = {
     const ico = new THREE.IcosahedronGeometry(.86,0), p = ico.attributes.position, pips = new THREE.InstancedMesh(new THREE.OctahedronGeometry(.04,0), new THREE.MeshBasicMaterial({ color:0xC8FFEA }), p.count/3), M4 = new THREE.Matrix4();
     for (let f=0; f<p.count/3; f++){ const c = new V3(); for (let j=0;j<3;j++) c.add(new V3(p.getX(f*3+j), p.getY(f*3+j), p.getZ(f*3+j))); c.divideScalar(3).multiplyScalar(1.02); M4.makeTranslation(c.x, c.y, c.z); pips.setMatrixAt(f, M4); } g.add(pips);
     const orbit = new THREE.Group(); g.add(orbit);
-    const pawn = add(orbit, lathe([[.0,0],[.17,0],[.17,.04],[.11,.08],[.07,.2],[.11,.24],[.06,.27],[.1,.36],[.07,.42],[0,.44]], 6), std(0xE9E4D8, { emissive:0x2A3A36, emissiveIntensity:.5 })); pawn.position.set(1.3,-.2,0);
+    const pawn = new THREE.Group(), ivory = std(0xE9E4D8, { emissive:0x2A3A36, emissiveIntensity:.5 }); orbit.add(pawn); pawn.position.set(1.3,-.2,0);
+    add(pawn, new THREE.CylinderGeometry(.06,.17,.32,6).translate(0,.16,0), ivory); add(pawn, new THREE.IcosahedronGeometry(.1,0).translate(0,.4,0), ivory);
     const chip = add(orbit, new THREE.CylinderGeometry(.2,.2,.05,8), std(0x9A2840, { emissive:0x3A0A14, emissiveIntensity:.6 })); chip.position.set(-.8,.3,1.0); chip.rotation.x = 1.1;
     add(chip, new THREE.TorusGeometry(.2,.02,3,8).rotateX(Math.PI/2), new THREE.MeshBasicMaterial({ color:0xFFF6E8 }));
     const card = add(orbit, new THREE.BoxGeometry(.32,.46,.01), std(0xF4EFE6, { emissive:0x24302C, emissiveIntensity:.5 })); card.position.set(-.5,-.1,-1.2); card.rotation.set(.3,.8,.2);
