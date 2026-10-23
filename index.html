@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Austin's Eclipse Valley</title>
+<meta name="description" content="Austin Ma's portfolio: a night valley under an eclipse where each project drifts as a sealed relic.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Figtree:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+</head>
+<body>
+<canvas id="world" tabindex="0" aria-label="A valley at night under an eclipse. Sealed relics drift in the sky, each holding one of Austin's projects."></canvas>
+<div id="labels"></div>
+
+<header class="bar">
+  <div class="brand glass"><span class="name">Austin Ma</span><span class="role">Software &amp; data engineering · Waterloo CS</span></div>
+  <nav class="links glass" aria-label="Quick links">
+    <button class="btn" id="allWork" type="button">All work</button>
+    <a class="btn primary" href="#" data-placeholder="Résumé">Résumé</a>
+    <a class="btn" href="https://github.com/aaustinmaa" target="_blank" rel="noopener">GitHub</a>
+    <a class="btn" href="#" data-placeholder="LinkedIn">LinkedIn</a>
+  </nav>
+</header>
+
+<aside class="tracker glass" aria-label="Relics">
+  <h3><span>RELICS</span><b id="relicCount">0 / 6</b></h3>
+  <ol id="relicList"></ol>
+</aside>
+
+<article class="card" id="card" hidden aria-live="polite"></article>
+
+<div class="modes glass" role="group" aria-label="Bow mode">
+  <button type="button" id="modeAuto" aria-pressed="true">Auto shot</button>
+  <button type="button" id="modeAim" aria-pressed="false">Draw the bow · F</button>
+</div>
+<div class="hint" id="hint"></div>
+<svg class="stamina" id="stamina" viewBox="0 0 36 36" hidden aria-hidden="true"><circle class="bg" cx="18" cy="18" r="15"/><circle class="fg" id="stamFg" cx="18" cy="18" r="15"/></svg>
+<button class="flybtn" id="flyBtn" type="button" aria-label="Jump, hold to fly">Hold<br>to fly</button>
+<div class="cross" id="cross" hidden><div class="ring" id="crossRing"></div><div class="dot"></div><i class="tick t1"></i><i class="tick t2"></i><i class="tick t3"></i><i class="tick t4"></i></div>
+
+<section class="dock" aria-label="Ask the Oracle">
+  <div class="log" id="log" aria-live="polite"></div>
+  <div class="chips" id="chips"></div>
+  <form id="ask" class="glass" autocomplete="off">
+    <span class="eye" id="eye" aria-hidden="true"></span>
+    <input id="q" name="q" placeholder="Ask the Oracle about Austin…" aria-label="Ask the Oracle about Austin">
+    <button type="submit">Ask</button>
+  </form>
+</section>
+
+<div class="index" id="index" hidden>
+  <div class="index-panel" role="dialog" aria-label="All work">
+    <header><h2>Every relic in the valley</h2><button class="close" id="closeIndex" type="button" aria-label="Close">×</button></header>
+    <ol id="indexList"></ol>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
