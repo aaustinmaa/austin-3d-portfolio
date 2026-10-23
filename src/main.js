@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { BufferGeometryUtils } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js';
 import './styles.css';
 import { rand, hash, vnoise, fbm, sstep, lerp, ease, C, mixHex, randUnit } from './noise.js';
 import { radialTex, glowTex, softTex, runeTex } from './textures.js';
 import { ABOUT, RELICS, INTENTS, FALLBACK, SKILLS, LINES, FINALE, starLine } from './content.js';
-import { colliders, addFrustum, addBox, floorAt, ceilingAt, pushOut, solidAt } from './colliders.js';
+import { colliders, addFrustum, addBox, addPrism, floorAt, ceilingAt, pushOut, solidAt } from './colliders.js';
 import { createOracle } from './oracle.js';
 import { createConstellation } from './constellation.js';
 import { buildForm } from './relics.js';
@@ -203,41 +204,35 @@ const bandMat = new THREE.MeshBasicMaterial({ color:0x78E6F0, transparent:true, 
 
 /* ---------- spiral stair, landings, braziers ---------- */
 const pathLights = [];
-/* a floating stone, each one its own shape: a near-flat top inside a chipped, uneven rim, over a lopsided rock that tapers to an off-centre point.
-   The top sits at y = 0 and is drawn out a little along x. `top` is the slab you walk on, `under` the rock below it, `rim` its widest outline. */
+/* a floating stone, each one its own shape: a flat top with one clean edge, steep chiselled walls, and a few broad cuts underneath down to an
+   off-centre point. It is the convex hull of a handful of points, with the top at y = 0 drawn out a little along x.
+   `top` is the face you walk on, `under` everything below it, `rim` the top's corners in order around it. */
 function floatingStone(sd, R, thick, depth, topCol, rough=1){
-  const sq = seq(1 + Math.floor(hash(sd, 1.7)*2e9)), M = Math.round(R*5) + Math.floor(sq()*4), el = 1 + sq()*.22*rough, nU = depth > 3 ? 4 : 3;
-  const lean = sq()*Math.PI*2, lr = R*(.2 + sq()*.25), lx = Math.cos(lean)*lr, lz = Math.sin(lean)*lr, gap = (depth - thick)/(nU + 1);
-  /* the outline: uneven corners, and here and there a chip knocked off the rim */
-  const ang = [], rad = [], chip = [];
-  for (let k=0;k<M;k++){ ang.push((k + (sq()-.5)*.8)/M*Math.PI*2); rad.push(1 + (sq()-.5)*.3*rough); chip.push(sq() < .3 ? .4 + sq()*.6 : 0); }
-  /* rings from the middle of the top outward and down: [scale, highest y, height jitter, lean toward the tip, radial jitter, angle jitter, chip depth].
-     The top is nearly flat, then rounds over a shoulder that bulges just below the rim before the rock narrows away underneath. */
-  const rings = [[.45, 0, .03, 0, .1, .1, 0], [.8, -.008, .03, 0, .06, 0, .03], [.95, -.06, .07, 0, .04, 0, .12], [1, -.18, .14, 0, .04, .05, .08], [.9, -.04 - thick, .16, .08, .08, .15, 0]];
-  for (let j=1;j<=nU;j++){ const t = j/(nU + 1); rings.push([Math.pow(1 - t, .75), gap*(.35 - j) - thick, gap*.7, Math.pow(t, 1.4), .16 + t*.14, .15, 0]); }
-  const pts = [new V3()];
-  rings.forEach(([s, y, yj, ln, rj, aj, cd]) => { for (let k=0;k<M;k++){ const a = ang[k] + (sq()-.5)*aj/M*Math.PI*2, r = R*rad[k]*s*(1 + (sq()-.5)*2*rj)*(1 - chip[k]*cd*.6);
-    pts.push(new V3(Math.cos(a)*r*el + lx*ln, y - sq()*yj - chip[k]*cd, Math.sin(a)*r/el + lz*ln)); } });
+  const sq = seq(1 + Math.floor(hash(sd, 1.7)*2e9)), el = 1 + sq()*.25*rough, lean = sq()*Math.PI*2, lr = R*(.15 + sq()*.3), lx = Math.cos(lean)*lr, lz = Math.sin(lean)*lr;
+  const pts = [], ring = (n, y0, y1, r0, r1, ln) => { const a0 = sq(); for (let k=0;k<n;k++){ const a = (k + a0 + (sq()-.5)*.7)/n*Math.PI*2, r = R*(r0 + sq()*(r1 - r0));
+    pts.push(new V3(Math.cos(a)*r*el + lx*ln, y0 + sq()*(y1 - y0), Math.sin(a)*r/el + lz*ln)); } };
+  const M = Math.round(R*3) + Math.floor(sq()*3);
+  ring(M, 0, 0, 1 - .1*rough, 1 + .1*rough, 0);                                         // the flat top
+  ring(M + 1, -thick, -thick*2.2, .78, .96, .1);                                        // the block's steep walls
+  ring(Math.round(R) + 1 + Math.floor(sq()*2), -depth*.42, -depth*.62, .38, .62, .55);   // where the cuts run in toward the point
   pts.push(new V3(lx, -depth, lz));
-  /* the top keeps its stone colour, the shoulder darkens, and the rock below fades toward the tip */
-  const cols = pts.map((v,i) => { const n = fbm(v.x*.9 + sd, v.z*.9 - sd + v.y*.5), c = new THREE.Color();
-    if (i <= 2*M) return c.copy(topCol).offsetHSL(0,0,(n-.5)*.06);
-    if (i <= 4*M) return c.copy(topCol).multiplyScalar(i <= 3*M ? .9 : .76).offsetHSL(0,0,(n-.5)*.04);
-    return c.copy(mixHex('#141826','#2A3044', sstep(0,1,(v.y + depth)/(depth - thick)))).offsetHSL(0,0,(n-.5)*.05); });
-  const top = { p:[], c:[] }, under = { p:[], c:[] }, at = (j,k) => 1 + j*M + k%M, tip = pts.length - 1;
-  const tri = (o, ...vs) => vs.forEach(i => { o.p.push(pts[i].x, pts[i].y, pts[i].z); o.c.push(cols[i].r, cols[i].g, cols[i].b); });
-  for (let k=0;k<M;k++){ tri(top, 0, at(0,k+1), at(0,k));
-    for (let j=0;j<rings.length-1;j++){ const o = j < 4 ? top : under; tri(o, at(j,k), at(j,k+1), at(j+1,k)); tri(o, at(j,k+1), at(j+1,k+1), at(j+1,k)); }
-    tri(under, at(rings.length-1,k), at(rings.length-1,k+1), tip); }
-  const geo = o => { const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(o.p,3)); g.setAttribute('color', new THREE.Float32BufferAttribute(o.c,3)); g.computeVertexNormals(); return g; };
-  return { top:geo(top), under:geo(under), rim:pts.slice(1 + 3*M, 1 + 4*M), thick, depth };
+  /* the top is one even stone colour; each facet below takes its own shade, darkening toward the point */
+  const g = new ConvexGeometry(pts), P = g.attributes.position, N = g.attributes.normal, top = { p:[], c:[] }, under = { p:[], c:[] }, c = new THREE.Color();
+  for (let i=0;i<P.count;i+=3){ const up = N.getY(i) > .99, o = up ? top : under, shade = (hash(P.getX(i) + P.getZ(i+1), P.getY(i+2) + sd) - .5)*.08;
+    for (let k=i;k<i+3;k++){ const x = P.getX(k), y = P.getY(k), z = P.getZ(k);
+      if (up) c.copy(topCol).offsetHSL(0,0,(fbm(x*.7 + sd, z*.7 - sd) - .5)*.05); else c.copy(mixHex('#151926','#30364C', sstep(-depth, 0, y))).offsetHSL(0,0,shade);
+      o.p.push(x,y,z); o.c.push(c.r,c.g,c.b); } }
+  const geo = o => { const b = new THREE.BufferGeometry(); b.setAttribute('position', new THREE.Float32BufferAttribute(o.p,3)); b.setAttribute('color', new THREE.Float32BufferAttribute(o.c,3)); b.computeVertexNormals(); return b; };
+  /* the top's outline is the convex hull, in plan, of the top points */
+  const cr = (o,a,b) => (a.x - o.x)*(b.z - o.z) - (a.z - o.z)*(b.x - o.x), chain = ps => ps.reduce((h,p) => { while (h.length > 1 && cr(h[h.length-2], h[h.length-1], p) <= 0) h.pop(); h.push(p); return h; }, []);
+  const plan = pts.slice(0, M).sort((a,b) => a.x - b.x || a.z - b.z), rim = chain(plan).slice(0,-1).concat(chain(plan.slice().reverse()).slice(0,-1));
+  return { top:geo(top), under:geo(under), rim, thick, depth };
 }
-/* a stone placed at (x, y, z) turned by yaw: circles fitted inside its widest rim, one in the middle and one toward each corner, carry the top; a cone its underside */
+/* a stone placed at (x, y, z) turned by yaw: a prism over the top's outline carries you, a cone stands in for the rock underneath */
 function stoneColliders(s, x, y, z, yaw){ const cs = Math.cos(yaw), sn = Math.sin(yaw), rim = s.rim;
-  const inside = (px, pz) => { let m = Infinity; rim.forEach((a,k) => { const b = rim[(k+1)%rim.length], dx = b.x - a.x, dz = b.z - a.z, t = Math.min(1, Math.max(0, ((px-a.x)*dx + (pz-a.z)*dz)/(dx*dx + dz*dz)));
-    m = Math.min(m, Math.hypot(px - a.x - dx*t, pz - a.z - dz*t)); }); return m; };
-  [new V3(), ...rim.map(v => v.clone().multiplyScalar(.55))].forEach(c => { const r = inside(c.x, c.z) + .05; addFrustum(x + c.x*cs + c.z*sn, z - c.x*sn + c.z*cs, y - s.thick, y, r*.92, r); });
-  addFrustum(x, z, y - s.depth, y - s.thick, 0, inside(0, 0)*.85, { stand:false, ceil:true }); }
+  addPrism(y - s.thick, y, rim.map(v => [x + v.x*cs + v.z*sn, z - v.x*sn + v.z*cs]));
+  const inR = Math.min(...rim.map((a,k) => { const b = rim[(k+1)%rim.length]; return Math.abs(a.x*b.z - a.z*b.x)/Math.hypot(b.x - a.x, b.z - a.z); }));
+  addFrustum(x, z, y - s.depth, y - s.thick, 0, inR*.85, { stand:false, ceil:true }); }
 function makeIsland(cx, top, cz, r){
   const s = floatingStone(cx*3.1 + cz*1.3, r, .55, .55 + r*1.9, C('#323848'), .5);
   const topM = new THREE.Mesh(s.top, rockMat), under = new THREE.Mesh(s.under, rockMat);
@@ -249,7 +244,7 @@ const braziers = [];
 {
   const tops = [], unders = [];
   for (let i=0;i<=SP.N;i++){ if (BRAZIER_AT.includes(i)) continue; const p = spiralPt(i), yaw = p.a + (rand()-.5)*.9;
-    const s = floatingStone(i*13.7 + 2.2, 1.38 + hash(i, 5.3)*.3, .42, 1.7 + hash(i, 3.1)*.8, mixHex('#3D4458','#4A5168', rand()));
+    const s = floatingStone(i*13.7 + 2.2, 1.5 + hash(i, 5.3)*.3, .42, 1.9 + hash(i, 3.1)*.9, mixHex('#3D4458','#4A5168', rand()));
     M4.compose(new V3(p.x,p.y,p.z), Q.setFromAxisAngle(UP, yaw), new V3(1,1,1)); tops.push(s.top.applyMatrix4(M4)); unders.push(s.under.applyMatrix4(M4));
     stoneColliders(s, p.x, p.y, p.z, yaw);
     if (i % 4 === 2) pathLights.push(p); }
