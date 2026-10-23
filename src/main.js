@@ -508,15 +508,40 @@ function flyTo(dest){ const from = P.pos.clone(), dist = from.distanceTo(dest); 
 
 /* ---------- arrows: guided arrows fly to their relic; drawn arrows stick in whatever they meet ---------- */
 const arrows = [];
+const ARROW_TRAIL_POINTS = 14, ARROW_TRAIL_SECONDS = .15, ARROW_TRAIL_MAX_LENGTH = 8;
 const arrowShaft = new THREE.CylinderGeometry(.018,.018,1,5).rotateX(Math.PI/2);
 const fletchGeo = new THREE.ConeGeometry(.05,.14,3).rotateX(-Math.PI/2).translate(0,0,-.46);
 function bowWorld(){ return hero.localToWorld(H.bow.position.clone()); }
 function fireArrow(from, dir, speed, target){
   const g = new THREE.Group(); const sh = new THREE.Mesh(arrowShaft, new THREE.MeshBasicMaterial({ color:0xE8F8FF })); g.add(sh); g.add(new THREE.Mesh(fletchGeo, new THREE.MeshBasicMaterial({ color:0x78E6F0 })));
   const tipS = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0x9FF2FF, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending })); tipS.position.z = .5; tipS.scale.set(.9,.9,1); g.add(tipS);
-  const TL = 14, tg = new THREE.BufferGeometry(), tp = new Float32Array(TL*3); for (let i=0;i<TL;i++) tp.set([from.x,from.y,from.z], i*3); tg.setAttribute('position', new THREE.BufferAttribute(tp,3));
+  const tg = new THREE.BufferGeometry(), tp = new Float32Array(ARROW_TRAIL_POINTS*3); for (let i=0;i<ARROW_TRAIL_POINTS;i++) tp.set([from.x,from.y,from.z], i*3); tg.setAttribute('position', new THREE.BufferAttribute(tp,3));
   const trail = new THREE.Line(tg, new THREE.LineBasicMaterial({ color:0x9FF2FF, transparent:true, opacity:.7, blending:THREE.AdditiveBlending, depthWrite:false })); trail.frustumCulled = false; scene.add(trail);
-  g.position.copy(from); scene.add(g); arrows.push({ g, tipS, trail, pos:from.clone(), vel:dir.clone().normalize().multiplyScalar(speed), target, life: target ? 4 : 3.2, stuck:false, age:0 });
+  g.position.copy(from); scene.add(g); arrows.push({ g, tipS, trail, trailHistory:[{ time:0, pos:from.clone() }], pos:from.clone(), vel:dir.clone().normalize().multiplyScalar(speed), target, life: target ? 4 : 3.2, stuck:false, age:0 });
+}
+/* Resample a fixed duration of the actual path, independent of frame rate. */
+function updateArrowTrail(a){
+  const history = a.trailHistory, cutoff = a.age - ARROW_TRAIL_SECONDS;
+  history.push({ time:a.age, pos:a.pos.clone() });
+  // Keep one sample before the cutoff so the tail can be interpolated exactly.
+  while (history.length > 2 && history[1].time <= cutoff) history.shift();
+  const attr = a.trail.geometry.attributes.position, tp = attr.array;
+  let segment = history.length - 2, length = 0;
+  for (let i=0;i<ARROW_TRAIL_POINTS;i++){
+    const time = Math.max(history[0].time, a.age - i/(ARROW_TRAIL_POINTS-1)*ARROW_TRAIL_SECONDS);
+    while (segment > 0 && history[segment].time > time) segment--;
+    const lo = history[segment], hi = history[segment+1];
+    const span = hi.time - lo.time, t = span > 0 ? (time - lo.time)/span : 0;
+    let x = lerp(lo.pos.x, hi.pos.x, t), y = lerp(lo.pos.y, hi.pos.y, t), z = lerp(lo.pos.z, hi.pos.z, t);
+    const j = i*3;
+    if (i > 0){
+      const dx = x - tp[j-3], dy = y - tp[j-2], dz = z - tp[j-1], d = Math.hypot(dx,dy,dz);
+      const keep = d > 0 ? Math.min(1, Math.max(0, ARROW_TRAIL_MAX_LENGTH-length)/d) : 0;
+      x = tp[j-3] + dx*keep; y = tp[j-2] + dy*keep; z = tp[j-1] + dz*keep; length += d*keep;
+    }
+    tp[j] = x; tp[j+1] = y; tp[j+2] = z;
+  }
+  attr.needsUpdate = true;
 }
 const aPrev = new V3(), aSeg = new V3(), aTip = new V3(), aDir = new V3();
 /* first point along the segment where the arrow's tip enters something solid or the ground; null if it flies clear */
@@ -538,7 +563,7 @@ function updateArrows(dt){
       if (!a.target && a.life > 0){ const hit = arrowImpact(from, a.pos);
         if (hit){ a.pos.copy(hit); a.stuck = true; a.life = Math.min(a.life + 4, 7); a.tipS.material.opacity = .5; burst(aTip.clone(), C('#9FF2FF'), 14, .25); } }
       a.g.position.copy(a.pos); a.g.quaternion.setFromUnitVectors(ZAX, a.vel.clone().normalize());
-      const tp = a.trail.geometry.attributes.position.array; tp.copyWithin(3, 0, tp.length-3); tp[0]=a.pos.x; tp[1]=a.pos.y; tp[2]=a.pos.z; a.trail.geometry.attributes.position.needsUpdate = true;
+      updateArrowTrail(a);
     } else a.tipS.material.opacity = Math.max(0, Math.min(.5, a.life*.3));
     a.trail.material.opacity = a.stuck ? Math.max(0, a.trail.material.opacity - dt*2) : Math.max(0, Math.min(.7, a.life*.5));
     if (a.life <= 0){ scene.remove(a.g); scene.remove(a.trail); a.g.children.forEach(c => c.material && c.material.dispose()); a.trail.geometry.dispose(); arrows.splice(i,1); }
