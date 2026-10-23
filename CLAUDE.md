@@ -12,4 +12,4 @@
 - Keep the résumé, GitHub and LinkedIn links reachable in one click at all times, and keep every 3D interaction available through a shortcut (keys 1–7, the relic tracker, the Oracle) for visitors who will not play.
 - Respect `prefers-reduced-motion` (it skips the intro and particle drift).
 - Verify with `npm run build` before committing.
-- The wanderer is a small cloth doll: a hooded bell-shaped dress instead of legs, a round porcelain face with simple eyes, pure colours, soft shading, few details. Nothing on it flaps or trails about (no scarves or ribbons).
+- The wanderer is a small cloth doll: a big soft cloth hood, one piece with a short cape and a bell-shaped robe (no legs), its face hidden in the hood's shadow except for two small glowing eyes (no modelled face). Pale pastel cloth that stands out from the blue-violet surroundings, soft shading, few details. Nothing on it flaps or trails about (no scarves or ribbons).

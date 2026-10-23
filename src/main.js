@@ -583,7 +583,8 @@ function followPose(){
   const dist = aim ? 4.4 : gaze ? Math.min(camS.dist, 6) : camS.dist;
   let d = dist; for (let k=0;k<12;k++){ const p = pivot.clone().addScaledVector(Lp, -d); const g = groundH(p.x,p.z); if (p.y > g + .35 && Math.hypot(p.x,p.z) < 42) break; d *= .82; }
   wantPos.copy(pivot).addScaledVector(Lp, -d);
-  if (wantPos.y < groundH(wantPos.x, wantPos.z) + .3) wantPos.y = groundH(wantPos.x, wantPos.z) + .3;
+  /* stay above the grass tops so blades never fill the view */
+  if (wantPos.y < groundH(wantPos.x, wantPos.z) + .95) wantPos.y = groundH(wantPos.x, wantPos.z) + .95;
   wantLook.copy(pivot).addScaledVector(L, 30);
 }
 followPose(); camPos.copy(intro ? intro.from : wantPos); camLook.copy(intro ? intro.look : wantLook);
