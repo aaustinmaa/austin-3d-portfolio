@@ -1,5 +1,5 @@
-// Everything a visitor reads lives here: the start card, the relics (projects and experience)
-// and the Oracle's scripted answers. Edit this file to change the site's words.
+// Everything a visitor reads lives here: the start card, the relics (projects and experience),
+// the skill constellation and the Oracle's scripted lines. Edit this file to change the site's words.
 
 export const ABOUT = { id:'about', kicker:'Start here', color:'#78E6F0', title:'Austin Ma', meta:'Computer Science · University of Waterloo',
   body:'I build data pipelines and AI tools that people actually use. My work drifts above this valley as sealed relics. Click one to shoot it down, draw the bow yourself, or ask the Oracle.',
@@ -11,7 +11,7 @@ export const RELICS = [
   { id:'suwudu', key:2, name:'SuWuDu', kicker:'Desktop pet & focus companion', color:'#F2A2C4', meta:'Jul – Sep 2026', form:'cocoon',
     body:'A pixel pet that lives on your desktop and keeps you company while you focus, with focus and journal tracking and an AI chat that can see your screen. Native Swift on macOS, C#/WPF on Windows.',
     tags:['Swift','SwiftUI','AppKit','C#','WPF'], orbit:{ R:17, y:30, speed:-.055, phase:1.6 } },
-  { id:'aquanow', key:3, name:'Aquanow', kicker:'Data Engineer Intern', color:'#E8B866', meta:'May – Aug 2026 · Internship', form:'ledger',
+  { id:'aquanow', key:3, name:'Aquanow', kicker:'Data Engineer Intern', color:'#E8B866', meta:'May – Aug 2026 · Internship', form:'iceberg',
     body:'Built scheduled Python ingestion that syncs FX trades, balances and positions into Apache Iceberg tables on AWS, a PySpark/Glue raw-to-clean pipeline, and overnight-swap reports validated against statements.',
     tags:['Python','PySpark','AWS Glue','Iceberg','Athena','Terraform'], orbit:{ R:14, y:25, speed:.06, phase:2.9 } },
   { id:'nexo', key:4, name:'NEXO', kicker:'Research workspace · team project', color:'#8FA8FF', meta:'Jul 2026 – Present', form:'book',
@@ -48,6 +48,8 @@ export const INTENTS = [
     a:"The quickest way is the top bar: the résumé, GitHub and LinkedIn are always there. The astrolabe carries them too." },
   { k:['project','built','build','made','portfolio','work','项目','做过'], to:'watapply',
     a:"Six relics drift above this valley: WatApply, SuWuDu, Aquanow, NEXO, StableWake and the astrolabe of skills. If you only open one, open WatApply. I'll bring it to you." },
+  { k:['star','stars','constellation','sky','light','星'], to:null,
+    a:"Each relic you open gives me back a little light, and the skills it used wake as stars overhead. Projects that share a skill are joined by a line. Press C to look up, and touch a star to ask what it is." },
   { k:['waterloo','school','study','student','university','education','degree'], to:null,
     a:"Austin studies Computer Science at the University of Waterloo. The monolith by the path at the valley's edge tells the rest." },
   { k:['who','about','austin','yourself','介绍'], to:null,
@@ -55,3 +57,58 @@ export const INTENTS = [
   { k:['hello','hi','hey','你好','嗨'], to:null, a:"Welcome, wanderer. Name any of Austin's work and I'll bring it down, or try the bow yourself." },
 ];
 export const FALLBACK = { to:null, a:"I only keep Austin's story here. Ask about his projects, his internship at Aquanow or his skills." };
+
+// The skill constellation. Each star wakes when one of its relics is opened; relics that share a star are joined by lines.
+// `relics` lists every relic whose text above names the skill (the astrolabe, id 'signal', is Austin's own skills list).
+// `group` places the star in a region of the sky: lang, data, ai, apps, research, play.
+export const SKILLS = [
+  { id:'python',     name:'Python',            group:'lang',     relics:['watapply','aquanow','signal'], also:['pyspark'] },
+  { id:'typescript', name:'TypeScript',        group:'lang',     relics:['stablewake','signal'], also:['ts'] },
+  { id:'swift',      name:'Swift',             group:'lang',     relics:['suwudu','stablewake','signal'] },
+  { id:'csharp',     name:'C#',                group:'lang',     relics:['suwudu','signal'], also:['c sharp','csharp'] },
+  { id:'java',       name:'Java',              group:'lang',     relics:['signal'] },
+  { id:'sql',        name:'SQL',               group:'lang',     relics:['signal'] },
+  { id:'spark',      name:'Spark · PySpark',   group:'data',     relics:['aquanow','signal'], also:['spark','pyspark'] },
+  { id:'aws',        name:'AWS · Glue · Athena', group:'data',   relics:['aquanow','signal'], also:['aws','glue','athena','amazon'] },
+  { id:'iceberg',    name:'Apache Iceberg',    group:'data',     relics:['aquanow','signal'], also:['iceberg'] },
+  { id:'kafka',      name:'Kafka',             group:'data',     relics:['signal'] },
+  { id:'terraform',  name:'Terraform',         group:'data',     relics:['aquanow'] },
+  { id:'pipelines',  name:'Data pipelines',    group:'data',     relics:['aquanow','nexo'], also:['pipeline','etl'] },
+  { id:'langgraph',  name:'LangGraph',         group:'ai',       relics:['watapply','signal'] },
+  { id:'langchain',  name:'LangChain',         group:'ai',       relics:['signal'] },
+  { id:'retrieval',  name:'Retrieval · pgvector', group:'ai',    relics:['watapply','signal'], also:['retrieval','rag','pgvector','vector'] },
+  { id:'fastapi',    name:'FastAPI',           group:'ai',       relics:['watapply'] },
+  { id:'postgres',   name:'PostgreSQL',        group:'ai',       relics:['watapply'], also:['postgres','postgresql'] },
+  { id:'react',      name:'React',             group:'apps',     relics:['watapply'] },
+  { id:'reactnative',name:'React Native · Expo', group:'apps',   relics:['stablewake'], also:['react native','expo'] },
+  { id:'swiftui',    name:'SwiftUI · AppKit',  group:'apps',     relics:['suwudu'], also:['swiftui','appkit'] },
+  { id:'wpf',        name:'WPF',               group:'apps',     relics:['suwudu'] },
+  { id:'pdf',        name:'PDF annotation',    group:'research', relics:['nexo'], also:['pdf','annotation'] },
+  { id:'crawler',    name:'Crawler',           group:'research', relics:['nexo'], also:['crawler','scraper'] },
+  { id:'boardgames', name:'Board games',       group:'play',     relics:['offclock'], also:['board game','avalon','clocktower','ark nova'] },
+  { id:'chess',      name:'Chess',             group:'play',     relics:['offclock'] },
+  { id:'poker',      name:'Poker',             group:'play',     relics:['offclock'] },
+  { id:'motorsport', name:'Motorsport',        group:'play',     relics:['offclock'] },
+];
+
+// What the Oracle says about a star. `names` are the relics that use it (the astrolabe left out); `sealed` counts the ones still unopened.
+export function starLine(skill, names, sealed){
+  if (!names.length) return `${skill.name} is one of Austin's skills. The astrolabe lists it with the rest.`;
+  const list = names.length === 1 ? names[0] : names.slice(0,-1).join(', ') + ' and ' + names[names.length-1];
+  const still = names.length === 1 ? 'It is' : sealed === 1 ? 'One of them is' : sealed === names.length ? 'They are all' : `${sealed} of them are`;
+  return `${skill.name} runs through ${list}.` + (sealed ? ` ${still} still sealed in the sky.` : '');
+}
+
+// The Oracle's own lines.
+export const LINES = {
+  intro: "I am the light of this valley, broken into six relics. Each holds a piece of Austin's work. Click one and your bow will bring it down, draw the bow yourself with F, or name one and I'll call it.",
+  asleep: "That relic is still asleep beneath the lake. Light the four braziers on the stairs and it will wake.",
+  woke: "The lake has given up its relic. Shoot it down, or press 7.",
+  darkStar: "That star is still dark. Open a relic that uses it and it will wake.",
+  lightBack: (n, stars) => `A beam of light returns · ${n} of 6` + (stars ? ` · ${stars} new star${stars === 1 ? '' : 's'} overhead` : ''),
+  hiddenStars: stars => `The hidden relic's stars wake · ${stars} new`,
+  finale: "Every relic is open and my light is whole again. Thank you for walking the whole valley. If you'd like to talk with Austin, his résumé, GitHub and LinkedIn are right here.",
+};
+export const FINALE = { id:'finale', kicker:'All six relics opened', color:'#F4D58D', title:'The valley is lit', meta:'Thanks for exploring',
+  body:"You've opened every relic: Austin's internship at Aquanow, the apps he has built, and the skills that tie them together. The quickest way to reach him is below.",
+  tags:[] };

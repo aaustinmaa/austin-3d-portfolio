@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Austin's Eclipse Valley</title>
-<meta name="description" content="Austin Ma's portfolio: a night valley under an eclipse where each project drifts as a sealed relic.">
+<title>Austin Ma · The Sleeping Star</title>
+<meta name="description" content="Austin Ma's portfolio: a dark valley under a sleeping star. Each project drifts overhead as a sealed relic, and opening one returns light to the sky.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Figtree:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
 </head>
 <body>
-<canvas id="world" tabindex="0" aria-label="A valley at night under an eclipse. Sealed relics drift in the sky, each holding one of Austin's projects."></canvas>
+<canvas id="world" tabindex="0" aria-label="A dark valley under a glowing star. Sealed relics drift in the sky, each holding one of Austin's projects. Opening them lights the valley and wakes a constellation of his skills."></canvas>
 <div id="labels"></div>
 
 <header class="bar">
@@ -26,6 +26,7 @@
 <aside class="tracker glass" aria-label="Relics">
   <h3><span>RELICS</span><b id="relicCount">0 / 6</b></h3>
   <ol id="relicList"></ol>
+  <div class="skyrow"><span>STARS</span><b id="starCount">0 / 0</b><button type="button" id="lookUp" aria-pressed="false">Look up · C</button></div>
 </aside>
 
 <article class="card" id="card" hidden aria-live="polite"></article>

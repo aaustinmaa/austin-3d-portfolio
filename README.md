@@ -1,6 +1,6 @@
 # Austin's 3D Portfolio
 
-A night valley under an eclipse. Austin's projects and experience drift overhead as sealed relics. Visitors shoot them down with a bow, or ask the Oracle (the eclipse) to bring one down. The résumé, GitHub and LinkedIn links stay in the top bar the whole time.
+A dark valley under a sleeping star. Austin's projects and experience drift overhead as sealed relics. Visitors shoot them down with a bow, or ask the Oracle (the star) to bring one down. Each relic opened sends a beam of light back to the star: it grows a ray in that relic's colour, the valley brightens a step, and the skills the project used wake as stars in a constellation overhead. Projects that share a skill are joined by a line, so with all six open the sky becomes one chart of Austin's stack. The résumé, GitHub and LinkedIn links stay in the top bar the whole time.
 
 Built with [three.js](https://threejs.org/) and [Vite](https://vitejs.dev/). No other runtime dependencies.
 
@@ -26,22 +26,30 @@ Requires Node 18 or newer.
 | Click a relic | Auto shot: the wanderer fires a homing arrow |
 | F | Toggle "draw the bow": hold to draw, drag to aim, release to shoot |
 | 1–7 | Summon a relic directly |
+| C | Look up at the skill constellation (also the ✦ button in the relic tracker) |
+| Click a star | The Oracle names the relics that use that skill |
 | Esc | Send the open relic back to the sky |
 
-Light the four braziers on the spiral stairs to wake a hidden seventh relic.
+Light the four braziers on the spiral stairs to wake a hidden seventh relic. Column capitals, basalt columns, boulders and stair stones can all be stood on; click a column to fly up onto it.
 
 ## Project layout
 
 ```
 index.html          Page markup: top bar, relic tracker, card, chat dock
-src/main.js         The world: scene, valley, eclipse, relics, wanderer, bow, flight, camera, UI wiring
-src/content.js      Everything visitors read: relic text and the Oracle's scripted answers
-src/noise.js        Seeded random and value noise (the valley is identical on every visit)
-src/textures.js     Canvas-drawn textures: glows, corona, runes, the Oracle's eye
+src/main.js           The world: scene, valley, lighting, relic logic, player, arrows, camera, UI wiring
+src/oracle.js         The star (the Oracle): core, rings, shards, the rays it regains, returning light
+src/constellation.js  The skill constellation: star layout, figures, labels, wake-up animation
+src/relics.js         The seven relic models and how each one unfolds when opened
+src/hero.js           The wanderer model, bow and scarf, and their animation
+src/moths.js          Lantern moths around the wanderer and the crystals
+src/colliders.js      Solid shapes for standing, walls, ceilings and arrow hits
+src/content.js        Everything visitors read: relic text, skills, the Oracle's lines and answers
+src/noise.js          Seeded random and value noise (the valley is identical on every visit)
+src/textures.js       Canvas-drawn textures: glows, rays, runes, sigils, dials, paper, moth wings
 src/styles.css      UI styles and design tokens
 ```
 
-To change wording, edit `src/content.js` only.
+To change wording, edit `src/content.js` only. The constellation comes from `SKILLS` there: each skill lists the relics whose text names it, and star positions live in `AT` at the top of `src/constellation.js` (a skill without a position is placed automatically in its group).
 
 ## Status
 
