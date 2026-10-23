@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { glowTex, fabricTex } from './textures.js';
 
 // A small, legless wanderer in a thin woven robe and a softly folded hood. The cloth hangs from the shoulders;
-// only the loose hem, cuffs and hood tip respond to motion. The shadowed face, lantern and golden bow stay familiar.
+// only the loose hem, cuffs and neck drape respond to motion. The shadowed face, lantern and golden bow stay familiar.
 const V3 = THREE.Vector3, DOWN = new V3(0,-1,0);
 
 /* the bow, in its own space: the limbs bulge toward +x, the string runs between the tips at x = TIP_X */
@@ -69,27 +69,41 @@ export function buildHero(scene){
   panel(gridGeo(2, 64, (u,v,p) => { coatAt(u, .985 + v*.015, p); p.x *= 1.004; p.z *= 1.004; }, new V3(0,.15,0)), body, 'coat', (u,v) => coatWeight(u, .985 + v*.015), 'hero-hem', edgeCloth);
 
   const head = new THREE.Group(); head.position.set(0,1.13,0); body.add(head);
-  /* The crown folds back and to one side. There is no inflated collar or separate padded face ring. */
-  const RAD = [0,.06,.15,.23,.285,.31,.315,.295,.285,.31,.35];
-  const YS = [.46,.43,.385,.325,.24,.14,.025,-.09,-.205,-.275,-.33];
-  const open = v => v <= .25 || v >= .97 ? 0 : 1.18*Math.pow(Math.sin(Math.PI*(v - .25)/.72), .72);
-  const hoodAt = (u, v, out) => {
-    const h = open(v), a = h + u*(Math.PI*2 - 2*h), tip = 1 - smooth(v, 0, .50);
-    const lower = smooth(v, .30, 1), edge = Math.exp(-Math.pow(Math.min(u, 1-u)/.022, 2));
-    const folds = (.014*Math.cos(a*5 + v*3) + .006*Math.sin(a*8 - v*2))*lower;
-    const seam = .005*Math.exp(-Math.pow((a-Math.PI)/.16, 2))*smooth(v, .12, .45);
-    const r = key(RAD, v) + folds - seam - .009*edge*Math.sin(h);
-    return out.set(Math.sin(a)*r - .08*tip, key(YS, v) - .014*Math.cos(a*3)*lower, Math.cos(a)*r*.94 - .30*tip - .025*lower);
+  /* A close-fitting round hood covers the crown, temples and cheeks. The small oval opening follows the face;
+     its upper edge is a round arch, and the shell stays close to the head rather than forming an empty canopy. */
+  const faceY = -.035, faceZ = -.018, hoodRadius = .270, openingWidth = .148, openingHeight = .145;
+  const hoodProfile = v => {
+    const angle = v*2.45, drape = smooth(v, .67, 1);
+    return [THREE.MathUtils.lerp(hoodRadius*Math.sin(angle), .315, drape),
+      THREE.MathUtils.lerp(faceY + hoodRadius*Math.cos(angle), -.33, drape)];
   };
-  const hoodWeight = (u,v) => (1 - smooth(v, .03, .39))*.72 + smooth(v, .74, 1)*.12;
-  const inside = new V3(0,0,-.04);
-  panel(gridGeo(40, 64, hoodAt, inside), head, 'hood', hoodWeight, 'hero-hood');
+  const hoodAt = (u, v, out) => {
+    const [radius, y] = hoodProfile(v), ovalY = (y-faceY)/openingHeight;
+    const width = openingWidth*Math.sqrt(Math.max(0, 1-ovalY*ovalY));
+    const h = radius > 0 ? Math.asin(Math.min(.95, width/radius)) : 0, a = h + u*(Math.PI*2 - 2*h);
+    const lower = smooth(v, .67, 1);
+    const folds = (.004*Math.cos(a*5 + v*3) + .002*Math.sin(a*8 - v*2))*lower;
+    const seam = .003*Math.exp(-Math.pow((a-Math.PI)/.16, 2))*lower, r = radius + folds - seam;
+    return out.set(Math.sin(a)*r, y - .006*Math.cos(a*3)*lower, faceZ + Math.cos(a)*r);
+  };
+  /* Keep the fitted crown and face opening anchored; only the cloth below the chin has a little freedom. */
+  const hoodWeight = (u,v) => smooth(v, .80, 1)*.10;
+  const inside = new V3(0,faceY,faceZ);
+  const hoodVAtY = y => { let lo = 0, hi = 1;
+    for (let i=0;i<28;i++){ const mid = (lo+hi)/2; if (hoodProfile(mid)[1] > y) lo = mid; else hi = mid; }
+    return (lo+hi)/2; };
+  const openingTop = hoodVAtY(faceY + openingHeight), openingBottom = hoodVAtY(faceY - openingHeight);
+  const edgeV = v => hoodVAtY(faceY + openingHeight*Math.cos(Math.PI*v));
+  /* Sample the oval by angle, including its exact top and bottom. Uniform height rows make a smooth arch look
+     pointed where the opening begins, especially when the head is this small. */
+  const hoodV = v => v <= .25 ? openingTop*v/.25 : v >= .875 ? openingBottom + (1-openingBottom)*(v-.875)/.125 : edgeV((v-.25)/.625);
+  panel(gridGeo(64, 64, (u,v,p) => hoodAt(u, hoodV(v), p), inside), head, 'hood', (u,v) => hoodWeight(u, hoodV(v)), 'hero-hood');
   for (const side of [0,1]) panel(gridGeo(36, 2, (u,v,p) => {
-    hoodAt(side === 0 ? u*.018 : 1 - u*.018, .25 + v*.72, p);
+    hoodAt(side === 0 ? u*.008 : 1 - u*.008, edgeV(v), p);
     p.z += .002;
-  }, inside), head, 'hood', (u,v) => hoodWeight(u, .25 + v*.72), `hero-hood-edge-${side}`, edgeCloth);
+  }, inside), head, 'hood', (u,v) => hoodWeight(u, edgeV(v)), `hero-hood-edge-${side}`, edgeCloth);
   /* inside the hood: a face in shadow with two small glowing eyes */
-  const face = new THREE.Group(); face.position.set(0,-.035,-.018); head.add(face);
+  const face = new THREE.Group(); face.position.set(0,faceY,faceZ); head.add(face);
   mesh(new THREE.SphereGeometry(.255,32,24), new THREE.MeshBasicMaterial({ color:COL.shade }), face, false);
   const eyeMat = new THREE.MeshBasicMaterial({ color:COL.eye }), eyes = [-1,1].map(sd => {
     const g = onSphere(new THREE.RingGeometry(0,1,24,4).scale(.034,.048,1).translate(sd*.085,0,0), .260); g.computeBoundingSphere(); const c = g.boundingSphere.center.clone(); g.translate(-c.x, -c.y, -c.z);
