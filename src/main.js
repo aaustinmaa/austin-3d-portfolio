@@ -230,13 +230,11 @@ function floatingStone(sd, R, thick, depth, topCol, rough=1){
 }
 /* a stone's top outline in plan, placed at (x, z) and turned by yaw, as [x, z] corners */
 const planRim = (s, x, z, yaw) => { const cs = Math.cos(yaw), sn = Math.sin(yaw); return s.rim.map(v => [x + v.x*cs + v.z*sn, z - v.x*sn + v.z*cs]); };
-/* the clear distance between two convex outlines in plan; 0 when they touch or overlap */
-function planGap(A, B){
-  const span = (P, nx, nz) => P.reduce((r,p) => { const d = p[0]*nx + p[1]*nz; return [Math.min(r[0], d), Math.max(r[1], d)]; }, [Infinity, -Infinity]);
-  const apart = (P, Q) => P.some((p,i) => { const q = P[(i+1)%P.length], a = span(P, q[1] - p[1], p[0] - q[0]), b = span(Q, q[1] - p[1], p[0] - q[0]); return a[1] < b[0] || b[1] < a[0]; });
-  if (!apart(A, B) && !apart(B, A)) return 0;
-  const seg = (p, a, b) => { const dx = b[0] - a[0], dz = b[1] - a[1], t = Math.min(1, Math.max(0, ((p[0] - a[0])*dx + (p[1] - a[1])*dz)/(dx*dx + dz*dz))); return Math.hypot(p[0] - a[0] - dx*t, p[1] - a[1] - dz*t); };
-  let m = Infinity; for (const [P, Q] of [[A, B], [B, A]]) for (const p of P) Q.forEach((a,i) => { m = Math.min(m, seg(p, a, Q[(i+1)%Q.length])); });
+/* signed clearance between two convex outlines in plan: how far apart they are or, when negative, how deeply they overlap */
+function planSep(A, B){ let m = -Infinity;
+  for (const [P, Q] of [[A, B], [B, A]]) P.forEach((p,i) => { const q = P[(i+1)%P.length], l = Math.hypot(q[0] - p[0], q[1] - p[1]), nx = (q[1] - p[1])/l, nz = (p[0] - q[0])/l;
+    const span = R => R.reduce((r,v) => { const d = v[0]*nx + v[1]*nz; return [Math.min(r[0], d), Math.max(r[1], d)]; }, [Infinity, -Infinity]), a = span(P), b = span(Q);
+    m = Math.max(m, b[0] - a[1], a[0] - b[1]); });
   return m;
 }
 /* every stone's top centre, so a click anywhere on a stone can set you down on it */
@@ -257,25 +255,26 @@ function makeIsland(cx, top, cz, r){
 }
 const braziers = [];
 {
-  /* the landings first; then each step slides a little along or inward off the path, or shrinks, until it floats clear of its neighbours,
-     and is left out where there is no room for it */
+  /* the landings first, then the steps between them */
   const landings = {};
   BRAZIER_AT.forEach(idx => { const p = spiralPt(idx), out = new V3(Math.sin(p.a),0,Math.cos(p.a)), c = new V3(p.x,0,p.z).addScaledVector(out, 2);
     landings[idx] = { p, out, c, isl:makeIsland(c.x, p.y, c.z, 3) }; });
   const tops = [], unders = [], placed = [];
-  for (let i=0, last=0; i<=SP.N; i++){ if (landings[i]){ placed.push(landings[i].isl.plan); last = i; continue; }
-    const p = spiralPt(i), yaw = rand()*Math.PI*2, col = mixHex('#3D4458','#4A5168', rand()), off = (hash(i, 9.1) - .5)*.7, x0 = p.x + Math.sin(p.a)*off, z0 = p.z + Math.cos(p.a)*off;
-    const gap = .4 + hash(i, 7.7)*.4, near = placed.slice(-2).concat([1,2].filter(d => landings[i+d]).map(d => landings[i+d].isl.plan));
-    /* the first size and place that clears its neighbours; failing that the step is left out, unless that would leave too big a climb,
-       in which case it takes whichever came closest */
+  for (let i=0; i<=SP.N; i++){ if (landings[i]){ placed.push(landings[i].isl.plan); continue; }
+    const p = spiralPt(i), yaw = rand()*Math.PI*2, col = mixHex('#3D4458','#4A5168', rand()), off = (hash(i, 9.1) - .5)*.6, want = -(.1 + hash(i, 7.7)*.15);
+    const prev = placed[placed.length-1], prev2 = placed[placed.length-2], next = landings[i+1] && landings[i+1].isl.plan, after = landings[i+2] && landings[i+2].isl.plan;
+    /* each step takes the size, and the place along or a little inward of the path, whose edge best meets the stone before it (and a landing
+       just after it): overlapping a little, never much, and clear of the stones beyond. If it cannot, it tries turning a little. */
+    const meet = d => Math.abs(d - want) + (d > .02 || d < -.35 ? 10 : 0), clear = (r, n) => n && planSep(r, n) < 0 ? 10 : 0;
     let best = null;
-    for (let k=1; k>.6 && !(best && best.g >= gap); k*=.93){ const t = floatingStone(i*13.7 + 2.2, (.95 + hash(i, 5.3)*.35)*k, .42, (1.8 + hash(i, 3.1)*.8)*k, col, .7);
-      for (const [sh, inw] of [[0,0], [.3,0], [.6,0], [-.3,0], [0,.5], [.4,.5], [-.4,.5]]){ const x = x0 + Math.cos(p.a)*sh - Math.sin(p.a)*inw, z = z0 - Math.sin(p.a)*sh - Math.cos(p.a)*inw;
-        const g = Math.min(...near.map(n => planGap(planRim(t, x, z, yaw), n))); if (!best || g > best.g) best = { s:t, x, z, g }; if (g >= gap) break; } }
-    if (best.g < gap && i - last < 2 && !landings[i+2]) continue;
-    const { s, x, z } = best; last = i;
-    M4.compose(new V3(x, p.y, z), Q.setFromAxisAngle(UP, yaw), new V3(1,1,1)); tops.push(s.top.applyMatrix4(M4)); unders.push(s.under.applyMatrix4(M4));
-    placeStone(s, x, p.y, z, yaw); placed.push(planRim(s, x, z, yaw));
+    const sizes = []; for (let k=.75; k<1.6; k+=.1) sizes.push([k, floatingStone(i*13.7 + 2.2, (1.1 + hash(i, 5.3)*.3)*k, .42, (1.8 + hash(i, 3.1)*.8)*k, col, .7)]);
+    for (const turn of [0, .6, 1.2, 1.8, 2.4]){ if (best && best.score < 10) break;
+      for (const [k, t] of sizes) for (let sh=-1.2; sh<1.25; sh+=.15) for (const inw of [0, .3, .6]){ const o = off - inw, x = p.x + Math.cos(p.a)*sh + Math.sin(p.a)*o, z = p.z - Math.sin(p.a)*sh + Math.cos(p.a)*o, r = planRim(t, x, z, yaw + turn);
+        const score = (prev ? meet(planSep(r, prev)) : 0) + (next ? meet(planSep(r, next)) : 0) + clear(r, prev2) + clear(r, after) + .2*Math.abs(sh) + .2*inw + .3*Math.abs(k - 1);
+        if (!best || score < best.score) best = { s:t, x, z, yaw:yaw + turn, score }; } }
+    const { s, x, z } = best;
+    M4.compose(new V3(x, p.y, z), Q.setFromAxisAngle(UP, best.yaw), new V3(1,1,1)); tops.push(s.top.applyMatrix4(M4)); unders.push(s.under.applyMatrix4(M4));
+    placeStone(s, x, p.y, z, best.yaw); placed.push(planRim(s, x, z, best.yaw));
     if (i % 4 === 2) pathLights.push({ x, y:p.y, z }); }
   const stoneTop = new THREE.Mesh(merge(tops), rockMat), stoneBot = new THREE.Mesh(merge(unders), rockMat);
   [stoneTop, stoneBot].forEach(o => { o.castShadow = o.receiveShadow = true; o.userData.stone = true; scene.add(o); pickables.push(o); });
@@ -666,7 +665,7 @@ function updatePlayer(dt){
   let mx = 0, mz = 0;
   const fwd = (keys.KeyW||keys.ArrowUp?1:0) - (keys.KeyS||keys.ArrowDown?1:0), side = (keys.KeyD||keys.ArrowRight?1:0) - (keys.KeyA||keys.ArrowLeft?1:0);
   if (fwd || side){ const fx = -Math.sin(camS.yaw), fz = -Math.cos(camS.yaw), rx = Math.cos(camS.yaw), rz = -Math.sin(camS.yaw); mx = fx*fwd + rx*side; mz = fz*fwd + rz*side; P.target = null; }
-  else if (P.target){ mx = P.target.x - P.pos.x; mz = P.target.z - P.pos.z; if (Math.hypot(mx,mz) < .25){ P.target = null; mx = mz = 0; } }
+  else if (P.target){ mx = P.target.x - P.pos.x; mz = P.target.z - P.pos.z; if (Math.hypot(mx,mz) < .25){ P.target = null; mx = mz = 0; P.vel.x = P.vel.z = 0; } }
   const ml = Math.hypot(mx,mz); if (ml > 0){ mx/=ml; mz/=ml; }
   const spd = SPEED * (mode === 'aim' ? (P.drawing ? .35 : .6) : 1) * (P.flying ? 1.2 : 1);
   const k = 1 - Math.exp(-dt*(P.onGround ? 14 : P.soared ? 6 : 4)); P.vel.x = lerp(P.vel.x, mx*spd, k); P.vel.z = lerp(P.vel.z, mz*spd, k);
@@ -677,8 +676,8 @@ function updatePlayer(dt){
   pushP.x = nx; pushP.z = nz; if (pushOut(pushP, P.pos.y + STEP_UP, P.pos.y + HEAD, BODY_R)){ nx = pushP.x; nz = pushP.z; }
   const moved = Math.hypot(nx - P.pos.x, nz - P.pos.z);
   if (P.target && moved < spd*dt*.25){ if ((P.stall += dt) > .5){ P.target = null; P.stall = 0; } } else P.stall = 0;
-  /* stepping stones: walking off one toward another just ahead hops across the gap and lands a little way onto it */
-  if (P.onGround && ml > 0 && supportAt(nx, nz, P.pos.y).h < P.pos.y - .3)
+  /* stepping stones: walking off one over open air toward another just ahead hops across and lands a little way onto it */
+  if (P.onGround && ml > 0 && supportAt(nx, nz, P.pos.y).h < P.pos.y - .9)
     for (let d=.3; d<2.9; d+=.2){ const a = supportAt(nx + mx*d, nz + mz*d, P.pos.y + .5);
       if (a.onPlatform && a.h > P.pos.y - .9){ const to = new V3(nx + mx*(d + .5), a.h, nz + mz*(d + .5)); if (supportAt(to.x, to.z, a.h).h !== a.h) to.set(nx + mx*d, a.h, nz + mz*d);
         P.flight = { from:P.pos.clone(), to, t:0, dur:.3 + d*.1, arc:.45 + Math.max(0, a.h - P.pos.y)*.5 }; P.vel.set(0,0,0); return; } }
