@@ -25,13 +25,16 @@ const runeTex = (() => { const w=1024, h=96, [c,g] = canvas2d(w,h);
   g.globalAlpha=.6; g.lineWidth=2; g.beginPath(); g.moveTo(0,14); g.lineTo(w,14); g.moveTo(0,h-14); g.lineTo(w,h-14); g.stroke();
   const t=new THREE.CanvasTexture(c); t.wrapS=THREE.RepeatWrapping; return t; })();
 
-/* a round sigil: rings, a seven-point star and tick marks, used on the book cover and the star's halo */
-const sigilTex = (() => { const s = 512, [c,g] = canvas2d(s); g.translate(s/2,s/2); g.strokeStyle = '#fff'; g.shadowColor = '#fff'; g.shadowBlur = 8; g.lineCap = 'round';
-  [[.47,5],[.43,2],[.30,3]].forEach(([r,lw]) => { g.lineWidth = lw; g.beginPath(); g.arc(0,0,r*s,0,Math.PI*2); g.stroke(); });
-  g.lineWidth = 3; g.beginPath(); for (let i=0;i<=7;i++){ const a = i*3/7*Math.PI*2 - Math.PI/2; g[i ? 'lineTo' : 'moveTo'](Math.cos(a)*.3*s, Math.sin(a)*.3*s); } g.stroke();
-  g.lineWidth = 2; for (let i=0;i<72;i++){ const a = i/72*Math.PI*2, r0 = i%6 ? .435 : .40; g.beginPath(); g.moveTo(Math.cos(a)*r0*s, Math.sin(a)*r0*s); g.lineTo(Math.cos(a)*.465*s, Math.sin(a)*.465*s); g.stroke(); }
-  g.lineWidth = 3; for (let i=0;i<12;i++){ const a = (i+.5)/12*Math.PI*2, x = Math.cos(a)*.365*s, y = Math.sin(a)*.365*s; g.beginPath(); g.moveTo(x-6,y-6); g.lineTo(x+6,y+(rand()-.5)*12); g.lineTo(x-4,y+7); g.stroke(); }
-  g.beginPath(); g.arc(0,0,.06*s,0,Math.PI*2); g.stroke();
+/* a sigil of nested polygons: hexagram, pentagon, square and triangle inside a ticked 24-gon, used on the book cover
+   and behind the star */
+const sigilTex = (() => { const s = 512, [c,g] = canvas2d(s); g.translate(s/2,s/2); g.strokeStyle = '#fff'; g.shadowColor = '#fff'; g.shadowBlur = 8; g.lineCap = 'round'; g.lineJoin = 'round';
+  const poly = (n, r, rot=-Math.PI/2, step=1, lw=2.5) => { g.lineWidth = lw; g.beginPath(); for (let i=0;i<=n;i++){ const a = rot + (i*step % n)/n*Math.PI*2; g[i ? 'lineTo' : 'moveTo'](Math.cos(a)*r*s, Math.sin(a)*r*s); } g.stroke(); };
+  poly(24, .47, 0, 1, 4); poly(24, .43, Math.PI/24, 1, 1.5);
+  g.lineWidth = 2; for (let i=0;i<24;i++){ const a = i/24*Math.PI*2; g.beginPath(); g.moveTo(Math.cos(a)*.43*s, Math.sin(a)*.43*s); g.lineTo(Math.cos(a)*.47*s, Math.sin(a)*.47*s); g.stroke(); }
+  poly(6, .4, -Math.PI/2, 2, 3); poly(6, .4, Math.PI/6 - Math.PI/2 + Math.PI/6, 2, 3); poly(6, .4, -Math.PI/2, 1, 2);
+  poly(5, .23, -Math.PI/2, 2, 2.5); poly(4, .16, Math.PI/4, 1, 2); poly(3, .1, -Math.PI/2, 1, 2);
+  for (let i=0;i<6;i++){ const a = -Math.PI/2 + i/6*Math.PI*2; g.beginPath(); g.moveTo(Math.cos(a)*.23*s, Math.sin(a)*.23*s); g.lineTo(Math.cos(a)*.4*s, Math.sin(a)*.4*s); g.lineWidth = 1.5; g.stroke(); }
+  for (let i=0;i<12;i++) rand(); /* the earlier sigil drew 12 random values; keep the seeded sequence so the valley layout does not shift */
   return new THREE.CanvasTexture(c); })();
 
 /* the astrolabe's dial: degree ticks, hour ring and a cut-out star map */

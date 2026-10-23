@@ -317,8 +317,8 @@ RELICS.forEach(r => {
   r.group = new THREE.Group(); scene.add(r.group); r.model = buildForm(r); r.group.add(r.model);
   r.seal = new THREE.Group(); r.group.add(r.seal);
   [[1.55,.0],[1.75,1.1],[1.4,-1.0]].forEach(([R,tilt],i) => { const m = sealMatBase.clone(); m.color = C(r.color).lerp(C('#FFFFFF'), .25); m.opacity = .85;
-    const band = new THREE.Mesh(new THREE.CylinderGeometry(R,R,.34,64,1,true), m); band.rotation.set(tilt,0,tilt*.6); band.userData.spd = (i%2 ? -1 : 1)*(.6+i*.25); r.seal.add(band); });
-  r.free = new THREE.Mesh(new THREE.TorusGeometry(1.7,.025,6,96), new THREE.MeshBasicMaterial({ color:0xE2BE7A, transparent:true, opacity:.7 })); r.free.rotation.x = Math.PI/2; r.free.visible = false; r.group.add(r.free);
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(R,R,.34,9,1,true), m); band.rotation.set(tilt,0,tilt*.6); band.userData.spd = (i%2 ? -1 : 1)*(.6+i*.25); r.seal.add(band); });
+  r.free = new THREE.Mesh(new THREE.TorusGeometry(1.7,.025,4,12), new THREE.MeshBasicMaterial({ color:0xE2BE7A, transparent:true, opacity:.7 })); r.free.rotation.x = Math.PI/2; r.free.visible = false; r.group.add(r.free);
   r.hit = new THREE.Mesh(new THREE.SphereGeometry(2.1,10,8), hitMat); r.hit.userData.relic = r; r.group.add(r.hit); pickables.push(r.hit);
   r.pos = new V3(); r.state = r.secret ? 'hidden' : 'orbit'; r.discovered = false; r.t = 0; r.openK = 0; r.group.visible = !r.secret;
 });
