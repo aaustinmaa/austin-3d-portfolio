@@ -1,10 +1,11 @@
 import * as THREE from 'three';
-import { glowTex } from './textures.js';
+import { glowTex, fabricTex } from './textures.js';
 
-// The wanderer: a small cloth doll. A big soft cloth hood, all one piece with a bell-shaped robe, hides the face in
-// shadow except for two small glowing eyes. Pale pastel cloth, soft shading, few details. It has no legs: the robe
-// floats just above the ground and bobs and sways as it moves. It carries a little round lantern (its own light) and a
-// golden bow.
+// The wanderer: a small doll in a down coat. The coat is quilted into puffy channels, and its parka hood has a real
+// opening at the front with a padded edge, a soft point at the back and a puffy collar where it meets the coat. The face
+// inside stays in shadow except for two small glowing eyes. One pale fabric throughout, with a fine ripstop weave and a
+// cloth sheen. It has no legs: the coat floats just above the ground and bobs and sways as it moves. It carries a
+// little round lantern (its own light) and a golden bow.
 const V3 = THREE.Vector3, DOWN = new V3(0,-1,0);
 
 /* the bow, in its own space: the limbs bulge toward +x, the string runs between the tips at x = TIP_X */
@@ -12,47 +13,80 @@ export const TIP_X = .08, TIP_Y = .42, GRIP_X = .34;
 export const BOW_REST = new V3(-.36,.6,-.16), BOW_AIM = new V3(-.06,1.0,.1);
 export const BOW_TURN = new THREE.Quaternion().setFromAxisAngle(new V3(0,1,0), -Math.PI/2);
 
-const COL = { robe:0xDCD6F2, hood:0xAEB6EE, shade:0x17172E, gold:0xE6C27E, eye:0xCFF6FF, glass:0xFFD9A0 };
+const COL = { cloth:0xC9CCF2, sheen:0xF2F0FF, glowBase:0x3E3E6A, lining:0x2A2B52, shade:0x14142A, gold:0xE6C27E, eye:0xCFF6FF, glass:0xFFD9A0 };
+
+/* a surface from a grid: f(u, v, out) places the point for column u and row v (both 0..1). Faces are wound to point
+   away from `inside`, so a front-side material shows the outside and a back-side material shows the lining. */
+function gridGeo(rows, cols, f, inside){
+  const pos = [], uv = [], idx = [], p = new V3();
+  for (let i=0;i<=rows;i++) for (let j=0;j<=cols;j++){ f(j/cols, i/rows, p); pos.push(p.x, p.y, p.z); uv.push(j/cols, 1 - i/rows); }
+  for (let i=0;i<rows;i++) for (let j=0;j<cols;j++){ const a = i*(cols+1) + j, b = a + cols + 1; idx.push(a, b, a+1, a+1, b, b+1); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos,3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv,2)); g.setIndex(idx); g.computeVertexNormals();
+  const n = g.attributes.normal, P = g.attributes.position; let dot = 0;
+  for (let k=0;k<P.count;k+=5) dot += n.getX(k)*(P.getX(k) - inside.x) + n.getY(k)*(P.getY(k) - inside.y) + n.getZ(k)*(P.getZ(k) - inside.z);
+  if (dot < 0){ for (let k=0;k<idx.length;k+=3){ const t = idx[k+1]; idx[k+1] = idx[k+2]; idx[k+2] = t; } g.setIndex(idx); g.computeVertexNormals(); }
+  return g;
+}
+/* a smooth curve (Catmull-Rom) through evenly spaced keys */
+const key = (arr, v) => { const n = arr.length - 1, x = Math.min(n - 1e-6, Math.max(0, v)*n), i = Math.floor(x), f = x - i, at = k => arr[Math.min(n, Math.max(0, k))];
+  const p0 = at(i-1), p1 = at(i), p2 = at(i+1), p3 = at(i+2);
+  return .5*(2*p1 + (p2 - p0)*f + (2*p0 - 5*p1 + 4*p2 - p3)*f*f + (3*p1 - p0 - 3*p2 + p3)*f*f*f); };
+/* down quilting: round puffs between pinched seams */
+const puff = (v, n, amt) => 1 + amt*Math.sqrt(Math.abs(Math.sin(Math.PI*n*v)));
 
 export function buildHero(scene){
   const root = new THREE.Group(); scene.add(root);
   const M = (c, o={}) => new THREE.MeshStandardMaterial(Object.assign({ color:c, roughness:.8, metalness:0 }, o));
   const lathe = (pts, seg=36) => new THREE.LatheGeometry(pts.map(([r,y]) => new THREE.Vector2(r,y)), seg);
   const mesh = (g, m, parent, shadow=true) => { const o = new THREE.Mesh(g, m); o.castShadow = shadow; parent.add(o); return o; };
-  const robeMat = M(COL.robe, { emissive:0x4E4A72, emissiveIntensity:.6 }), hoodMat = M(COL.hood, { emissive:0x343C7E, emissiveIntensity:.6 });
-  const goldMat = M(COL.gold, { metalness:.3, roughness:.45, emissive:0x4A3510, emissiveIntensity:.5 }), hemMat = M(COL.gold, { metalness:.3, roughness:.45, emissive:0x4A3510, emissiveIntensity:.5 });
-  /* press a flat outline onto a sphere of radius R (seen from its centre), for the face opening and the eyes */
+  fabricTex.repeat.set(30, 12);
+  /* one fabric for coat, hood, sleeves and mittens: woven bump, soft cloth sheen, a little glow of its own in the dark */
+  const cloth = new THREE.MeshPhysicalMaterial({ color:COL.cloth, roughness:.8, metalness:0, sheen:new THREE.Color(COL.sheen), bumpMap:fabricTex, bumpScale:.0045, emissive:COL.glowBase, emissiveIntensity:.55 });
+  const lining = M(COL.lining, { roughness:1, side:THREE.BackSide, bumpMap:fabricTex, bumpScale:.006 });
+  const goldMat = M(COL.gold, { metalness:.3, roughness:.45, emissive:0x4A3510, emissiveIntensity:.5 });
+  /* press a flat outline onto a sphere of radius R (seen from its centre), for the eyes */
   const onSphere = (g, R) => { const p = g.attributes.position, v = new V3(); for (let i=0;i<p.count;i++){ v.set(p.getX(i), p.getY(i), R).normalize().multiplyScalar(R); p.setXYZ(i, v.x, v.y, v.z); } g.computeVertexNormals(); return g; };
 
   const body = new THREE.Group(); root.add(body);
 
-  /* the robe: a soft cloth bell with a few gentle folds and a gold band at the hem */
-  const bell = [[0,.1],[.45,.1],[.49,.125]]; for (let i=1;i<=14;i++){ const t = i/14; bell.push([.12 + .36*Math.pow(1 - Math.pow(t,1.5), .7), .14 + t*.8]); } bell.push([0,.95]);
-  const robeG = lathe(bell, 48); { const p = robeG.attributes.position; for (let i=0;i<p.count;i++){ const x = p.getX(i), y = p.getY(i), z = p.getZ(i), k = 1 + Math.sin(Math.atan2(x,z)*7)*.035*Math.max(0, .75 - y); p.setX(i, x*k); p.setZ(i, z*k); } robeG.computeVertexNormals(); }
-  const dress = mesh(robeG, robeMat, body);
-  mesh(new THREE.TorusGeometry(.47,.03,10,56).rotateX(Math.PI/2).translate(0,.135,0), hemMat, body, false);
+  /* the down coat: a bell from a wide hem to rounded shoulders, quilted into five puffy channels, with a rolled hem */
+  const CR = [.5,.47,.43,.39,.36,.34,.24,.1], coatPts = [[0,.1]];
+  for (let i=0;i<=48;i++){ const v = i/48, y = .12 + v*.83, ch = y < .78 ? puff((y - .12)/.66, 4, .03) : 1; coatPts.push([key(CR, v)*ch, y]); }
+  coatPts.push([0,.96]);
+  const dress = mesh(lathe(coatPts, 56), cloth, body);
+  mesh(new THREE.TorusGeometry(.49,.045,12,64).rotateX(Math.PI/2).translate(0,.13,0), cloth, body, false);
 
-  /* the big hood: a round cloth hat joined to the robe by a soft rolled collar, with a drooping tip and a gold pom-pom */
-  const head = new THREE.Group(); head.position.set(0,1.2,0); body.add(head);
-  const HR = .4, cap = new THREE.Group(); cap.scale.set(1.06,.95,1); head.add(cap);
-  mesh(new THREE.SphereGeometry(HR,40,28), hoodMat, cap);
-  /* the hood falls straight on into a short cape over the shoulders, so hat and robe read as one garment */
-  const capeG = lathe([[.2,-.3],[.27,-.36],[.34,-.43],[.39,-.5],[.4,-.53],[.37,-.55]], 48); { const p = capeG.attributes.position; for (let i=0;i<p.count;i++){ const x = p.getX(i), z = p.getZ(i), y = p.getY(i), k = 1 + Math.sin(Math.atan2(x,z)*8)*.04*Math.max(0, -.4 - y)*6; p.setX(i, x*k); p.setZ(i, z*k); } capeG.computeVertexNormals(); }
-  mesh(capeG, hoodMat, head);
-  const tip = new THREE.Group(); tip.position.set(0,.28,-.12); tip.rotation.x = -.55; head.add(tip);
-  const tipG = lathe([[.2,0],[.18,.1],[.14,.2],[.095,.3],[.05,.39],[0,.46]], 28); { const p = tipG.attributes.position; for (let i=0;i<p.count;i++){ const y = p.getY(i); p.setY(i, y*(1 - y*.3)); p.setZ(i, p.getZ(i) - y*y*1.5); } tipG.computeVertexNormals(); }
-  mesh(tipG, hoodMat, tip);
-  mesh(new THREE.SphereGeometry(.065,16,12).translate(0,.46*(1 - .46*.3),-.46*.46*1.5), goldMat, tip, false);
-  /* the face: a shadowed opening in the front of the hood with two small glowing eyes */
-  mesh(onSphere(new THREE.RingGeometry(0,1,48,10).scale(.25,.205,1).translate(0,-.04,0), HR + .004), new THREE.MeshBasicMaterial({ color:COL.shade }), cap, false);
+  /* the parka hood: rows run from the crown (v = 0) down to the collar (v = 1), columns go around the head starting at
+     one edge of the face opening. Near the crown the hood is drawn back into a soft point; lower down it puffs out. */
+  const head = new THREE.Group(); head.position.set(0,1.17,0); body.add(head);
+  /* the profile rises to a point like an onion dome, is widest at the ears and billows out again at the bottom */
+  const RAD = [0,.13,.29,.4,.46,.47,.45,.43,.45,.48,.46], YS = [.54,.5,.43,.33,.2,.06,-.08,-.2,-.3,-.38,-.43];
+  const open = v => { const d = (v - .61)/.26; return d*d < 1 ? 1.0*Math.sqrt(1 - d*d) : 0; };
+  const hoodAt = (u, v, R, out) => { const h = open(v), a = h + u*(Math.PI*2 - 2*h), w = Math.max(0, 1 - v/.5);
+    /* a soft seam runs up the back to the point; near the face the edge comes forward like a short tunnel */
+    const seam = 1 - .035*Math.exp(-Math.pow((a - Math.PI)/.09, 2))*Math.min(1, v*4);
+    const toEdge = Math.min(a - h, Math.PI*2 - h - a), tunnel = .08*Math.exp(-Math.pow(toEdge/.38, 2))*Math.exp(-Math.pow((v - .61)/.3, 2));
+    const r = key(RAD, v)*R*seam, y = key(YS, v);
+    return out.set(Math.sin(a)*r, y - .02*w*w, Math.cos(a)*r - .44*Math.pow(w, 1.5) + tunnel); };
+  const inside = new V3(0,0,-.05);
+  mesh(gridGeo(40, 72, (u,v,p) => hoodAt(u, v, 1, p), inside), cloth, head);
+  mesh(gridGeo(40, 72, (u,v,p) => hoodAt(u, v, .9, p), inside), lining, head, false);
+  /* the padded edge around the face opening */
+  const rim = [], K = 28; for (let k=0;k<=K;k++) rim.push(hoodAt(0, .35 + .52*k/K, .95, new V3()));
+  for (let k=K-1;k>0;k--) rim.push(hoodAt(1, .35 + .52*k/K, .95, new V3()));
+  mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(rim, true), 160, .036, 12, true), cloth, head, false);
+  /* inside the hood: a face in shadow with two small glowing eyes */
+  const face = new THREE.Group(); face.position.set(0,-.05,.03); head.add(face);
+  mesh(new THREE.SphereGeometry(.31,32,24), new THREE.MeshBasicMaterial({ color:COL.shade }), face, false);
   const eyeMat = new THREE.MeshBasicMaterial({ color:COL.eye }), eyes = [-1,1].map(sd => {
-    const g = onSphere(new THREE.RingGeometry(0,1,24,4).scale(.042,.058,1).translate(sd*.1,-.03,0), HR + .01); g.computeBoundingSphere(); const c = g.boundingSphere.center.clone(); g.translate(-c.x, -c.y, -c.z);
-    const e = new THREE.Mesh(g, eyeMat); e.position.copy(c); cap.add(e); return e; });
+    const g = onSphere(new THREE.RingGeometry(0,1,24,4).scale(.042,.058,1).translate(sd*.1,0,0), .316); g.computeBoundingSphere(); const c = g.boundingSphere.center.clone(); g.translate(-c.x, -c.y, -c.z);
+    const e = new THREE.Mesh(g, eyeMat); e.position.copy(c); face.add(e); return e; });
 
-  /* stubby cloth arms with round mitten hands */
-  const arms = [-1,1].map(sd => { const a = new THREE.Group(); a.position.set(sd*.2,.82,0); body.add(a);
-    mesh(new THREE.CylinderGeometry(.065,.08,.26,16).translate(0,-.13,0), robeMat, a);
-    mesh(new THREE.SphereGeometry(.074,16,12).translate(0,-.3,0), hoodMat, a); return a; });
+  /* padded sleeves with round mittens */
+  const arms = [-1,1].map(sd => { const a = new THREE.Group(); a.position.set(sd*.25,.8,0); body.add(a);
+    const sl = []; for (let i=0;i<=16;i++){ const v = i/16; sl.push([(.072 + .012*v)*puff(v, 2, .14), -v*.27]); }
+    mesh(lathe([[0,0], ...sl, [0,-.27]], 20), cloth, a);
+    mesh(new THREE.SphereGeometry(.075,16,12).translate(0,-.31,0), cloth, a); return a; });
 
   /* a little round lantern hanging at the side: it is the wanderer's own light */
   const lanternPivot = new THREE.Group(); lanternPivot.position.set(.31,.58,.12); body.add(lanternPivot);
@@ -74,11 +108,11 @@ export function buildHero(scene){
   const nock = new THREE.Mesh(new THREE.CylinderGeometry(.012,.012,.7,4).rotateZ(Math.PI/2), new THREE.MeshBasicMaterial({ color:0xE8F8FF })); nock.visible = false; bow.add(nock);
   const nockGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0x9FF2FF, transparent:true, opacity:0, depthWrite:false, blending:THREE.AdditiveBlending })); nockGlow.scale.set(.5,.5,1); bow.add(nockGlow);
 
-  return { root, body, dress, head, eyes, arms, lanternPivot, lanternGlow, lanternLight, flyGlow, eyeMat, hemMat, bow, strGeo, nock, nockGlow };
+  return { root, body, dress, head, eyes, arms, lanternPivot, lanternGlow, lanternLight, flyGlow, eyeMat, hemMat:cloth, bow, strGeo, nock, nockGlow };
 }
 
 /* one frame of animation. s: { dt, T, walk, moving, onGround, airborne, flying, flight, aiming, pitch, draw, vel, lantern } */
-const tv = new V3(), tq = new THREE.Quaternion(), te = new THREE.Euler(), grip = new V3(), str = new V3(), cyan = new THREE.Color(0x5FE6F0), warm = new THREE.Color(0x4A3510), dark = new THREE.Color(COL.eye), eyeLit = new THREE.Color(0xFFFFFF);
+const tv = new V3(), tq = new THREE.Quaternion(), te = new THREE.Euler(), grip = new V3(), str = new V3(), cyan = new THREE.Color(0x5FE6F0), warm = new THREE.Color(COL.glowBase), dark = new THREE.Color(COL.eye), eyeLit = new THREE.Color(0xFFFFFF);
 export function animateHero(h, s){
   const { dt, T, moving } = s, k = 1 - Math.exp(-dt*6), up = s.airborne || s.flight;
   /* hover, bob with each step, waddle side to side and lean into the movement */
@@ -90,7 +124,7 @@ export function animateHero(h, s){
   /* blink every few seconds; the eyes light up while flying */
   const blink = (T % 4.3) < .11 ? .12 : 1; h.eyes.forEach(e => { e.scale.y = blink; });
   h.eyeMat.color.copy(s.flying ? eyeLit : dark);
-  h.hemMat.emissive.lerp(s.flying ? cyan : warm, k); h.hemMat.emissiveIntensity += ((s.flying ? 1.1 : up ? .6 : .5) - h.hemMat.emissiveIntensity)*k;
+  h.hemMat.emissive.lerp(s.flying ? cyan : warm, k); h.hemMat.emissiveIntensity += ((s.flying ? .9 : up ? .65 : .55) - h.hemMat.emissiveIntensity)*k;
   h.flyGlow.material.opacity += ((s.flying ? .7 : 0) - h.flyGlow.material.opacity)*k;
 
   /* bow placement, string and nocked arrow */

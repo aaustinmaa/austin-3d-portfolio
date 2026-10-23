@@ -55,4 +55,13 @@ const paperTex = (() => { const w = 256, h = 192, [c,g] = canvas2d(w,h);
 const sealTex = (() => { const s = 128, [c,g] = canvas2d(s); g.fillStyle = '#fff'; g.font = '600 78px Georgia, serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText('W', s/2, s/2+4);
   g.lineWidth = 4; g.strokeStyle = '#fff'; g.beginPath(); g.arc(s/2,s/2,s*.44,0,Math.PI*2); g.stroke(); return new THREE.CanvasTexture(c); })();
 
-export { glowTex, softTex, hazeTex, ringTex, rayTex, runeTex, sigilTex, dialTex, paperTex, sealTex };
+/* ripstop nylon: a fine weave with a slightly heavier grid every few threads, used as the doll's fabric bump map
+   (its own random numbers, so the shared seeded sequence and the valley layout stay unchanged) */
+const fabricTex = (() => { let sd = 7; const r = () => (sd = sd*16807 % 2147483647)/2147483647; const s = 256, [c,g] = canvas2d(s); g.fillStyle = '#808080'; g.fillRect(0,0,s,s);
+  for (let y=0;y<s;y+=2){ g.fillStyle = `rgba(255,255,255,${.05 + r()*.05})`; g.fillRect(0,y,s,1); }
+  for (let x=0;x<s;x+=2){ g.fillStyle = `rgba(0,0,0,${.05 + r()*.05})`; g.fillRect(x,0,1,s); }
+  g.strokeStyle = 'rgba(255,255,255,.14)'; g.lineWidth = 1.2; for (let i=0;i<=s;i+=32){ g.beginPath(); g.moveTo(i,0); g.lineTo(i,s); g.moveTo(0,i); g.lineTo(s,i); g.stroke(); }
+  for (let i=0;i<900;i++){ g.fillStyle = `rgba(${r()<.5 ? '0,0,0' : '255,255,255'},.06)`; g.fillRect(r()*s, r()*s, 2, 2); }
+  const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; return t; })();
+
+export { fabricTex, glowTex, softTex, hazeTex, ringTex, rayTex, runeTex, sigilTex, dialTex, paperTex, sealTex };

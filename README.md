@@ -41,11 +41,11 @@ src/oracle.js         The star (the Oracle): glass core, six glass shells, the r
 src/polyhedra.js      Polyhedra drawn as light: clear glass and glowing-edge shaders, the star's convex solids
 src/constellation.js  The skill constellation: star layout, figures, labels, wake-up animation
 src/relics.js         The seven relic models (faceted, with soft auras) and how each one unfolds when opened
-src/hero.js           The wanderer (a hooded cloth doll), its bow and lantern, and their animation
+src/hero.js           The wanderer (a doll in a down coat and parka hood), its bow and lantern, and their animation
 src/colliders.js      Solid shapes for standing, walls, ceilings and arrow hits
 src/content.js        Everything visitors read: relic text, skills, the Oracle's lines and answers
 src/noise.js          Seeded random and value noise (the valley is identical on every visit)
-src/textures.js       Canvas-drawn textures: glows, rays, runes, sigils, dials, paper, moth wings
+src/textures.js       Canvas-drawn textures: glows, rays, runes, sigils, dials, paper, fabric weave
 src/styles.css      UI styles and design tokens
 ```
 
