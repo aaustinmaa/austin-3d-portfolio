@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { glowTex, fabricTex } from './textures.js';
 
 // A small, legless wanderer in a thin woven robe and a softly folded hood. The cloth hangs from the shoulders;
-// only the loose hem, cuffs and neck drape respond to motion. The shadowed face, lantern and golden bow stay familiar.
+// only the loose hem, cuffs and rear hood tip respond to motion. The shadowed face, lantern and golden bow stay familiar.
 const V3 = THREE.Vector3, DOWN = new V3(0,-1,0);
 
 /* the bow, in its own space: the limbs bulge toward +x, the string runs between the tips at x = TIP_X */
@@ -69,28 +69,32 @@ export function buildHero(scene){
   panel(gridGeo(2, 64, (u,v,p) => { coatAt(u, .985 + v*.015, p); p.x *= 1.004; p.z *= 1.004; }, new V3(0,.15,0)), body, 'coat', (u,v) => coatWeight(u, .985 + v*.015), 'hero-hem', edgeCloth);
 
   const head = new THREE.Group(); head.position.set(0,1.13,0); body.add(head);
-  /* A close-fitting round hood covers the crown, temples and cheeks. The small oval opening follows the face;
-     its upper edge is a round arch, and the shell stays close to the head rather than forming an empty canopy. */
-  const faceY = -.035, faceZ = -.018, hoodRadius = .270, openingWidth = .148, openingHeight = .145;
-  const hoodProfile = v => {
-    const angle = v*2.45, drape = smooth(v, .67, 1);
-    return [THREE.MathUtils.lerp(hoodRadius*Math.sin(angle), .315, drape),
-      THREE.MathUtils.lerp(faceY + hoodRadius*Math.cos(angle), -.33, drape)];
-  };
+  /* Preserve the original pointed back and neck drape. Only the front is drawn toward the forehead and cheeks,
+     with a rounded, forward-facing opening instead of an arch pulled up toward the rear tip. */
+  const faceY = -.035, faceZ = -.018, openingWidth = .205, openingHeight = .200;
+  const RAD = [0,.06,.15,.23,.285,.31,.315,.295,.285,.31,.35];
+  const YS = [.46,.43,.385,.325,.24,.14,.025,-.09,-.205,-.275,-.33];
+  const FRONT_RAD = [0,.06,.15,.23,.245,.25,.277,.269,.25,.27,.35];
+  const hoodY = v => key(YS, v);
+  const fittedRadius = (v,y) => Math.max(key(FRONT_RAD, v), Math.sqrt(Math.max(.0004, .277*.277 - (y-faceY)*(y-faceY))));
   const hoodAt = (u, v, out) => {
-    const [radius, y] = hoodProfile(v), ovalY = (y-faceY)/openingHeight;
+    const y = hoodY(v), ovalY = (y-faceY)/openingHeight;
     const width = openingWidth*Math.sqrt(Math.max(0, 1-ovalY*ovalY));
-    const h = radius > 0 ? Math.asin(Math.min(.95, width/radius)) : 0, a = h + u*(Math.PI*2 - 2*h);
-    const lower = smooth(v, .67, 1);
-    const folds = (.004*Math.cos(a*5 + v*3) + .002*Math.sin(a*8 - v*2))*lower;
-    const seam = .003*Math.exp(-Math.pow((a-Math.PI)/.16, 2))*lower, r = radius + folds - seam;
-    return out.set(Math.sin(a)*r, y - .006*Math.cos(a*3)*lower, faceZ + Math.cos(a)*r);
+    const fitted = fittedRadius(v,y), h = Math.asin(Math.min(.95, width/fitted)), a = h + u*(Math.PI*2 - 2*h);
+    const tip = 1 - smooth(v, 0, .50), lower = smooth(v, .30, 1);
+    const edge = Math.exp(-Math.pow(Math.min(u, 1-u)/.022, 2));
+    const folds = (.014*Math.cos(a*5 + v*3) + .006*Math.sin(a*8 - v*2))*lower;
+    const seam = .005*Math.exp(-Math.pow((a-Math.PI)/.16, 2))*smooth(v, .12, .45);
+    const r = key(RAD, v) + folds - seam - .009*edge*Math.sin(h);
+    const front = smooth(Math.cos(a), -.15, .75)*smooth(v, .28, .50)*(1-smooth(v, .82, 1));
+    return out.set(THREE.MathUtils.lerp(Math.sin(a)*r - .08*tip, Math.sin(a)*fitted, front),
+      y - .014*Math.cos(a*3)*lower*(1-front),
+      THREE.MathUtils.lerp(Math.cos(a)*r*.94 - .30*tip - .025*lower, faceZ + Math.cos(a)*fitted, front));
   };
-  /* Keep the fitted crown and face opening anchored; only the cloth below the chin has a little freedom. */
-  const hoodWeight = (u,v) => smooth(v, .80, 1)*.10;
+  const hoodWeight = (u,v) => (1-smooth(v, .03, .39))*.72 + smooth(v, .74, 1)*.12;
   const inside = new V3(0,faceY,faceZ);
   const hoodVAtY = y => { let lo = 0, hi = 1;
-    for (let i=0;i<28;i++){ const mid = (lo+hi)/2; if (hoodProfile(mid)[1] > y) lo = mid; else hi = mid; }
+    for (let i=0;i<28;i++){ const mid = (lo+hi)/2; if (hoodY(mid) > y) lo = mid; else hi = mid; }
     return (lo+hi)/2; };
   const openingTop = hoodVAtY(faceY + openingHeight), openingBottom = hoodVAtY(faceY - openingHeight);
   const edgeV = v => hoodVAtY(faceY + openingHeight*Math.cos(Math.PI*v));
