@@ -234,32 +234,42 @@ function placeStone(s, x, y, z){ const rim = s.rim;
   stones.push({ x, y, z, depth:s.depth, reach:Math.max(...rim.map(v => Math.hypot(v.x, v.z))) }); }
 const braziers = [];
 {
-  /* the stair is one ribbon of rock winding up the spiral, cracked into stones: a slanted, upright cut crosses it between each step and the
-     next. Below the lower of the two tops the stones on either side share the cut's face, down to a keel point, so they sit solid against each
-     other; under that each stone runs on to its own point. The ribbon's sides take an uneven corner here and there, and each landing reaches far out. */
+  /* the stair is a winding run of rock cracked into stones, with a slanted, upright cut between each step and the next. Each stone has its own
+     width and sits a little in or out, so two neighbours meet along whatever stretch of the cut they both reach, long or short. Below the lower
+     top they share that stretch as one face, down to a keel point, so they sit solid against each other; under that each runs on to its own
+     point. Knocked-off corners and uneven bulges on the sides keep every outline its own, and each landing reaches far out. */
+  const N = SP.N + 1, isLand = i => BRAZIER_AT.includes(i);
+  /* how far each stone reaches along its back and front cuts, inward and outward of the path */
+  const reach = [...Array(N)].map((_, i) => { const w = 1.9 + hash(i, 3.7)*1.1, o = (hash(i, 5.9) - .5)*.9, jit = k => (hash(i, 10 + k) - .5)*.5;
+    return { bIn:w/2 - o + jit(0), bOut:isLand(i) ? 3.6 + hash(i, 7.3)*.6 : w/2 + o + jit(1), fIn:w/2 - o + jit(2), fOut:isLand(i) ? 3.6 + hash(i, 8.6)*.6 : w/2 + o + jit(3) }; });
   const cuts = [];   // cuts[j] runs between step j - 1 and step j
-  for (let j=0; j<=SP.N+1; j++){ const land = BRAZIER_AT.includes(j - 1) ? 1 : BRAZIER_AT.includes(j) ? -1 : 0;
-    const a = SP.a0 + (j - .5)*SP.ang + (hash(j, 2.9) - .5)*.04 + land*.05, r = SP.R + (hash(j, 4.3) - .5)*.4, h = SP.base + (j - 1)*SP.rise;
-    const d = new V3(Math.sin(a), 0, Math.cos(a)).applyAxisAngle(UP, (hash(j, 6.1) - .5)*(land ? .2 : .64)), c = new V3(Math.sin(a)*r, 0, Math.cos(a)*r);
-    const hi = 1.05 + hash(j, 3.7)*.4, ho = 1.05 + hash(j, 5.9)*.4, hl = 3.6 + hash(j, 7.3)*.6, at = (t, y) => c.clone().addScaledVector(d, t).setY(y);
+  for (let j=0; j<=N; j++){ const land = isLand(j - 1) ? 1 : isLand(j) ? -1 : 0;
+    const a = SP.a0 + (j - .5)*SP.ang + (hash(j, 2.9) - .5)*.04 + land*.05, r = SP.R + (hash(j, 4.3) - .5)*.3, h = SP.base + (j - 1)*SP.rise;
+    const d = new V3(Math.sin(a), 0, Math.cos(a)).applyAxisAngle(UP, (hash(j, 6.1) - .5)*(land ? .2 : .6)), c = new V3(Math.sin(a)*r, 0, Math.cos(a)*r), at = (t, y) => c.clone().addScaledVector(d, t).setY(y);
+    const before = reach[j - 1], after = reach[j], sIn = Math.min(before ? before.fIn : 9, after ? after.bIn : 9), sOut = Math.min(before ? before.fOut : 9, after ? after.bOut : 9);
     /* the shared face: straight down from the lower top's corners, in to a point on each side, and down to the keel */
-    const face = [at(-hi, h), at(ho, h), at(-hi*(.7 + hash(j, 1.3)*.2), h - .35 - hash(j, 2.1)*.55), at(ho*(.7 + hash(j, 4.1)*.2), h - .35 - hash(j, 5.3)*.55), at((hash(j, 6.7) - .5)*.6, h - 1.2 - hash(j, 7.9)*.7)];
-    cuts.push({ c, d, n:new V3(d.z, 0, -d.x), hi, ho, hl, face, ext:[at(hl, h), at(hl*(.7 + hash(j, 9.7)*.15), h - .5 - hash(j, 8.1)*.5)] }); }
-  const outlineOf = i => { const A = cuts[i], B = cuts[i+1], land = BRAZIER_AT.includes(i), at = (k, t) => k.c.clone().addScaledVector(k.d, t);
-    const pts = [at(A, -A.hi), at(A, land ? A.hl : A.ho), at(B, land ? B.hl : B.ho), at(B, -B.hi)];
+    const face = [at(-sIn, h), at(sOut, h), at(-sIn*(.7 + hash(j, 1.3)*.2), h - .35 - hash(j, 2.1)*.55), at(sOut*(.7 + hash(j, 4.1)*.2), h - .35 - hash(j, 5.3)*.55),
+      at((hash(j, 6.7) - .5)*.6*Math.min(sIn, sOut), h - 1.2 - hash(j, 7.9)*.7)];
+    cuts.push({ n:new V3(d.z, 0, -d.x), c, at, h, face }); }
+  const outlineOf = i => { const A = cuts[i], B = cuts[i+1], e = reach[i], land = isLand(i);
+    const corner = [A.at(-e.bIn, 0), A.at(e.bOut, 0), B.at(e.fOut, 0), B.at(-e.fIn, 0)];
+    /* a corner knocked off here and there, cutting back along both of its edges */
+    const pts = corner.flatMap((q, k) => { if (hash(i, 20 + k) > .45) return [q]; const s = .2 + hash(i, 24 + k)*.35;
+      return [corner[(k+3)%4], corner[(k+1)%4]].map(o => q.clone().lerp(o, Math.min(.4, s/q.distanceTo(o)))); });
     /* an uneven corner pushed out of the outer side and of the inner side, wherever it stays clear of both cuts */
-    const outer = hash(i, 8.3) < (land ? 1 : .65) ? (land ? .4 + hash(i, 1.9)*.6 : .15 + hash(i, 1.9)*.35) : 0, inner = hash(i, 2.3) < .5 ? .1 + hash(i, 3.3)*.25 : 0;
+    const outer = hash(i, 8.3) < (land ? 1 : .7) ? (land ? .4 + hash(i, 1.9)*.6 : .15 + hash(i, 1.9)*.4) : 0, inner = hash(i, 2.3) < .55 ? .1 + hash(i, 3.3)*.3 : 0;
     [[1, 2, outer, 1], [3, 0, inner, -1]].forEach(([u, w, amt, dir]) => { if (!amt) return;
-      const m = pts[u].clone().lerp(pts[w], .3 + hash(i + u, 8.8)*.4); m.addScaledVector(m.clone().normalize(), amt*dir);
+      const m = corner[u].clone().lerp(corner[w], .25 + hash(i + u, 8.8)*.5); m.addScaledVector(m.clone().normalize(), amt*dir);
       if (m.clone().sub(A.c).dot(A.n) > .25 && B.c.clone().sub(m).dot(B.n) > .25) pts.push(m); });
     return planHull(pts); };
   const tops = [], unders = [], landings = {};
-  for (let i=0; i<=SP.N; i++){ const land = BRAZIER_AT.includes(i), p = spiralPt(i), sd = i*13.7 + (land ? 0 : rand()*5), col = land ? C('#323848') : mixHex('#3D4458','#4A5168', rand());
-    const A = cuts[i], B = cuts[i+1], ring = outlineOf(i), cx = ring.reduce((t,v) => t + v.x, 0)/ring.length, cz = ring.reduce((t,v) => t + v.z, 0)/ring.length;
+  for (let i=0; i<N; i++){ const land = isLand(i), p = spiralPt(i), sd = i*13.7 + (land ? 0 : rand()*5), col = land ? C('#323848') : mixHex('#3D4458','#4A5168', rand());
+    const A = cuts[i], B = cuts[i+1], e = reach[i], ring = outlineOf(i), cx = ring.reduce((t,v) => t + v.x, 0)/ring.length, cz = ring.reduce((t,v) => t + v.z, 0)/ring.length;
     const outline = ring.map(v => new V3(v.x - cx, 0, v.z - cz)), depth = land ? 5.8 + hash(i, 3.1)*.6 : p.y - Math.min(A.face[4].y, B.face[4].y) + .35 + hash(i, 3.1)*.5;
     /* its two cut faces (and a landing's far reach) below the top, and its own point under the keel */
+    const far = land ? [A.at(e.bOut, A.h), A.at(e.bOut*(.7 + hash(i, 9.7)*.15), A.h - .5 - hash(i, 8.1)*.5), B.at(e.fOut, B.h), B.at(e.fOut*(.7 + hash(i, 9.9)*.15), B.h - .5 - hash(i, 8.4)*.5)] : [];
     const k = outline[Math.floor(hash(i, 4.9)*outline.length)], tip = new V3(k.x*(.15 + hash(i, 6.6)*.3), -depth, k.z*(.15 + hash(i, 6.6)*.3));
-    const below = A.face.concat(B.face, land ? A.ext.concat(B.ext) : []).map(v => new V3(v.x - cx, v.y - p.y, v.z - cz)).filter(v => v.y < -.01).concat([tip]);
+    const below = A.face.concat(B.face, far).map(v => new V3(v.x - cx, v.y - p.y, v.z - cz)).filter(v => v.y < -.01).concat([tip]);
     const s = floatingStone(sd, outline, below, land ? .55 : .42, depth, col);
     M4.makeTranslation(cx, p.y, cz); tops.push(s.top.applyMatrix4(M4)); unders.push(s.under.applyMatrix4(M4));
     placeStone(s, cx, p.y, cz);
