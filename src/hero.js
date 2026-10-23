@@ -54,6 +54,7 @@ export function buildHero(scene){
   const onSphere = (g, R) => { const p = g.attributes.position, v = new V3(); for (let i=0;i<p.count;i++){ v.set(p.getX(i), p.getY(i), R).normalize().multiplyScalar(R); p.setXYZ(i, v.x, v.y, v.z); } g.computeVertexNormals(); return g; };
 
   const body = new THREE.Group(); root.add(body);
+  const headLift = .12, neckLift = .08;
 
   /* Open robe: folds fall vertically from the shoulders, widening gently toward a slightly uneven, unrolled hem. */
   const CR = [.16,.245,.265,.285,.32,.365,.405,.435];
@@ -61,7 +62,7 @@ export function buildHero(scene){
     const a = u*Math.PI*2, loose = smooth(v, .12, 1), r = key(CR, v);
     const folds = Math.sin(a*7 + .3 + v*.5)*.018 + Math.sin(a*11 - v*.7)*.006;
     const radius = r + folds*(.15 + loose*.85);
-    return out.set(Math.sin(a)*radius, .94 - v*.83 + Math.cos(a*3 + .4)*.009*loose*loose, Math.cos(a)*radius*.87);
+    return out.set(Math.sin(a)*radius, .94 - v*.83 + neckLift*(1-smooth(v, 0, .30)) + Math.cos(a*3 + .4)*.009*loose*loose, Math.cos(a)*radius*.87);
   };
   const coatWeight = (u,v) => Math.pow(smooth(v, .18, 1), 2);
   const dress = panel(gridGeo(28, 64, coatAt, new V3(0,.55,0)), body, 'coat', coatWeight, 'hero-coat');
@@ -69,27 +70,22 @@ export function buildHero(scene){
   panel(gridGeo(2, 64, (u,v,p) => { coatAt(u, .985 + v*.015, p); p.x *= 1.004; p.z *= 1.004; }, new V3(0,.15,0)), body, 'coat', (u,v) => coatWeight(u, .985 + v*.015), 'hero-hem', edgeCloth);
 
   const head = new THREE.Group(); head.position.set(0,1.13,0); body.add(head);
-  /* Preserve the original pointed back and neck drape. Only the front is drawn toward the forehead and cheeks,
-     with a rounded, forward-facing opening instead of an arch pulled up toward the rear tip. */
-  const faceY = -.035, faceZ = -.018, openingWidth = .205, openingHeight = .200;
+  /* Raise the head and neckline into the hood. A single continuous cloth profile can then run from the rounded
+     front opening to the rear tip without an extra forehead bulge or a depressed face opening. */
+  const faceY = -.035 + headLift, faceZ = -.018, openingWidth = .205, openingHeight = .200;
   const RAD = [0,.06,.15,.23,.285,.31,.315,.295,.285,.31,.35];
   const YS = [.46,.43,.385,.325,.24,.14,.025,-.09,-.205,-.275,-.33];
-  const FRONT_RAD = [0,.06,.15,.23,.245,.25,.277,.269,.25,.27,.35];
   const hoodY = v => key(YS, v);
-  const fittedRadius = (v,y) => Math.max(key(FRONT_RAD, v), Math.sqrt(Math.max(.0004, .277*.277 - (y-faceY)*(y-faceY))));
   const hoodAt = (u, v, out) => {
     const y = hoodY(v), ovalY = (y-faceY)/openingHeight;
     const width = openingWidth*Math.sqrt(Math.max(0, 1-ovalY*ovalY));
-    const fitted = fittedRadius(v,y), h = Math.asin(Math.min(.95, width/fitted)), a = h + u*(Math.PI*2 - 2*h);
+    const radius = key(RAD, v), h = Math.asin(Math.min(.95, width/Math.max(.001, radius))), a = h + u*(Math.PI*2 - 2*h);
     const tip = 1 - smooth(v, 0, .50), lower = smooth(v, .30, 1);
     const edge = Math.exp(-Math.pow(Math.min(u, 1-u)/.022, 2));
     const folds = (.014*Math.cos(a*5 + v*3) + .006*Math.sin(a*8 - v*2))*lower;
     const seam = .005*Math.exp(-Math.pow((a-Math.PI)/.16, 2))*smooth(v, .12, .45);
-    const r = key(RAD, v) + folds - seam - .009*edge*Math.sin(h);
-    const front = smooth(Math.cos(a), -.15, .75)*smooth(v, .28, .50)*(1-smooth(v, .82, 1));
-    return out.set(THREE.MathUtils.lerp(Math.sin(a)*r - .08*tip, Math.sin(a)*fitted, front),
-      y - .014*Math.cos(a*3)*lower*(1-front),
-      THREE.MathUtils.lerp(Math.cos(a)*r*.94 - .30*tip - .025*lower, faceZ + Math.cos(a)*fitted, front));
+    const r = radius + folds - seam - .009*edge*Math.sin(h);
+    return out.set(Math.sin(a)*r - .08*tip, y - .014*Math.cos(a*3)*lower, Math.cos(a)*r*.94 - .30*tip - .025*lower);
   };
   const hoodWeight = (u,v) => (1-smooth(v, .03, .39))*.72 + smooth(v, .74, 1)*.12;
   const inside = new V3(0,faceY,faceZ);
