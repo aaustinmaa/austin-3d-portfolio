@@ -204,17 +204,15 @@ const bandMat = new THREE.MeshBasicMaterial({ color:0x78E6F0, transparent:true, 
 
 /* ---------- spiral stair, landings, braziers ---------- */
 const pathLights = [];
-/* a floating stone, each one its own shape: a flat top with one clean edge, a few steep walls, and a few broad cuts underneath down to an
-   off-centre point. It is the convex hull of a handful of points (fewer points, fewer and bigger faces), with the top at y = 0 drawn out along x.
+/* a floating stone cut to a given top outline (convex, in plan around its centre): a flat top with one clean edge, a few steep walls, and a few
+   broad cuts underneath down to an off-centre point. It is the convex hull of the outline and a handful of points below it.
    `top` is the face you walk on, `under` everything below it, `rim` the top's corners in order around it. */
-function floatingStone(sd, R, thick, depth, topCol, rough=1){
-  const sq = seq(1 + Math.floor(hash(sd, 1.7)*2e9)), el = 1 + (.1 + sq()*.25)*rough, lean = sq()*Math.PI*2, lr = R*(.15 + sq()*.3), lx = Math.cos(lean)*lr, lz = Math.sin(lean)*lr;
-  const pts = [], ring = (n, a0, aj, y0, y1, r0, r1, ln) => { for (let k=0;k<n;k++){ const a = (k + a0 + (sq()-.5)*aj)/n*Math.PI*2, r = R*(r0 + sq()*(r1 - r0));
-    pts.push(new V3(Math.cos(a)*r*el + lx*ln, y0 + sq()*(y1 - y0), Math.sin(a)*r/el + lz*ln)); } };
-  const M = Math.max(4, Math.round(R*1.8)) + Math.floor(sq()*2);
-  ring(M, 0, .5, 0, 0, .9, 1.1, 0);                                                              // the flat top, with a corner reaching out each way along x
-  ring(Math.round(M*.6) + Math.floor(sq()*2), sq(), .9, -thick, -thick*2.4, .72, .95, .1);       // a few points holding out the walls
-  ring(Math.round(R*.6) + Math.floor(sq()*2), sq(), .9, -depth*.4, -depth*.62, .35, .6, .55);    // where the cuts run in toward the point
+function floatingStone(sd, outline, thick, depth, topCol){
+  const sq = seq(1 + Math.floor(hash(sd, 1.7)*2e9)), n = outline.length, R = outline.reduce((s,v) => s + Math.hypot(v.x, v.z), 0)/n;
+  const lean = sq()*Math.PI*2, lr = R*(.1 + sq()*.2), lx = Math.cos(lean)*lr, lz = Math.sin(lean)*lr, along = s => { const e = Math.floor(sq()*n); return outline[e].clone().lerp(outline[(e+1)%n], sq()).multiplyScalar(s); };
+  const pts = outline.map(v => v.clone());                                                                         // the flat top
+  for (let k = 2 + Math.floor(sq()*2); k--;) pts.push(along(.72 + sq()*.2).setY(-thick*(1 + sq()*1.4)));               // a few points holding out the walls
+  for (let k = 1 + Math.floor(sq()*2); k--;) pts.push(along(.3 + sq()*.25).add(new V3(lx*.5, -depth*(.4 + sq()*.22), lz*.5)));   // where the cuts run in toward the point
   pts.push(new V3(lx, -depth, lz));
   /* the top is one even stone colour; each facet below takes its own shade, darkening toward the point */
   const g = new ConvexGeometry(pts), P = g.attributes.position, N = g.attributes.normal, top = { p:[], c:[] }, under = { p:[], c:[] }, c = new THREE.Color();
@@ -223,65 +221,54 @@ function floatingStone(sd, R, thick, depth, topCol, rough=1){
       if (up) c.copy(topCol).offsetHSL(0,0,(fbm(x*.7 + sd, z*.7 - sd) - .5)*.05); else c.copy(mixHex('#151926','#30364C', sstep(-depth, 0, y))).offsetHSL(0,0,shade);
       o.p.push(x,y,z); o.c.push(c.r,c.g,c.b); } }
   const geo = o => { const b = new THREE.BufferGeometry(); b.setAttribute('position', new THREE.Float32BufferAttribute(o.p,3)); b.setAttribute('color', new THREE.Float32BufferAttribute(o.c,3)); b.computeVertexNormals(); return b; };
-  /* the top's outline is the convex hull, in plan, of the top points */
-  const cr = (o,a,b) => (a.x - o.x)*(b.z - o.z) - (a.z - o.z)*(b.x - o.x), chain = ps => ps.reduce((h,p) => { while (h.length > 1 && cr(h[h.length-2], h[h.length-1], p) <= 0) h.pop(); h.push(p); return h; }, []);
-  const plan = pts.slice(0, M).sort((a,b) => a.x - b.x || a.z - b.z), rim = chain(plan).slice(0,-1).concat(chain(plan.slice().reverse()).slice(0,-1));
-  return { top:geo(top), under:geo(under), rim, thick, depth };
+  return { top:geo(top), under:geo(under), rim:outline, thick, depth };
 }
-/* a stone's top outline in plan, placed at (x, z) and turned by yaw, as [x, z] corners */
-const planRim = (s, x, z, yaw) => { const cs = Math.cos(yaw), sn = Math.sin(yaw); return s.rim.map(v => [x + v.x*cs + v.z*sn, z - v.x*sn + v.z*cs]); };
-/* signed clearance between two convex outlines in plan: how far apart they are or, when negative, how deeply they overlap */
-function planSep(A, B){ let m = -Infinity;
-  for (const [P, Q] of [[A, B], [B, A]]) P.forEach((p,i) => { const q = P[(i+1)%P.length], l = Math.hypot(q[0] - p[0], q[1] - p[1]), nx = (q[1] - p[1])/l, nz = (p[0] - q[0])/l;
-    const span = R => R.reduce((r,v) => { const d = v[0]*nx + v[1]*nz; return [Math.min(r[0], d), Math.max(r[1], d)]; }, [Infinity, -Infinity]), a = span(P), b = span(Q);
-    m = Math.max(m, b[0] - a[1], a[0] - b[1]); });
-  return m;
+/* the convex hull, in plan, of some points, as corners in order around it */
+function planHull(ps){
+  const cr = (o,a,b) => (a.x - o.x)*(b.z - o.z) - (a.z - o.z)*(b.x - o.x), chain = qs => qs.reduce((h,q) => { while (h.length > 1 && cr(h[h.length-2], h[h.length-1], q) <= 0) h.pop(); h.push(q); return h; }, []);
+  const sorted = ps.slice().sort((a,b) => a.x - b.x || a.z - b.z); return chain(sorted).slice(0,-1).concat(chain(sorted.slice().reverse()).slice(0,-1));
 }
 /* every stone's top centre, so a click anywhere on a stone can set you down on it */
 const stones = [];
 const stoneAt = pt => stones.filter(s => pt.y > s.y - s.depth - .3 && pt.y < s.y + .1).reduce((b,s) => !b || Math.hypot(s.x - pt.x, s.z - pt.z) < Math.hypot(b.x - pt.x, b.z - pt.z) ? s : b, null);
-/* a stone placed at (x, y, z) turned by yaw: a prism over the top's outline carries you, a cone stands in for the rock underneath */
-function placeStone(s, x, y, z, yaw){ const rim = s.rim;
-  addPrism(y - s.thick, y, planRim(s, x, z, yaw));
+/* a stone placed with its top centre at (x, y, z): a prism over the top's outline carries you, a cone stands in for the rock underneath */
+function placeStone(s, x, y, z){ const rim = s.rim;
+  addPrism(y - s.thick, y, rim.map(v => [x + v.x, z + v.z]));
   const inR = Math.min(...rim.map((a,k) => { const b = rim[(k+1)%rim.length]; return Math.abs(a.x*b.z - a.z*b.x)/Math.hypot(b.x - a.x, b.z - a.z); }));
   addFrustum(x, z, y - s.depth, y - s.thick, 0, inR*.85, { stand:false, ceil:true });
   stones.push({ x, y, z, depth:s.depth, reach:Math.max(...rim.map(v => Math.hypot(v.x, v.z))) }); }
-function makeIsland(cx, top, cz, r){
-  const s = floatingStone(cx*3.1 + cz*1.3, r, .55, .55 + r*1.9, C('#323848'), .5);
-  const topM = new THREE.Mesh(s.top, rockMat), under = new THREE.Mesh(s.under, rockMat);
-  [topM, under].forEach(o => { o.position.set(cx, top, cz); o.castShadow = o.receiveShadow = true; o.userData.stone = true; scene.add(o); pickables.push(o); });
-  placeStone(s, cx, top, cz, 0);
-  return { rim:s.rim, plan:planRim(s, cx, cz, 0) };
-}
 const braziers = [];
 {
-  /* the landings first, then the steps between them */
-  const landings = {};
-  BRAZIER_AT.forEach(idx => { const p = spiralPt(idx), out = new V3(Math.sin(p.a),0,Math.cos(p.a)), c = new V3(p.x,0,p.z).addScaledVector(out, 2);
-    landings[idx] = { p, out, c, isl:makeIsland(c.x, p.y, c.z, 3) }; });
-  const tops = [], unders = [], placed = [];
-  for (let i=0; i<=SP.N; i++){ if (landings[i]){ placed.push(landings[i].isl.plan); continue; }
-    const p = spiralPt(i), yaw = rand()*Math.PI*2, col = mixHex('#3D4458','#4A5168', rand()), off = (hash(i, 9.1) - .5)*.6, want = -(.1 + hash(i, 7.7)*.15);
-    const prev = placed[placed.length-1], prev2 = placed[placed.length-2], next = landings[i+1] && landings[i+1].isl.plan, after = landings[i+2] && landings[i+2].isl.plan;
-    /* each step takes the size, and the place along or a little inward of the path, whose edge best meets the stone before it (and a landing
-       just after it): overlapping a little, never much, and clear of the stones beyond. If it cannot, it tries turning a little. */
-    const meet = d => Math.abs(d - want) + (d > .02 || d < -.35 ? 10 : 0), clear = (r, n) => n && planSep(r, n) < 0 ? 10 : 0;
-    let best = null;
-    const sizes = []; for (let k=.75; k<1.6; k+=.1) sizes.push([k, floatingStone(i*13.7 + 2.2, (1.1 + hash(i, 5.3)*.3)*k, .42, (1.8 + hash(i, 3.1)*.8)*k, col, .7)]);
-    for (const turn of [0, .6, 1.2, 1.8, 2.4]){ if (best && best.score < 10) break;
-      for (const [k, t] of sizes) for (let sh=-1.2; sh<1.25; sh+=.15) for (const inw of [0, .3, .6]){ const o = off - inw, x = p.x + Math.cos(p.a)*sh + Math.sin(p.a)*o, z = p.z - Math.sin(p.a)*sh + Math.cos(p.a)*o, r = planRim(t, x, z, yaw + turn);
-        const score = (prev ? meet(planSep(r, prev)) : 0) + (next ? meet(planSep(r, next)) : 0) + clear(r, prev2) + clear(r, after) + .2*Math.abs(sh) + .2*inw + .3*Math.abs(k - 1);
-        if (!best || score < best.score) best = { s:t, x, z, yaw:yaw + turn, score }; } }
-    const { s, x, z } = best;
-    M4.compose(new V3(x, p.y, z), Q.setFromAxisAngle(UP, best.yaw), new V3(1,1,1)); tops.push(s.top.applyMatrix4(M4)); unders.push(s.under.applyMatrix4(M4));
-    placeStone(s, x, p.y, z, best.yaw); placed.push(planRim(s, x, z, best.yaw));
-    if (i % 4 === 2) pathLights.push({ x, y:p.y, z }); }
+  /* the stair is cut from one ribbon of rock winding up the spiral: a slanted cut crosses it between each step and the next, so neighbouring
+     stones share an edge and fit together along it. The ribbon's sides take an uneven corner here and there, and each landing reaches far out. */
+  const cuts = [];   // cuts[i] runs between step i - 1 and step i
+  for (let j=0; j<=SP.N+1; j++){ const land = BRAZIER_AT.includes(j - 1) ? 1 : BRAZIER_AT.includes(j) ? -1 : 0;
+    const a = SP.a0 + (j - .5)*SP.ang + (hash(j, 2.9) - .5)*.04 + land*.05, r = SP.R + (hash(j, 4.3) - .5)*.4;
+    const d = new V3(Math.sin(a), 0, Math.cos(a)).applyAxisAngle(UP, (hash(j, 6.1) - .5)*(land ? .2 : .64));
+    cuts.push({ c:new V3(Math.sin(a)*r, 0, Math.cos(a)*r), d, n:new V3(d.z, 0, -d.x), hi:1.05 + hash(j, 3.7)*.4, ho:1.05 + hash(j, 5.9)*.4, hl:3.6 + hash(j, 7.3)*.6 }); }
+  const outlineOf = i => { const A = cuts[i], B = cuts[i+1], land = BRAZIER_AT.includes(i), at = (k, t) => k.c.clone().addScaledVector(k.d, t);
+    const pts = [at(A, -A.hi), at(A, land ? A.hl : A.ho), at(B, land ? B.hl : B.ho), at(B, -B.hi)];
+    /* an uneven corner pushed out of the outer side and of the inner side, wherever it stays clear of both cuts */
+    const outer = hash(i, 8.3) < (land ? 1 : .65) ? (land ? .4 + hash(i, 1.9)*.6 : .15 + hash(i, 1.9)*.35) : 0, inner = hash(i, 2.3) < .5 ? .1 + hash(i, 3.3)*.25 : 0;
+    [[1, 2, outer, 1], [3, 0, inner, -1]].forEach(([u, w, amt, dir]) => { if (!amt) return;
+      const m = pts[u].clone().lerp(pts[w], .3 + hash(i + u, 8.8)*.4); m.addScaledVector(m.clone().normalize(), amt*dir);
+      if (m.clone().sub(A.c).dot(A.n) > .25 && B.c.clone().sub(m).dot(B.n) > .25) pts.push(m); });
+    return planHull(pts); };
+  const tops = [], unders = [], landings = {};
+  for (let i=0; i<=SP.N; i++){ const land = BRAZIER_AT.includes(i), p = spiralPt(i), sd = i*13.7 + (land ? 0 : rand()*5), col = land ? C('#323848') : mixHex('#3D4458','#4A5168', rand());
+    const ring = outlineOf(i), cx = ring.reduce((t,v) => t + v.x, 0)/ring.length, cz = ring.reduce((t,v) => t + v.z, 0)/ring.length;
+    /* drawn in a hair from the shared edges, so each piece still reads as its own stone */
+    const outline = ring.map(v => new V3((v.x - cx)*.985, 0, (v.z - cz)*.985));
+    const s = floatingStone(sd, outline, land ? .55 : .42, land ? 5.8 + hash(i, 3.1)*.6 : 1.7 + hash(i, 3.1)*.8, col);
+    M4.makeTranslation(cx, p.y, cz); tops.push(s.top.applyMatrix4(M4)); unders.push(s.under.applyMatrix4(M4));
+    placeStone(s, cx, p.y, cz);
+    if (land) landings[i] = { p, x:cx, z:cz, rim:outline }; else if (i % 4 === 2) pathLights.push({ x:cx, y:p.y, z:cz }); }
   const stoneTop = new THREE.Mesh(merge(tops), rockMat), stoneBot = new THREE.Mesh(merge(unders), rockMat);
   [stoneTop, stoneBot].forEach(o => { o.castShadow = o.receiveShadow = true; o.userData.stone = true; scene.add(o); pickables.push(o); });
   const plG = new THREE.BufferGeometry(); plG.setAttribute('position', new THREE.Float32BufferAttribute(pathLights.flatMap(p => [p.x, p.y+.18, p.z]), 3));
   scene.add(new THREE.Points(plG, new THREE.PointsMaterial({ size:.9, map:glowTex, color:0x78E6F0, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending })));
   const bowlMat = new THREE.MeshStandardMaterial({ color:0x4A4F62, roughness:.7, metalness:.3, flatShading:true });
-  BRAZIER_AT.forEach(idx => { const { p, out, c, isl } = landings[idx];
+  BRAZIER_AT.forEach(idx => { const { p, x, z, rim } = landings[idx], out = new V3(Math.sin(p.a),0,Math.cos(p.a)), c = new V3(p.x,0,p.z).addScaledVector(out, 2);
     const b = new THREE.Group(); b.position.set(c.x + out.x*.8, p.y, c.z + out.z*.8);
     const stem = new THREE.Mesh(new THREE.CylinderGeometry(.12,.3,.8,6).translate(0,.4,0), bowlMat), bowl = new THREE.Mesh(new THREE.CylinderGeometry(.55,.25,.4,10).translate(0,1,0), bowlMat);
     stem.castShadow = bowl.castShadow = true;
@@ -291,8 +278,8 @@ const braziers = [];
     b.add(stem, bowl, fire, flame, light); scene.add(b); braziers.push({ pos:b.position.clone(), top:p.y, fire, flame, light, lit:false });
     addFrustum(b.position.x, b.position.z, p.y, p.y+1.2, .3, .55, { stand:false });
     /* a pine to one side, partway toward the corner of the landing nearest that side so it always stands on the rock */
-    const side = new V3(out.z*1.4 - out.x*1.6, 0, -out.x*1.4 - out.z*1.6), k = isl.rim.reduce((b,v) => v.dot(side) > b.dot(side) ? v : b);
-    pines.push({ x:c.x + k.x*.6, y:p.y-.05, z:c.z + k.z*.6, s:.8, valley:true }); });
+    const side = new V3(out.z*1.4 - out.x*1.6, 0, -out.x*1.4 - out.z*1.6), k = rim.reduce((b,v) => v.dot(side) > b.dot(side) ? v : b);
+    pines.push({ x:x + k.x*.6, y:p.y-.05, z:z + k.z*.6, s:.8, valley:true }); });
 }
 
 /* ---------- lanterns along the path: a lit way in, from where you arrive down to the lake ---------- */
