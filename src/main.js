@@ -204,17 +204,17 @@ const bandMat = new THREE.MeshBasicMaterial({ color:0x78E6F0, transparent:true, 
 
 /* ---------- spiral stair, landings, braziers ---------- */
 const pathLights = [];
-/* a floating stone, each one its own shape: a flat top with one clean edge, steep chiselled walls, and a few broad cuts underneath down to an
-   off-centre point. It is the convex hull of a handful of points, with the top at y = 0 drawn out a little along x.
+/* a floating stone, each one its own shape: a flat top with one clean edge, a few steep walls, and a few broad cuts underneath down to an
+   off-centre point. It is the convex hull of a handful of points (fewer points, fewer and bigger faces), with the top at y = 0 drawn out along x.
    `top` is the face you walk on, `under` everything below it, `rim` the top's corners in order around it. */
 function floatingStone(sd, R, thick, depth, topCol, rough=1){
-  const sq = seq(1 + Math.floor(hash(sd, 1.7)*2e9)), el = 1 + sq()*.25*rough, lean = sq()*Math.PI*2, lr = R*(.15 + sq()*.3), lx = Math.cos(lean)*lr, lz = Math.sin(lean)*lr;
-  const pts = [], ring = (n, y0, y1, r0, r1, ln) => { const a0 = sq(); for (let k=0;k<n;k++){ const a = (k + a0 + (sq()-.5)*.7)/n*Math.PI*2, r = R*(r0 + sq()*(r1 - r0));
+  const sq = seq(1 + Math.floor(hash(sd, 1.7)*2e9)), el = 1 + (.1 + sq()*.25)*rough, lean = sq()*Math.PI*2, lr = R*(.15 + sq()*.3), lx = Math.cos(lean)*lr, lz = Math.sin(lean)*lr;
+  const pts = [], ring = (n, a0, aj, y0, y1, r0, r1, ln) => { for (let k=0;k<n;k++){ const a = (k + a0 + (sq()-.5)*aj)/n*Math.PI*2, r = R*(r0 + sq()*(r1 - r0));
     pts.push(new V3(Math.cos(a)*r*el + lx*ln, y0 + sq()*(y1 - y0), Math.sin(a)*r/el + lz*ln)); } };
-  const M = Math.round(R*3) + Math.floor(sq()*3);
-  ring(M, 0, 0, 1 - .1*rough, 1 + .1*rough, 0);                                         // the flat top
-  ring(M + 1, -thick, -thick*2.2, .78, .96, .1);                                        // the block's steep walls
-  ring(Math.round(R) + 1 + Math.floor(sq()*2), -depth*.42, -depth*.62, .38, .62, .55);   // where the cuts run in toward the point
+  const M = Math.max(4, Math.round(R*1.8)) + Math.floor(sq()*2);
+  ring(M, 0, .5, 0, 0, .9, 1.1, 0);                                                              // the flat top, with a corner reaching out each way along x
+  ring(Math.round(M*.6) + Math.floor(sq()*2), sq(), .9, -thick, -thick*2.4, .72, .95, .1);       // a few points holding out the walls
+  ring(Math.round(R*.6) + Math.floor(sq()*2), sq(), .9, -depth*.4, -depth*.62, .35, .6, .55);    // where the cuts run in toward the point
   pts.push(new V3(lx, -depth, lz));
   /* the top is one even stone colour; each facet below takes its own shade, darkening toward the point */
   const g = new ConvexGeometry(pts), P = g.attributes.position, N = g.attributes.normal, top = { p:[], c:[] }, under = { p:[], c:[] }, c = new THREE.Color();
@@ -238,13 +238,13 @@ function makeIsland(cx, top, cz, r){
   const topM = new THREE.Mesh(s.top, rockMat), under = new THREE.Mesh(s.under, rockMat);
   [topM, under].forEach(o => { o.position.set(cx, top, cz); o.castShadow = o.receiveShadow = true; scene.add(o); });
   stoneColliders(s, cx, top, cz, 0);
-  return { topM };
+  return { topM, rim:s.rim };
 }
 const braziers = [];
 {
   const tops = [], unders = [];
   for (let i=0;i<=SP.N;i++){ if (BRAZIER_AT.includes(i)) continue; const p = spiralPt(i), yaw = p.a + (rand()-.5)*.9;
-    const s = floatingStone(i*13.7 + 2.2, 1.5 + hash(i, 5.3)*.3, .42, 1.9 + hash(i, 3.1)*.9, mixHex('#3D4458','#4A5168', rand()));
+    const s = floatingStone(i*13.7 + 2.2, 1.6 + hash(i, 5.3)*.3, .42, 1.9 + hash(i, 3.1)*.9, mixHex('#3D4458','#4A5168', rand()));
     M4.compose(new V3(p.x,p.y,p.z), Q.setFromAxisAngle(UP, yaw), new V3(1,1,1)); tops.push(s.top.applyMatrix4(M4)); unders.push(s.under.applyMatrix4(M4));
     stoneColliders(s, p.x, p.y, p.z, yaw);
     if (i % 4 === 2) pathLights.push(p); }
@@ -263,7 +263,9 @@ const braziers = [];
     const light = new THREE.PointLight(0xFFA050, 0, 9, 2); light.position.y = 1.5;
     b.add(stem, bowl, fire, flame, light); scene.add(b); braziers.push({ pos:b.position.clone(), top:p.y, fire, flame, light, lit:false });
     addFrustum(b.position.x, b.position.z, p.y, p.y+1.2, .3, .55, { stand:false });
-    pines.push({ x:c.x - out.x*1.6 + out.z*1.4, y:p.y-.05, z:c.z - out.z*1.6 - out.x*1.4, s:.8, valley:true }); });
+    /* a pine to one side, partway toward the corner of the landing nearest that side so it always stands on the rock */
+    const side = new V3(out.z*1.4 - out.x*1.6, 0, -out.x*1.4 - out.z*1.6), k = isl.rim.reduce((b,v) => v.dot(side) > b.dot(side) ? v : b);
+    pines.push({ x:c.x + k.x*.6, y:p.y-.05, z:c.z + k.z*.6, s:.8, valley:true }); });
 }
 
 /* ---------- lanterns along the path: a lit way in, from where you arrive down to the lake ---------- */
