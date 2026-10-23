@@ -1,7 +1,9 @@
 import * as THREE from 'three';
+import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js';
 
 // Polyhedra drawn as light: faceted solids whose true edges glow with a soft halo (not the triangle seams inside a
-// face). Used by the star's cage and by the relics.
+// face), plus the shapes the star is built from. Used by the star overhead and by the relics.
+const V3 = THREE.Vector3, PHI = (1 + Math.sqrt(5))/2;
 
 /* non-indexed copy with flat normals and an `edge` attribute: a barycentric coordinate per corner, pushed to 1 for
    seams between coplanar triangles so only the polyhedron's real edges light up */
@@ -17,6 +19,32 @@ export function withEdges(geo){
     for (let v=0;v<3;v++) for (let c=0;c<3;c++) bary[(t*3 + v)*3 + c] = (c === v ? 1 : 0) + mask[c]; }
   g.setAttribute('edge', new THREE.BufferAttribute(bary, 3)); return g;
 }
+
+/* the distinct corners of a geometry, for glowing vertex nodes */
+export function corners(geo){ const p = geo.attributes.position, seen = new Map();
+  for (let i=0;i<p.count;i++){ const k = `${p.getX(i).toFixed(3)},${p.getY(i).toFixed(3)},${p.getZ(i).toFixed(3)}`; if (!seen.has(k)) seen.set(k, new V3(p.getX(i), p.getY(i), p.getZ(i))); }
+  return [...seen.values()]; }
+
+/* raise a pyramid on every face (faces found by grouping coplanar triangles): a dodecahedron becomes a twelve-point star */
+export function kleetope(geo, apexR){
+  const g = geo.index ? geo.toNonIndexed() : geo.clone(); g.computeVertexNormals(); const p = g.attributes.position, n = g.attributes.normal, faces = new Map();
+  for (let i=0;i<p.count;i+=3){ const k = `${n.getX(i).toFixed(2)},${n.getY(i).toFixed(2)},${n.getZ(i).toFixed(2)}`; if (!faces.has(k)) faces.set(k, { n:new V3(n.getX(i), n.getY(i), n.getZ(i)), pts:[] });
+    for (let j=0;j<3;j++) faces.get(k).pts.push(new V3(p.getX(i+j), p.getY(i+j), p.getZ(i+j))); }
+  const out = [];
+  faces.forEach(f => { const ring = corners(new THREE.BufferGeometry().setFromPoints(f.pts)), c = ring.reduce((a, v) => a.add(v), new V3()).divideScalar(ring.length), apex = f.n.clone().multiplyScalar(apexR);
+    const u = ring[0].clone().sub(c).normalize(), w = f.n.clone().cross(u); ring.sort((a, b) => Math.atan2(a.clone().sub(c).dot(w), a.clone().sub(c).dot(u)) - Math.atan2(b.clone().sub(c).dot(w), b.clone().sub(c).dot(u)));
+    ring.forEach((a, i) => { const b = ring[(i+1) % ring.length]; out.push(a, b, apex); }); });
+  return new THREE.BufferGeometry().setFromPoints(out);
+}
+
+export function icosidodecahedron(r){ const pts = [], s = r/PHI;
+  [[0,0,PHI]].concat([[.5, PHI/2, PHI*PHI/2]]).forEach(([a,b,c]) => {
+    for (const sa of a ? [-1,1] : [1]) for (const sb of b ? [-1,1] : [1]) for (const sc of [-1,1]) [[a*sa,b*sb,c*sc],[b*sb,c*sc,a*sa],[c*sc,a*sa,b*sb]].forEach(v => pts.push(new V3(...v).multiplyScalar(s))); });
+  return new ConvexGeometry(pts); }
+export function stellaOctangula(r){ const a = new THREE.TetrahedronGeometry(r), b = new THREE.TetrahedronGeometry(r).rotateZ(Math.PI/2);
+  const pa = a.attributes.position.array, pb = b.attributes.position.array, g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(Float32Array.from([...pa, ...pb]), 3)); return g; }
+export const cube = r => new THREE.BoxGeometry(2*r/Math.sqrt(3), 2*r/Math.sqrt(3), 2*r/Math.sqrt(3));
 
 /* soft glowing edges over a faint glassy fill. lit 0..1 brightens it; additive, so it reads as light, not matter.
    With fog on, distance fades the light rather than tinting it */
