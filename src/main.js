@@ -326,26 +326,12 @@ function lightPoints(items, { size, near=0, drift=0, base=.6 }){
   /* higher up, drifting slowly across the valley */
   for (let i=0;i<420;i++){ const a = sq()*6.283, d = 3 + Math.sqrt(sq())*30, x = Math.cos(a)*d, z = Math.sin(a)*d;
     air.push({ x, y:Math.max(groundH(x,z), 0) + 1.6 + sq()*sq()*16, z, c:palette[Math.floor(sq()*palette.length)], ph:sq() }); }
-  lightPoints(meadow, { size:.65, base:.85 }); lightPoints(air, { size:.85, near:3, drift:1.4, base:.7 }); }
-/* ---------- sky lanterns: wishes let go from the valley, drifting up toward the star ---------- */
-const updateSkyLanterns = (() => {
-  const N = 28, sq = seq(97), mat = new THREE.MeshBasicMaterial({ vertexColors:true, side:THREE.DoubleSide, fog:false });
-  const geo = paint(merge([new THREE.CylinderGeometry(.17,.12,.34,8,1,true).translate(0,.17,0), new THREE.CircleGeometry(.17,8).rotateX(-Math.PI/2).translate(0,.34,0)]),
-    (x,y,z,c) => c.copy(mixHex('#FFE2B0','#B8703C', Math.min(1, y/.34))));
-  const mesh = new THREE.InstancedMesh(geo, mat, N); mesh.frustumCulled = false; scene.add(mesh);
-  const spawn = (L, lift, hero) => { for (let k=0;k<5;k++){ const a = sq()*6.283, d = 8 + Math.sqrt(sq())*22; L.x = Math.cos(a)*d; L.z = Math.sin(a)*d; if (!hero || Math.hypot(L.x - hero.x, L.z - hero.z) > 7) break; }
-    L.base = Math.max(groundH(L.x, L.z), WATER_Y) + 1.2; L.y = L.base + lift; };
-  const items = Array.from({ length:N }, () => { const L = { sp:.35 + sq()*.4, ph:sq()*6.28, s:1.5 + sq()*.8, glow:new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xFFB066, transparent:true, opacity:0, depthWrite:false, blending:THREE.AdditiveBlending, fog:false })) };
-    L.glow.scale.setScalar(2.2*L.s); scene.add(L.glow); spawn(L, 2 + sq()*58); return L; });
-  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new V3(), pos = new V3();
-  return (dt, T, hero) => { items.forEach((L, i) => {
-      if (!reduceMotion){ L.y += L.sp*dt; L.x += Math.sin(T*.25 + L.ph)*.15*dt; L.z += Math.cos(T*.21 + L.ph)*.15*dt; }
-      if (L.y > 74) spawn(L, 0, hero);
-      const f = Math.min(1, (L.y - L.base)/2.5)*Math.min(1, Math.max(0, (74 - L.y)/14));
-      m4.compose(pos.set(L.x, L.y, L.z), q.setFromAxisAngle(UP, T*.2 + L.ph), sc.setScalar(Math.max(.001, L.s*f))); mesh.setMatrixAt(i, m4);
-      L.glow.position.set(L.x, L.y + .12*L.s, L.z); L.glow.material.opacity = .55*f*(.85 + .15*Math.sin(T*6 + L.ph*5)); });
-    mesh.instanceMatrix.needsUpdate = true; };
-})();
+  lightPoints(meadow, { size:.65, base:.85 }); lightPoints(air, { size:.85, near:3, drift:1.4, base:.7 });
+  /* higher up, sparser: around the spiral stair as it climbs, and in the open air beneath the star */
+  const sh = seq(83), high = [];
+  for (let i=0;i<170;i++){ const a = sh()*6.283, d = 8 + sh()*8; high.push({ x:Math.cos(a)*d, y:5 + sh()*32, z:Math.sin(a)*d, c:palette[Math.floor(sh()*palette.length)], ph:sh() }); }
+  for (let i=0;i<260;i++){ const a = sh()*6.283, d = Math.sqrt(sh())*34; high.push({ x:Math.cos(a)*d, y:16 + sh()*40, z:Math.sin(a)*d, c:palette[Math.floor(sh()*palette.length)], ph:sh() }); }
+  lightPoints(high, { size:1.05, near:3, drift:2.2, base:.65 }); }
 const MIST = 26; const mists = []; for (let i=0;i<MIST;i++){ const a=rand()*6.283, d=10+rand()*20; const s = new THREE.Sprite(new THREE.SpriteMaterial({ map:softTex, color:0x4A4E8E, transparent:true, opacity:.11, depthWrite:false }));
   s.position.set(Math.sin(a)*d, groundH(Math.sin(a)*d, Math.cos(a)*d)+1.2, Math.cos(a)*d); s.scale.set(16,4,1); scene.add(s); mists.push({ s, a, d, sp:(rand()-.5)*.02 }); }
 
@@ -683,7 +669,7 @@ function updateWorld(dt){
     beamMat.uniforms.rep.value = len/1.5; beamMat.uniforms.fade.value = Math.min(1, beamState.life/.8)*Math.min(1,(3.2-beamState.life)/.25)*1.3;
     if (beamState.life <= 0){ beam.visible = false; oracleState.eyeTarget = 0; } }
   wispMat.uniforms.t.value = T; wispMat.uniforms.glow.value = .45 + L*.55; wispMat.uniforms.hero.value.copy(P.pos); heroU.value.copy(P.pos); starU.t.value = T; starU.glow.value = L;
-  updateSkyLanterns(dt, T, P.pos); bandMat.opacity = .5 + L*.35 + Math.sin(T*1.3)*.05;
+  bandMat.opacity = .5 + L*.35 + Math.sin(T*1.3)*.05;
   lightPointMats.forEach(m => { m.uniforms.t.value = T; m.uniforms.glow.value = m.userData.base + L*(1 - m.userData.base); }); grassU.t.value = reduceMotion ? 0 : T; grassU.glow.value = .08 + L*.3;
   if (!reduceMotion){ const wp = wispG.attributes.position.array; for (let i=0;i<WISP;i++){ const v = wispV[i]; wp[i*3] += Math.sin(T*v[1] + v[0])*dt*.4; wp[i*3+1] += Math.cos(T*v[1]*.7 + v[0])*dt*.25; wp[i*3+2] += Math.cos(T*v[1] + v[0]*2)*dt*.4; } wispG.attributes.position.needsUpdate = true; }
   mists.forEach(m => { m.a += m.sp*dt; m.s.position.x = Math.sin(m.a)*m.d; m.s.position.z = Math.cos(m.a)*m.d; });
