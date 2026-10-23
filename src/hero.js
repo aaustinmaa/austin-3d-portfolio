@@ -3,11 +3,12 @@ import { glowTex, fabricTex } from './textures.js';
 
 // A small, legless wanderer in a thin woven robe and a softly folded hood. The cloth hangs from the shoulders;
 // only the loose hem, cuffs and rear hood tip respond to motion. The shadowed face, lantern and golden bow stay familiar.
-const V3 = THREE.Vector3, DOWN = new V3(0,-1,0);
+const V3 = THREE.Vector3;
 
 /* the bow, in its own space: the limbs bulge toward +x, the string runs between the tips at x = TIP_X */
 export const TIP_X = .08, TIP_Y = .42, GRIP_X = .34;
-export const BOW_REST = new V3(-.36,.6,-.16), BOW_AIM = new V3(-.06,1.0,.1);
+/* Leave room in front of the robe for the drawing hand and the fully drawn string. */
+export const BOW_REST = new V3(-.36,.6,-.16), BOW_AIM = new V3(-.06,1.0,.47);
 export const BOW_TURN = new THREE.Quaternion().setFromAxisAngle(new V3(0,1,0), -Math.PI/2);
 
 const COL = { cloth:0xD2CFE2, sheen:0x777B96, glowBase:0x414164, lining:0x34334C, shade:0x14142A, gold:0xE6C27E, eye:0xCFF6FF, glass:0xFFD9A0 };
@@ -140,13 +141,30 @@ export function buildHero(scene){
     const g = new THREE.RingGeometry(0,1,24,4).scale(.031,.044,1);
     const e = new THREE.Mesh(g, eyeMat); e.position.set(sd*.077,0,.237); face.add(e); return e; });
 
-  /* Tapered fabric sleeves, open at the cuff, with small hands kept inside the opening. */
+  /* A curved sleeve cap joins each sleeve to an oval armhole on the robe. The shoulder seam stays on the
+     torso while the lower sleeve follows the arm; only the cuff has an exposed open edge. */
   const sleeves = [], hands = [];
-  const arms = [-1,1].map(sd => { const a = new THREE.Group(); a.position.set(sd*.235,.82,0); body.add(a);
+  const arms = [-1,1].map(sd => { const a = new THREE.Group(); a.position.set(sd*.225,.90,0); body.add(a);
     const sleeve = new THREE.Group(); a.add(sleeve); sleeves.push(sleeve);
     const sleeveAt = (u,v,p) => { const ang = u*Math.PI*2, r = .072 - v*.012 + Math.sin(ang*5 + v)*.005*v;
       return p.set(Math.sin(ang)*r, -v*.28, Math.cos(ang)*r); };
-    panel(gridGeo(12, 24, sleeveAt, new V3(0,-.12,0)), sleeve, 'sleeve', (u,v) => v*v*.35, `hero-sleeve-${sd < 0 ? 'left' : 'right'}`);
+    const sleeveMesh = panel(gridGeo(20, 32, sleeveAt, new V3(0,-.12,0)), sleeve, 'sleeve', (u,v) => v*v*.35, `hero-sleeve-${sd < 0 ? 'left' : 'right'}`);
+    const cols = 32, capEnd = .4, array = () => new Float32Array((cols+1)*3);
+    const shoulder = { arm:a, side:sd, capEnd, bend:new V3(), anchors:array(), bulges:array(), starts:array(), controls:array(), guides:array(), ends:array() };
+    const point = new V3(), guide = new V3();
+    for (let j=0;j<=cols;j++){
+      const u = j/cols, ang = u*Math.PI*2, side = sd*Math.sin(ang), top = smooth(side,-.5,.8);
+      coatAt((sd > 0 ? .25 : .75)-sd*.05*Math.cos(ang),.16-.08*side,point);
+      point.x *= .997; point.z *= .997; point.toArray(shoulder.anchors,j*3);
+      shoulder.bulges.set([sd*.025*top,.025*top,0],j*3);
+      sleeveAt(u,capEnd,point); point.toArray(shoulder.ends,j*3);
+      const dr = -.012 + .005*Math.sin(ang*5+capEnd) + .005*capEnd*Math.cos(ang*5+capEnd);
+      guide.set(Math.sin(ang)*dr,-.28,Math.cos(ang)*dr).multiplyScalar(-capEnd/3).add(point);
+      guide.toArray(shoulder.guides,j*3);
+    }
+    clothPanels[clothPanels.length-1].shoulder = shoulder;
+    /* The cap reaches above the pivot as the arm turns, beyond the straight sleeve's rest bounds. */
+    sleeveMesh.geometry.boundingSphere.radius += .4;
     const hand = mesh(new THREE.SphereGeometry(.048,16,12).scale(.86,1,1), cloth, a); hand.position.y = -.30; hands.push(hand); return a; });
 
   /* a little round lantern hanging at the side: it is the wanderer's own light */
@@ -176,6 +194,7 @@ export function buildHero(scene){
 /* World-space springs retain their direction while the character turns. Actual displacement also covers guided
    flights and blocked movement, where the player's requested velocity does not describe what happened. */
 const measured = new V3(), panelDrift = new V3(), clothQ = new THREE.Quaternion(), neckAnchor = new V3(), neckInverse = new THREE.Matrix4();
+const sleeveMatrix = new THREE.Matrix4(), sleeveInverse = new THREE.Matrix4(), shoulderPoint = new V3(), shoulderControl = new V3(), shoulderBulge = new V3();
 function updateClothMotion(h, s){
   const m = h.motion, dt = clamp(s.dt, .0001, .05), yaw = h.root.rotation.y;
   measured.subVectors(h.root.position, m.previous);
@@ -217,14 +236,40 @@ function deformCloth(h, s){
   const amplitude = s.reduceMotion ? 0 : .0012 + Math.min(1, m.speed/7)*.004;
   h.head.updateMatrix(); neckInverse.copy(h.head.matrix).invert();
   for (const panel of h.clothPanels){
-    const { mesh, rest, weights, kind } = panel, g = mesh.geometry, p = g.attributes.position;
-    if (settled && kind !== 'neck') continue;
+    const { mesh, rest, weights, kind, shoulder } = panel, g = mesh.geometry, p = g.attributes.position;
+    if (settled && kind !== 'neck' && !shoulder) continue;
+    if (shoulder){
+      shoulder.arm.updateMatrix(); mesh.parent.updateMatrix();
+      sleeveMatrix.multiplyMatrices(shoulder.arm.matrix,mesh.parent.matrix); sleeveInverse.copy(sleeveMatrix).invert();
+      /* A reaching arm bends forward around the chest instead of taking a straight path through the robe. */
+      shoulderPoint.set(0,-.28,0).applyMatrix4(sleeveMatrix);
+      const forward = shoulderPoint.z-shoulder.arm.position.z, across = shoulder.side*(shoulder.arm.position.x-shoulderPoint.x);
+      const bend = .14*smooth(forward,.08,.22)*clamp(across/Math.max(.08,forward),0,1), e = sleeveInverse.elements;
+      shoulder.bend.set(e[8]*bend,e[9]*bend,e[10]*bend);
+      for (let j=0;j<shoulder.anchors.length;j+=3){
+        shoulderPoint.fromArray(shoulder.anchors,j);
+        shoulderControl.fromArray(shoulder.ends,j).applyMatrix4(sleeveMatrix).lerp(shoulderPoint,.75);
+        shoulderControl.add(shoulderBulge.fromArray(shoulder.bulges,j)).applyMatrix4(sleeveInverse).toArray(shoulder.controls,j);
+        shoulderPoint.applyMatrix4(sleeveInverse).toArray(shoulder.starts,j);
+      }
+    }
     mesh.parent.getWorldQuaternion(clothQ).invert(); panelDrift.copy(m.offset).applyQuaternion(clothQ);
     /* Sleeve length follows the reaching hand; compensate so its small flutter stays the same size. */
     panelDrift.y /= mesh.parent.scale.y;
     for (let i=0;i<p.count;i++){
       const j = i*3, w = s.reduceMotion ? 0 : weights[i];
       let x = rest[j], y = rest[j+1], z = rest[j+2];
+      if (shoulder){
+        const { rows, cols } = g.userData.grid, v = Math.floor(i/(cols+1))/rows;
+        if (v < shoulder.capEnd){
+          const c = (i%(cols+1))*3, t = v/shoulder.capEnd, s = 1-t, b0 = s*s*s, b1 = 3*s*s*t, b2 = 3*s*t*t, b3 = t*t*t;
+          x = b0*shoulder.starts[c] + b1*shoulder.controls[c] + b2*shoulder.guides[c] + b3*shoulder.ends[c];
+          y = b0*shoulder.starts[c+1] + b1*shoulder.controls[c+1] + b2*shoulder.guides[c+1] + b3*shoulder.ends[c+1];
+          z = b0*shoulder.starts[c+2] + b1*shoulder.controls[c+2] + b2*shoulder.guides[c+2] + b3*shoulder.ends[c+2];
+        }
+        const bend = Math.sin(Math.PI*v)**2;
+        x += shoulder.bend.x*bend; y += shoulder.bend.y*bend; z += shoulder.bend.z*bend;
+      }
       /* The mouth follows the head, but the neck drape's lower edge stays tucked into the body when aiming. */
       if (kind === 'neck'){
         const { rows, cols } = g.userData.grid, anchor = smooth(Math.floor(i/(cols+1))/rows,0,.85);
@@ -244,10 +289,15 @@ function deformCloth(h, s){
 
 /* one frame of animation. s includes reduceMotion in addition to the player's movement and bow state. */
 const tv = new V3(), tq = new THREE.Quaternion(), te = new THREE.Euler(), grip = new V3(), str = new V3(), hemPoint = new V3(), bodyInverse = new THREE.Matrix4(), cyan = new THREE.Color(0x5FE6F0), warm = new THREE.Color(COL.glowBase), dark = new THREE.Color(COL.eye), eyeLit = new THREE.Color(0xFFFFFF);
+const armX = new V3(), armY = new V3(), armZ = new V3(), armBasis = new THREE.Matrix4();
 function reach(h, index, target){
   tv.copy(target).sub(h.arms[index].position);
   const length = Math.max(.12, tv.length());
-  h.arms[index].quaternion.setFromUnitVectors(DOWN, tv.normalize());
+  /* Keep the sleeve's outer side facing out from the torso as the arm reaches across the chest. */
+  armY.copy(tv).normalize().negate(); armX.set(1,0,0).addScaledVector(armY,-armY.x);
+  if (armX.lengthSq() < .00001) armX.set(0,0,1).addScaledVector(armY,-armY.z);
+  armX.normalize(); armZ.crossVectors(armX,armY); armBasis.makeBasis(armX,armY,armZ);
+  h.arms[index].quaternion.setFromRotationMatrix(armBasis);
   h.sleeves[index].scale.y = (length - .018)/.28; h.hands[index].position.y = -length;
 }
 export function animateHero(h, s){
