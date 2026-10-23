@@ -12,6 +12,7 @@ export const BOW_TURN = new THREE.Quaternion().setFromAxisAngle(new V3(0,1,0), -
 
 const COL = { cloth:0xD2CFE2, sheen:0x777B96, glowBase:0x414164, lining:0x34334C, shade:0x14142A, gold:0xE6C27E, eye:0xCFF6FF, glass:0xFFD9A0 };
 const clamp = THREE.MathUtils.clamp, smooth = THREE.MathUtils.smoothstep;
+const HEM_GAP = .006;
 
 /* a surface from a grid: f(u, v, out) places the point for column u and row v (both 0..1). Faces are wound to point
    away from `inside`, so a front-side material shows the outside and a back-side material shows the lining. */
@@ -64,7 +65,9 @@ export function buildHero(scene){
   const coatWeight = (u,v) => Math.pow(smooth(v, .18, 1), 2);
   const dress = panel(gridGeo(28, 64, coatAt, new V3(0,.55,0)), body, 'coat', coatWeight, 'hero-coat');
   /* A narrow turned-under fabric edge follows the same folds and deformation as the robe. */
-  panel(gridGeo(2, 64, (u,v,p) => { coatAt(u, .985 + v*.015, p); p.x *= 1.004; p.z *= 1.004; }, new V3(0,.15,0)), body, 'coat', (u,v) => coatWeight(u, .985 + v*.015), 'hero-hem', edgeCloth);
+  const hem = panel(gridGeo(2, 64, (u,v,p) => { coatAt(u, .985 + v*.015, p); p.x *= 1.004; p.z *= 1.004; }, new V3(0,.15,0)), body, 'coat', (u,v) => coatWeight(u, .985 + v*.015), 'hero-hem', edgeCloth);
+  hem.geometry.computeBoundingBox();
+  const restGrounding = HEM_GAP - .025 - hem.geometry.boundingBox.min.y;
 
   const head = new THREE.Group(); head.position.set(0,1.13,0); body.add(head);
   /* A small pointed arch frames the face. Its lower corners spread and fall toward the neck like the reference
@@ -167,7 +170,7 @@ export function buildHero(scene){
   const nockGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0x9FF2FF, transparent:true, opacity:0, depthWrite:false, blending:THREE.AdditiveBlending })); nockGlow.scale.set(.5,.5,1); bow.add(nockGlow);
 
   const motion = { previous:new V3(), yaw:0, ready:false, offset:new V3(), velocity:new V3(), goal:new V3(), turn:0, turnVelocity:0, speed:0, reduced:false };
-  return { root, body, dress, head, eyes, arms, sleeves, hands, clothPanels, motion, edgeCloth, lanternPivot, lanternGlow, lanternLight, flyGlow, eyeMat, hemMat:cloth, bow, strGeo, nock, nockGlow };
+  return { root, body, dress, hem, head, eyes, arms, sleeves, hands, clothPanels, motion, edgeCloth, lanternPivot, lanternGlow, lanternLight, flyGlow, eyeMat, hemMat:cloth, bow, strGeo, nock, nockGlow, grounding:0, restGrounding };
 }
 
 /* World-space springs retain their direction while the character turns. Actual displacement also covers guided
@@ -240,7 +243,7 @@ function deformCloth(h, s){
 }
 
 /* one frame of animation. s includes reduceMotion in addition to the player's movement and bow state. */
-const tv = new V3(), tq = new THREE.Quaternion(), te = new THREE.Euler(), grip = new V3(), str = new V3(), bodyInverse = new THREE.Matrix4(), cyan = new THREE.Color(0x5FE6F0), warm = new THREE.Color(COL.glowBase), dark = new THREE.Color(COL.eye), eyeLit = new THREE.Color(0xFFFFFF);
+const tv = new V3(), tq = new THREE.Quaternion(), te = new THREE.Euler(), grip = new V3(), str = new V3(), hemPoint = new V3(), bodyInverse = new THREE.Matrix4(), cyan = new THREE.Color(0x5FE6F0), warm = new THREE.Color(COL.glowBase), dark = new THREE.Color(COL.eye), eyeLit = new THREE.Color(0xFFFFFF);
 function reach(h, index, target){
   tv.copy(target).sub(h.arms[index].position);
   const length = Math.max(.12, tv.length());
@@ -249,6 +252,8 @@ function reach(h, index, target){
 }
 export function animateHero(h, s){
   const { dt, T, moving } = s, k = 1 - Math.exp(-dt*6), up = s.airborne || s.flight, motion = s.reduceMotion ? 0 : 1;
+  /* Undo last frame's common visual offset before interpolating the bow and solving the hands. */
+  h.bow.position.y -= h.grounding;
   updateClothMotion(h, s);
   h.body.position.y = .025 + motion*(Math.sin(T*2.2)*.008 + Math.abs(Math.sin(s.walk))*.025*moving);
   h.body.rotation.z = motion*Math.sin(s.walk)*.025*moving;
@@ -276,6 +281,16 @@ export function animateHero(h, s){
   if (s.aiming && s.draw > .01){ str.set(midX, 0, 0).applyQuaternion(h.bow.quaternion).add(h.bow.position).applyMatrix4(bodyInverse); reach(h, 1, str); }
   else { tq.setFromEuler(te.set(motion*Math.sin(s.walk)*.35*moving + (up ? -.4 : 0), 0, .18 + (up ? .3 : 0))); h.arms[1].quaternion.slerp(tq, 1 - Math.exp(-dt*10)); h.sleeves[1].scale.y = 1; h.hands[1].position.y = -.30; }
   deformCloth(h, s);
+
+  /* The player's root is the support surface. Fit the actual posed, deformed hem to that surface while
+     grounded; in the air keep a fixed model offset so jumping and flying follow the player's position. */
+  let grounding = h.restGrounding;
+  if (s.onGround && !up && !s.flying){
+    const p = h.hem.geometry.attributes.position; let lowest = Infinity;
+    for (let i=0;i<p.count;i++) lowest = Math.min(lowest,hemPoint.fromBufferAttribute(p,i).applyMatrix4(h.body.matrix).y);
+    grounding = HEM_GAP - lowest;
+  }
+  h.body.position.y += grounding; h.bow.position.y += grounding; h.grounding = grounding;
 
   /* the lantern swings a little with the movement */
   h.lanternPivot.rotation.x = motion*(Math.sin(s.walk + .8)*.18*moving - (up ? .4 : 0)*Math.min(1, h.motion.speed/6));
