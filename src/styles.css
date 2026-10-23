@@ -78,7 +78,8 @@ button,input{font:inherit;color:inherit}
 .card .x{position:absolute;top:12px;right:12px;width:30px;height:30px;border-radius:50%;border:0;background:rgba(255,255,255,.06);cursor:pointer;font-size:16px}
 
 #labels,#starLabels{position:fixed;inset:0;pointer-events:none;z-index:2;overflow:hidden}
-.slabel{position:absolute;left:0;top:0;will-change:transform,opacity;white-space:nowrap;font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;color:#F4E7C6;text-shadow:0 0 10px rgba(0,0,0,.95),0 0 3px rgba(0,0,0,.9)}
+.slabel{position:absolute;left:0;top:0;pointer-events:none;will-change:transform,opacity;white-space:nowrap;font-family:var(--f-mono);font-size:10px;letter-spacing:.06em;color:#B4BEDC;text-shadow:0 0 8px rgba(0,0,0,.95),0 0 2px rgba(0,0,0,.9);transition:color .8s}
+.slabel.cur{color:#F4E7C6;text-shadow:0 0 8px rgba(0,0,0,.95),0 0 2px rgba(0,0,0,.9),0 0 12px rgba(244,231,198,.25)}
 .slabel.dark{color:var(--text-soft)}
 #world.pointing{cursor:pointer}
 .plabel{position:absolute;left:0;top:0;pointer-events:none;display:flex;align-items:center;gap:6px;will-change:transform,opacity;white-space:nowrap}

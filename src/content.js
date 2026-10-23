@@ -20,7 +20,7 @@ export const RELICS = [
   { id:'stablewake', key:5, name:'StableWake', kicker:'Mobile prototype · in progress', color:'#B9A2F5', meta:'Prototype · 2026', form:'hourglass',
     body:'A sleep-and-wake prototype. The phone turns audio into short local summaries and throws the raw recording away, with an iOS AlarmKit alarm as a deadline backup.',
     tags:['React Native','Expo','TypeScript','Swift'], orbit:{ R:9, y:31, speed:-.08, phase:5.2 } },
-  { id:'signal', key:6, name:'Skills & contact', kicker:'The astrolabe', color:'#E2BE7A', meta:'Always in the top bar too', form:'astrolabe',
+  { id:'signal', key:6, name:'Skills & contact', kicker:'The astrolabe', color:'#E2BE7A', meta:'Always in the top bar too', form:'astrolabe', figure:false,
     body:'Languages: Python, TypeScript, Swift, C#, Java, SQL. Data: Spark, AWS Glue, Athena, Iceberg, Kafka. AI: LangGraph, LangChain, retrieval. The résumé, GitHub and LinkedIn links stay in the top bar the whole time.',
     tags:['Python','TypeScript','Swift','Spark','AWS','LangGraph'], orbit:{ R:21, y:34, speed:.04, phase:3.4 } },
   { id:'offclock', key:7, name:'Off the clock', kicker:'Hidden relic', color:'#6FF0C0', meta:'What I do for fun', form:'die', secret:true,
@@ -59,7 +59,8 @@ export const INTENTS = [
 export const FALLBACK = { to:null, a:"I only keep Austin's story here. Ask about his projects, his internship at Aquanow or his skills." };
 
 // The skill constellation. Each star wakes when one of its relics is opened; relics that share a star are joined by lines.
-// `relics` lists every relic whose text above names the skill (the astrolabe, id 'signal', is Austin's own skills list).
+// `relics` lists every relic whose text above names the skill (the astrolabe, id 'signal', is Austin's own skills list;
+// `figure:false` on it means it wakes its stars without drawing lines). Star positions are worked out in constellation.js.
 // `group` places the star in a region of the sky: lang, data, ai, apps, research, play.
 export const SKILLS = [
   { id:'python',     name:'Python',            group:'lang',     relics:['watapply','aquanow','signal'], also:['pyspark'] },

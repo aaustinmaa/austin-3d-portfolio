@@ -352,7 +352,15 @@ function beamTo(r){ beamState = { life:3.2, relic:r }; beamMat.uniforms.col.valu
 
 /* ---------- the skill constellation ---------- */
 const starLabels = document.createElement('div'); starLabels.id = 'starLabels'; document.body.appendChild(starLabels);
-const sky = createConstellation(scene, { skills:SKILLS, relics:RELICS, labelsEl:starLabels, reduceMotion });
+/* is a direction from o blocked by a basalt wall? Stars behind rock are hidden by depth; their names hide with them */
+function skyBlocked(o, d){ const hl2 = d.x*d.x + d.z*d.z; if (hl2 < 1e-8) return false;
+  for (const c of cliffs){ const x = Math.sin(c.a)*c.R, z = Math.cos(c.a)*c.R, along = ((x - o.x)*d.x + (z - o.z)*d.z)/hl2;
+    const miss = Math.hypot(o.x + d.x*along - x, o.z + d.z*along - z); if (along <= 0 || miss > c.rb) continue;
+    const half = Math.sqrt(c.rb*c.rb - miss*miss)/Math.sqrt(hl2);
+    for (let k = 0; k <= 6; k++){ const t = Math.max(0, along - half + half*k/3), y = o.y + d.y*t - c.by; if (y < 0 || y > c.h) continue;
+      const r = c.rb + (c.rt - c.rb)*y/c.h, qx = o.x + d.x*t - x, qz = o.z + d.z*t - z; if (qx*qx + qz*qz < r*r) return true; } }
+  return false; }
+const sky = createConstellation(scene, { skills:SKILLS, relics:RELICS, labelsEl:starLabels, reduceMotion, blocked:skyBlocked });
 
 /* ---------- relics ---------- */
 const sealMatBase = new THREE.MeshBasicMaterial({ map:runeTex, transparent:true, side:THREE.DoubleSide, depthWrite:false, blending:THREE.AdditiveBlending });
@@ -781,7 +789,7 @@ let last = performance.now();
 function simulate(dt){
   T += dt;
   updatePlayer(dt); updateHero(dt); updateRelics(dt); updateArrows(dt); updateCamera(dt); updateWorld(dt); updateHover();
-  sky.update(dt, T, camera, { showAll:gaze, hover:hoverStar });
+  sky.update(dt, T, camera, { showAll:gaze, hover:hoverStar, focus:openRelic });
   updateLabels(); updateCross(); updateStamina();
 }
 function frame(now){
