@@ -36,7 +36,7 @@ const PIXEL = Math.min(devicePixelRatio || 1, 1.75);
 renderer.setPixelRatio(PIXEL);
 renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0x05070F, 16, 100);
+scene.fog = new THREE.Fog(0x0A0E22, 16, 100);
 const camera = new THREE.PerspectiveCamera(60, 1, .08, 900);
 let baseFov = 60;
 const wispScale = { value:1 };
@@ -53,23 +53,34 @@ const skyMat = new THREE.ShaderMaterial({ side:THREE.BackSide, depthWrite:false,
       return mix(mix(mix(h3(i),h3(i+vec3(1,0,0)),f.x), mix(h3(i+vec3(0,1,0)),h3(i+vec3(1,1,0)),f.x), f.y), mix(mix(h3(i+vec3(0,0,1)),h3(i+vec3(1,0,1)),f.x), mix(h3(i+vec3(0,1,1)),h3(i+vec3(1,1,1)),f.x), f.y), f.z); }
     float fb(vec3 p){ float a=.5, t=0.; for (int i=0;i<5;i++){ t += a*n3(p); p *= 2.03; a *= .5; } return t; }
     void main(){ vec3 d = normalize(vD); float h = d.y;
-      vec3 zen = mix(vec3(.006,.009,.026), vec3(.016,.028,.07), glow), mid = mix(vec3(.014,.02,.05), vec3(.035,.052,.115), glow), hor = mix(vec3(.03,.034,.07), vec3(.075,.085,.155), glow);
-      hor = mix(hor, vec3(.3,.19,.14), dawn*.5); mid = mix(mid, vec3(.1,.085,.15), dawn*.3);
+      vec3 zen = mix(vec3(.01,.013,.042), vec3(.022,.03,.09), glow), mid = mix(vec3(.022,.026,.075), vec3(.05,.055,.15), glow), hor = mix(vec3(.045,.045,.115), vec3(.1,.09,.22), glow);
+      hor = mix(hor, vec3(.24,.15,.3), dawn*.5); mid = mix(mid, vec3(.1,.07,.18), dawn*.3);
       vec3 c = h > 0. ? mix(hor, mid, smoothstep(0.,.28,h)) : mix(hor, vec3(.012,.015,.03), smoothstep(0.,-.3,h));
       c = mix(c, zen, smoothstep(.3,1.,h));
       float n = fb(d*2.6 + 4.);
-      c += vec3(.16,.12,.34)*pow(n,3.2)*(.8 + glow*.8)*smoothstep(-.05,.6,h);
+      c += vec3(.2,.13,.42)*pow(n,3.)*(1.15 + glow*.8)*smoothstep(-.05,.6,h);
       c += vec3(.04,.22,.26)*pow(max(fb(d*4.4 - 9.) - .5, 0.), 1.4)*(1. + glow)*smoothstep(.1,.8,h);
       gl_FragColor = vec4(c,1.); }` });
 skyGroup.add(new THREE.Mesh(new THREE.SphereGeometry(600,48,24), skyMat));
-{ const N = 2600, g = new THREE.BufferGeometry(), p = new Float32Array(N*3), c = new Float32Array(N*3);
-  for (let i=0;i<N;i++){ const v = randUnit(); v.y = Math.abs(v.y)*.95 + .03; v.normalize().multiplyScalar(520); p.set([v.x,v.y,v.z], i*3); const b = .3+rand()*.6, tint = rand(); c.set([b*(tint<.2?.8:1), b*(tint<.2?.9:1), b], i*3); }
-  g.setAttribute('position', new THREE.BufferAttribute(p,3)); g.setAttribute('color', new THREE.BufferAttribute(c,3));
-  skyGroup.add(new THREE.Points(g, new THREE.PointsMaterial({ size:2.2, map:softTex, vertexColors:true, transparent:true, depthWrite:false, fog:false }))); }
+/* a small seeded generator for decoration added later, so the shared sequence (and the valley layout) stays unchanged */
+const seq = sd => { let s = sd; return () => (s = s*16807 % 2147483647)/2147483647; };
+/* the star field: the original stars plus a fainter dust of small ones, tinted white, blue and violet, each twinkling on its own */
+const starU = { t:{value:0}, glow:{value:0}, px:{value:PIXEL} };
+{ const N = 2600, M = 2400, sq = seq(29), g = new THREE.BufferGeometry(), p = new Float32Array((N+M)*3), c = new Float32Array((N+M)*3), z = new Float32Array(N+M);
+  const tints = [[.78,.72,1],[.72,.84,1],[1,1,1],[.9,.86,1]];
+  for (let i=0;i<N+M;i++){ const old = i < N, v = old ? randUnit() : new V3(sq()*2-1, sq()*2-1, sq()*2-1); v.y = Math.abs(v.y)*.95 + .03; v.normalize().multiplyScalar(520); p.set([v.x,v.y,v.z], i*3);
+    const b = old ? .3+rand()*.6 : .25+sq()*.4, tint = old ? rand() : sq(), tc = tints[Math.min(3, Math.floor(tint*4))]; c.set([b*tc[0], b*tc[1], b*tc[2]], i*3); z[i] = old ? 1.8 + (b > .8 ? 2.2 : b*1.4) : 1.1 + sq()*.8; }
+  g.setAttribute('position', new THREE.BufferAttribute(p,3)); g.setAttribute('col', new THREE.BufferAttribute(c,3)); g.setAttribute('sz', new THREE.BufferAttribute(z,1));
+  const pts = new THREE.Points(g, new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, fog:false, uniforms:starU,
+    vertexShader:`attribute vec3 col; attribute float sz; uniform float t; uniform float glow; uniform float px; varying vec3 vC;
+      void main(){ float h = fract(sin(dot(position.xz, vec2(12.9898,78.233)))*43758.5453); float tw = .65 + .35*sin(t*(.8 + h*2.2) + h*40.);
+        vC = col*tw*(1. + glow*.35); gl_PointSize = sz*px*(.85 + .15*tw); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
+    fragmentShader:`varying vec3 vC; void main(){ vec2 q = gl_PointCoord - .5; float d = dot(q,q); float a = exp(-d*22.) + exp(-d*6.)*.2; gl_FragColor = vec4(vC*a, a); }` }));
+  pts.frustumCulled = false; skyGroup.add(pts); }
 
 /* ---------- light: the valley starts dark; the star overhead and the lantern carry it ---------- */
-const hemi = new THREE.HemisphereLight(0x2A3558, 0x06080E, .08); scene.add(hemi);
-const moon = new THREE.DirectionalLight(0x8FA6FF, .05); moon.position.set(-60,100,40);
+const hemi = new THREE.HemisphereLight(0x34407A, 0x0A0C1C, .1); scene.add(hemi);
+const moon = new THREE.DirectionalLight(0x9DB4FF, .06); moon.position.set(-60,100,40);
 moon.castShadow = true; moon.shadow.mapSize.set(2048,2048); Object.assign(moon.shadow.camera, { left:-50, right:50, top:50, bottom:-50, near:20, far:300 });
 moon.shadow.bias = -.0005; moon.shadow.normalBias = .04; scene.add(moon, moon.target);
 const relicLight = new THREE.PointLight(0xffffff, 0, 11, 2); scene.add(relicLight);
@@ -105,9 +116,9 @@ const pickables = [];
   const g = new THREE.PlaneGeometry(130,130,150,150); g.rotateX(-Math.PI/2);
   const p = g.attributes.position, col = new Float32Array(p.count*3);
   for (let i=0;i<p.count;i++){ const x=p.getX(i), z=p.getZ(i), h=groundH(x,z); p.setY(i,h); const r=Math.hypot(x,z); const n = fbm(x*.18+11, z*.18-4);
-    if (h < WATER_Y + .35) tmpC.set('#2B3140');
-    else if (r > 29) tmpC.copy(mixHex('#1E2A2C','#262B3A', sstep(29,40,r)));
-    else tmpC.copy(mixHex('#17262A','#24382F', n)).lerp(C('#2E3446'), sstep(LAKE_R+2.6, LAKE_R+1.4, r)*.8);
+    if (h < WATER_Y + .35) tmpC.set('#2B3148');
+    else if (r > 29) tmpC.copy(mixHex('#1A2234','#252A44', sstep(29,40,r)));
+    else tmpC.copy(mixHex('#142030','#1E2C3E', n)).lerp(C('#2E3450'), sstep(LAKE_R+2.6, LAKE_R+1.4, r)*.8);
     col.set([tmpC.r,tmpC.g,tmpC.b], i*3); }
   g.setAttribute('color', new THREE.BufferAttribute(col,3)); g.computeVertexNormals();
   const ground = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors:true, roughness:1, flatShading:true })); ground.receiveShadow = true; scene.add(ground); pickables.push(ground);
@@ -124,7 +135,7 @@ const pickables = [];
   inst(rockify(new THREE.CylinderGeometry(.5,.54,.14,7,1), .25, 5.1, (t,c) => c.setRGB(1,1,1), .1), new THREE.MeshStandardMaterial({ vertexColors:true, roughness:.95, flatShading:true }), stones, { receive:true });
 
   /* scattered boulders, some big enough to stand on */
-  const bGeo = rockify(new THREE.IcosahedronGeometry(1,1), .55, 3.3, (t,c,n) => c.copy(mixHex('#191E2C','#2C3244', t)).lerp(C('#22362E'), t > .78 ? .55 : 0), .4), boulders = [];
+  const bGeo = rockify(new THREE.IcosahedronGeometry(1,1), .55, 3.3, (t,c,n) => c.copy(mixHex('#191E2C','#2C3244', t)).lerp(C('#283252'), t > .78 ? .55 : 0), .4), boulders = [];
   for (let i=0;i<34;i++){ const a = rand()*6.283, d = 11 + rand()*17, x = Math.cos(a)*d, z = Math.sin(a)*d; if (onPath(x,z) || Math.hypot(x, z-21.5) < 4) continue;
     const s = .35 + Math.pow(rand(),1.6)*1.3, gy = groundH(x,z); boulders.push({ p:new V3(x, gy - s*.2, z), q:yawQ(rand()*6), s:new V3(s, s*.72, s*(.8+rand()*.4)) });
     addFrustum(x, z, gy - .5, gy + s*.48, s*.9, s*.62, { stand: s > .55 }); }
@@ -253,7 +264,7 @@ function pineGeo(){
     for (let k=0;k<p.count;k++){ const x=p.getX(k), y=p.getY(k), z=p.getZ(k); if (Math.hypot(x,z) < 1e-3) continue; const sp = Math.cos(Math.atan2(z,x)*9 + i);
       if (y < -H/2 + 1e-3){ const kk = 1 + sp*.12; p.setXYZ(k, x*kk, y - .12*(.5+.5*sp), z*kk); } else if (Math.abs(y) < 1e-3){ p.setX(k, x*.88); p.setZ(k, z*.88); } }
     g.translate(0, yc, 0);
-    parts.push(paint(g, (x,y,z,c) => { const r = Math.hypot(x,z)/R; c.copy(mixHex('#0E1816','#20342D', r)).lerp(C('#3E5C57'), Math.max(0, r - .86)*2.4); })); }
+    parts.push(paint(g, (x,y,z,c) => { const r = Math.hypot(x,z)/R; c.copy(mixHex('#0D1524','#1B2B3E', r)).lerp(C('#43588A'), Math.max(0, r - .86)*2.4); })); }
   return merge(parts); }
 /* a clump of grass: curved blades that taper to a point, dark at the root and paler at the tip */
 function grassGeo(){
@@ -263,19 +274,19 @@ function grassGeo(){
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos,3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv,2));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(pos.map((v,i) => i%3 === 1 ? 1 : 0),3)); g.setIndex(idx);
     g.rotateY(a); g.translate(Math.sin(a)*.04, 0, Math.cos(a)*.04); parts.push(g); }
-  return paint(merge(parts), (x,y,z,c) => c.copy(mixHex('#101E1A','#26453B', Math.min(1, y/.4))).lerp(C('#62907A'), Math.max(0, y - .34)*1.8)); }
+  return paint(merge(parts), (x,y,z,c) => c.copy(mixHex('#0D1426','#1A2A44', Math.min(1, y/.4))).lerp(C('#4A5F9C'), Math.max(0, y - .34)*1.8)); }
 /* the grass sways in a slow wind, and its tips take on a faint glow as the star's light returns */
 const grassU = { t:{ value:0 }, glow:{ value:0 } };
 {
-  inst(pineGeo(), new THREE.MeshStandardMaterial({ vertexColors:true, roughness:1, flatShading:true }), pines.map(t => ({ p:new V3(t.x,t.y,t.z), q:yawQ(rand()*6), s:new V3(t.s,t.s*(.9+rand()*.45),t.s), c:mixHex('#C8D2CC','#FFFFFF',rand()) })), { cast:true, receive:true });
+  inst(pineGeo(), new THREE.MeshStandardMaterial({ vertexColors:true, roughness:1, flatShading:true }), pines.map(t => ({ p:new V3(t.x,t.y,t.z), q:yawQ(rand()*6), s:new V3(t.s,t.s*(.9+rand()*.45),t.s), c:mixHex('#C4C8E4','#FFFFFF',rand()) })), { cast:true, receive:true });
   pines.filter(t => t.valley).forEach(t => { addFrustum(t.x, t.z, t.y, t.y + 1.2*t.s, .17*t.s, .12*t.s, { stand:false }); addFrustum(t.x, t.z, t.y + .75*t.s, t.y + 3.6*t.s, .95*t.s, .05, { stand:false, ceil:false }); });
   const grassMat = new THREE.MeshStandardMaterial({ vertexColors:true, roughness:1, side:THREE.DoubleSide });
   grassMat.onBeforeCompile = sh => { sh.uniforms.gT = grassU.t; sh.uniforms.gGlow = grassU.glow;
     sh.vertexShader = 'uniform float gT;\nvarying float vTip;\n' + sh.vertexShader.replace('#include <begin_vertex>', `vec3 transformed = vec3(position); vTip = uv.y;
       vec4 root = instanceMatrix*vec4(0.,0.,0.,1.); float sway = sin(gT*1.1 + root.x*.23 + root.z*.17)*.6 + sin(gT*2.3 + root.x*.7 - root.z*.4)*.22;
       transformed.x += sway*uv.y*uv.y*.12; transformed.z += sway*uv.y*uv.y*.06;`);
-    sh.fragmentShader = 'uniform float gGlow;\nvarying float vTip;\n' + sh.fragmentShader.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n  totalEmissiveRadiance += vec3(.22,.62,.62)*smoothstep(.72,1.,vTip)*gGlow;'); };
-  inst(grassGeo(), grassMat, grass.map(([x,y,z]) => ({ p:new V3(x, y - .03, z), q:yawQ(rand()*6.28), s:new V3(1, .7 + rand()*.7, 1).multiplyScalar(.75 + rand()*.6), c:mixHex('#B8C8BC','#FFFFFF', rand()) })), { receive:true });
+    sh.fragmentShader = 'uniform float gGlow;\nvarying float vTip;\n' + sh.fragmentShader.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n  totalEmissiveRadiance += vec3(.26,.34,.72)*smoothstep(.72,1.,vTip)*gGlow;'); };
+  inst(grassGeo(), grassMat, grass.map(([x,y,z]) => ({ p:new V3(x, y - .03, z), q:yawQ(rand()*6.28), s:new V3(1, .7 + rand()*.7, 1).multiplyScalar(.75 + rand()*.6), c:mixHex('#B4C4F4','#E4D8FF', rand()) })), { receive:true });
 }
 
 /* a few fireflies drifting over the meadows, blinking slowly; they keep their distance from the wanderer */
@@ -284,11 +295,37 @@ for (let i=0;i<WISP;i++){ const a=rand()*6.283, d=10+Math.sqrt(rand())*20; wispP
 wispG.setAttribute('position', new THREE.BufferAttribute(wispP,3)); wispG.setAttribute('ph', new THREE.BufferAttribute(wispPh,1));
 const wispMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, uniforms:{ t:{value:0}, glow:{value:.45}, scale:wispScale, hero:{value:new V3()} },
   vertexShader:`attribute float ph; uniform float t; uniform float scale; uniform vec3 hero; varying float vA; varying float vW;
-    void main(){ float s = .5 + .5*sin(t*(.6 + fract(ph*.37)*1.1) + ph); vA = (.12 + .88*s*s*s)*smoothstep(4., 8., distance((modelMatrix*vec4(position,1.)).xyz, hero)); vW = fract(ph*.71);
-      vec4 mv = modelViewMatrix*vec4(position,1.); gl_PointSize = (.22 + .16*vA)*scale/-mv.z; gl_Position = projectionMatrix*mv; }`,
-  fragmentShader:`uniform float glow; varying float vA; varying float vW; void main(){ vec2 p = gl_PointCoord - .5; float a = exp(-dot(p,p)*28.)*vA*glow; vec3 c = mix(vec3(.62,.95,1.), vec3(.85,.97,1.), vW); gl_FragColor = vec4(c*a, a); }` });
+    void main(){ float s = .5 + .5*sin(t*(.6 + fract(ph*.37)*1.1) + ph); vA = (.12 + .88*s*s*s)*smoothstep(3., 6., distance((modelMatrix*vec4(position,1.)).xyz, hero)); vW = fract(ph*.71);
+      vec4 mv = modelViewMatrix*vec4(position,1.); gl_PointSize = (.5 + .3*vA)*scale/-mv.z; gl_Position = projectionMatrix*mv; }`,
+  fragmentShader:`uniform float glow; varying float vA; varying float vW; void main(){ vec2 p = gl_PointCoord - .5; float a = exp(-dot(p,p)*28.)*vA*glow; vec3 c = mix(vec3(.55,.92,1.), vec3(.78,.66,1.), step(.55, vW)); gl_FragColor = vec4(c*a, a); }` });
 const wisps = new THREE.Points(wispG, wispMat); wisps.frustumCulled = false; scene.add(wisps);
-const MIST = 26; const mists = []; for (let i=0;i<MIST;i++){ const a=rand()*6.283, d=10+rand()*20; const s = new THREE.Sprite(new THREE.SpriteMaterial({ map:softTex, color:0x4A5880, transparent:true, opacity:.1, depthWrite:false }));
+/* soft points of light: each pulses on its own rhythm, can drift, can keep clear of the wanderer, and brightens with the star's light */
+const heroU = { value:new V3() }, lightPointMats = [];
+function lightPoints(items, { size, near=0, drift=0, base=.6 }){
+  const n = items.length, g = new THREE.BufferGeometry(), pos = new Float32Array(n*3), col = new Float32Array(n*3), ph = new Float32Array(n);
+  items.forEach((o,i) => { pos.set([o.x,o.y,o.z], i*3); col.set([o.c.r,o.c.g,o.c.b], i*3); ph[i] = o.ph; });
+  g.setAttribute('position', new THREE.BufferAttribute(pos,3)); g.setAttribute('col', new THREE.BufferAttribute(col,3)); g.setAttribute('ph', new THREE.BufferAttribute(ph,1));
+  const mat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending,
+    uniforms:{ t:{value:0}, glow:{value:.5}, scale:wispScale, hero:heroU, near:{value:near}, drift:{value:reduceMotion ? 0 : drift}, size:{value:size} },
+    vertexShader:`attribute vec3 col; attribute float ph; uniform float t; uniform float glow; uniform float scale; uniform float near; uniform float drift; uniform float size; uniform vec3 hero;
+      varying vec3 vC; varying float vA;
+      void main(){ vec3 p = position + drift*vec3(sin(t*.13 + ph*6.3), sin(t*.09 + ph*9.1)*.5, cos(t*.11 + ph*4.7));
+        float s = .5 + .5*sin(t*(.45 + fract(ph*3.7)*.9) + ph*40.); vA = (.3 + .7*s*s)*glow;
+        if (near > 0.) vA *= smoothstep(near, near*2., distance((modelMatrix*vec4(p,1.)).xyz, hero));
+        vC = col; vec4 mv = modelViewMatrix*vec4(p,1.); gl_PointSize = size*(.75 + .25*s)*scale/-mv.z; gl_Position = projectionMatrix*mv; }`,
+    fragmentShader:`varying vec3 vC; varying float vA; void main(){ vec2 q = gl_PointCoord - .5; float d = dot(q,q); float a = (exp(-d*36.) + exp(-d*9.)*.3)*vA; gl_FragColor = vec4(vC*a, a); }` });
+  const m = new THREE.Points(g, mat); m.frustumCulled = false; scene.add(m); mat.userData.base = base; lightPointMats.push(mat); return mat;
+}
+{ const sq = seq(71), palette = ['#7FE9F2','#8FA8FF','#B49CFF','#8FA8FF','#D8E2FF'].map(C), meadow = [], air = [];
+  /* just above the grass tops, all across the meadow */
+  for (let i=0; i<8000 && meadow.length<1300; i++){ const a = sq()*6.283, d = LAKE_BLOCK + .4 + sq()*(WORLD_R - LAKE_BLOCK), x = Math.cos(a)*d, z = Math.sin(a)*d, gy = groundH(x,z);
+    if (gy < WATER_Y + .3 || (onPath(x,z) && Math.abs(x - Math.sin(z*.35)*.8) < 1.5)) continue;
+    meadow.push({ x, y:gy + .55 + sq()*.6, z, c:palette[Math.floor(sq()*palette.length)], ph:sq() }); }
+  /* higher up, drifting slowly across the valley */
+  for (let i=0;i<420;i++){ const a = sq()*6.283, d = 3 + Math.sqrt(sq())*30, x = Math.cos(a)*d, z = Math.sin(a)*d;
+    air.push({ x, y:Math.max(groundH(x,z), 0) + 1.6 + sq()*sq()*16, z, c:palette[Math.floor(sq()*palette.length)], ph:sq() }); }
+  lightPoints(meadow, { size:.65, base:.85 }); lightPoints(air, { size:.85, near:3, drift:1.4, base:.7 }); }
+const MIST = 26; const mists = []; for (let i=0;i<MIST;i++){ const a=rand()*6.283, d=10+rand()*20; const s = new THREE.Sprite(new THREE.SpriteMaterial({ map:softTex, color:0x4A4E8E, transparent:true, opacity:.11, depthWrite:false }));
   s.position.set(Math.sin(a)*d, groundH(Math.sin(a)*d, Math.cos(a)*d)+1.2, Math.cos(a)*d); s.scale.set(16,4,1); scene.add(s); mists.push({ s, a, d, sp:(rand()-.5)*.02 }); }
 
 /* ---------- the star (the Oracle) and its column of light down to the lake ---------- */
@@ -605,7 +642,7 @@ function updateHero(dt){
   animateHero(H, { dt, T, walk:P.walk, moving, onGround:P.onGround, airborne, flying:P.flying, flight:!!P.flight, aiming, pitch, draw:P.draw, vel:P.vel, lantern:1.7 + (1 - world.light)*.6 });
 }
 let litCount = 0;
-const hemiSky = [C('#2A3558'), C('#42528A')], fogCol = [C('#05070F'), C('#0C1222'), C('#1A1626')], oracleCol = [C('#9FE8FF'), C('#FFE6B8')], tmpCol = new THREE.Color();
+const hemiSky = [C('#34407A'), C('#4A4E98')], fogCol = [C('#0A0E22'), C('#10142E'), C('#1A1636')], oracleCol = [C('#9FE8FF'), C('#D6CCFF')], tmpCol = new THREE.Color();
 function updateWorld(dt){
   oracleState.energy = lerp(oracleState.energy, oracleState.target, 1 - Math.exp(-dt*3));
   oracleState.eye = lerp(oracleState.eye, Math.max(oracleState.eyeTarget, oracleState.target*.8), 1 - Math.exp(-dt*(oracleState.eyeTarget ? 6 : 2)));
@@ -613,9 +650,9 @@ function updateWorld(dt){
   world.light = lerp(world.light, world.target, 1 - Math.exp(-dt*(reduceMotion ? 30 : .7))); world.dawn = lerp(world.dawn, world.dawnTarget, 1 - Math.exp(-dt*(reduceMotion ? 30 : .35)));
   const L = world.light, D = world.dawn, ey = oracleState.eye;
   oracle.update(dt, T, { power:L, speak:Math.max(oracleState.energy, ey*.8) });
-  oracle.light.intensity = lerp(.85, 2.0, L) + ey*.4 + D*.2; oracle.light.color.copy(oracleCol[0]).lerp(oracleCol[1], L*.55 + D*.2); oracle.light.distance = lerp(140, 200, L);
-  hemi.intensity = lerp(.08, .3, L) + D*.06; hemi.color.copy(hemiSky[0]).lerp(hemiSky[1], L);
-  moon.intensity = lerp(.05, .26, L) + D*.05;
+  oracle.light.intensity = lerp(.85, 1.6, L) + ey*.4 + D*.15; oracle.light.color.copy(oracleCol[0]).lerp(oracleCol[1], L*.55 + D*.2); oracle.light.distance = lerp(140, 200, L);
+  hemi.intensity = lerp(.1, .27, L) + D*.05; hemi.color.copy(hemiSky[0]).lerp(hemiSky[1], L);
+  moon.intensity = lerp(.06, .2, L) + D*.04;
   scene.fog.color.copy(fogCol[0]).lerp(fogCol[1], L).lerp(fogCol[2], D*.4); scene.fog.near = lerp(14, 26, L); scene.fog.far = lerp(95, 150, L);
   skyMat.uniforms.glow.value = L; skyMat.uniforms.dawn.value = D;
   columnMat.uniforms.t.value = T; columnMat.uniforms.fade.value = .1 + ey*.25 + L*.12; lakeMat.uniforms.t.value = T; lakeMat.uniforms.energy.value = ey; lakeMat.uniforms.glow.value = L; fallMat.uniforms.t.value = T; beamMat.uniforms.t.value = T;
@@ -623,7 +660,8 @@ function updateWorld(dt){
     beam.scale.set(1,len,1); beam.position.copy(from).addScaledVector(dir, len/2); beam.quaternion.setFromUnitVectors(UP, dir.clone().negate());
     beamMat.uniforms.rep.value = len/1.5; beamMat.uniforms.fade.value = Math.min(1, beamState.life/.8)*Math.min(1,(3.2-beamState.life)/.25)*1.3;
     if (beamState.life <= 0){ beam.visible = false; oracleState.eyeTarget = 0; } }
-  wispMat.uniforms.t.value = T; wispMat.uniforms.glow.value = .45 + L*.55; wispMat.uniforms.hero.value.copy(P.pos); grassU.t.value = reduceMotion ? 0 : T; grassU.glow.value = .08 + L*.5;
+  wispMat.uniforms.t.value = T; wispMat.uniforms.glow.value = .45 + L*.55; wispMat.uniforms.hero.value.copy(P.pos); heroU.value.copy(P.pos); starU.t.value = T; starU.glow.value = L;
+  lightPointMats.forEach(m => { m.uniforms.t.value = T; m.uniforms.glow.value = m.userData.base + L*(1 - m.userData.base); }); grassU.t.value = reduceMotion ? 0 : T; grassU.glow.value = .08 + L*.3;
   if (!reduceMotion){ const wp = wispG.attributes.position.array; for (let i=0;i<WISP;i++){ const v = wispV[i]; wp[i*3] += Math.sin(T*v[1] + v[0])*dt*.4; wp[i*3+1] += Math.cos(T*v[1]*.7 + v[0])*dt*.25; wp[i*3+2] += Math.cos(T*v[1] + v[0]*2)*dt*.4; } wispG.attributes.position.needsUpdate = true; }
   mists.forEach(m => { m.a += m.sp*dt; m.s.position.x = Math.sin(m.a)*m.d; m.s.position.z = Math.cos(m.a)*m.d; });
   for (let i = bursts.length-1; i >= 0; i--){ const b = bursts[i]; b.life -= dt; const p = b.pts.geometry.attributes.position.array;
