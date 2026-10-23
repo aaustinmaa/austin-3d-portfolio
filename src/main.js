@@ -149,9 +149,9 @@ const pickables = [];
 }
 
 /* ---------- lake ---------- */
-/* the lake: a flat, still mirror of the night. It reflects the sky, the far shore's pines, the light column, the star overhead
-   and the nearest path lanterns as long soft streaks. Under the mirror, slow currents of iridescent light (cyan, blue, violet)
-   swirl out from the spring in the middle where the relic sleeps, with a faint glow along the shore */
+/* the lake: calm, clear water. Its surface mirrors the sky above the far shore's pines; the light column, the star overhead
+   and the path lanterns lie on it as glittering paths that shimmer with the faintest stir of the surface. Through the water,
+   moving caustics play over the lake bed, cyan near the spring in the middle where the relic sleeps and violet further out */
 const LAKE_EDGE = LAKE_R + 3.4;
 const lakeMat = new THREE.ShaderMaterial({ transparent:true,
   uniforms:{ t:{value:0}, energy:{value:0}, glow:{value:0}, dawn:{value:0}, star:{value:new V3(0, ORACLE_Y, 0)}, lamps:{value:[new V3(0,-99,0), new V3(0,-99,0), new V3(0,-99,0)]} },
@@ -159,44 +159,45 @@ const lakeMat = new THREE.ShaderMaterial({ transparent:true,
   fragmentShader:`uniform float t; uniform float energy; uniform float glow; uniform float dawn; uniform vec3 star; uniform vec3 lamps[3]; varying vec3 vW; varying float vDepth;${SKY_GLSL}
     float h2(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
     float n2(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f); return mix(mix(h2(i), h2(i+vec2(1,0)), f.x), mix(h2(i+vec2(0,1)), h2(i+vec2(1,1)), f.x), f.y); }
-    float f2(vec2 p){ return n2(p)*.55 + n2(p*2.1 + 3.7)*.3 + n2(p*4.3 - 1.9)*.15; }
-    /* a reflected light, drawn out into a vertical streak toward the viewer the way still water does */
+    /* a reflected light, drawn out into a vertical streak toward the viewer the way calm water does */
     float streak(vec3 R, vec3 L, float w, float len){ float az = acos(clamp(dot(normalize(R.xz), normalize(L.xz)), -1., 1.)), el = asin(clamp(R.y, -1., 1.)) - asin(clamp(L.y, -1., 1.));
       return exp(-az*az*w - el*el*len); }
-    /* cyan through blue to violet and back */
-    vec3 irid(float h){ float s = .5 + .5*sin(h*6.2832); return mix(mix(vec3(.2,.9,1.), vec3(.35,.45,1.), smoothstep(0., .55, s)), vec3(.8,.45,1.), smoothstep(.45, 1., s)); }
+    /* sunlight-through-water caustics: a soft web of light that slowly reforms */
+    float caustic(vec2 uv, float tm){ vec2 p = mod(uv*6.2832, 6.2832) - 250., i = p; float c = 1.;
+      for (int n = 0; n < 4; n++){ float k = tm*(1. - 3.5/float(n + 1)); i = p + vec2(cos(k - i.x) + sin(k + i.y), sin(k - i.y) + cos(k + i.x));
+        c += 1./length(vec2(p.x/(sin(i.x + k)/.005), p.y/(cos(i.y + k)/.005))); }
+      c = 1.17 - pow(c/4., 1.4); return pow(abs(c), 5.); }
     void main(){ vec2 p = vW.xz; float r = length(p); if (vDepth < 0. || r > ${LAKE_EDGE.toFixed(2)}) discard;
       vec3 V = normalize(vW - cameraPosition), R = vec3(V.x, -V.y, V.z);
-      float fres = .3 + .7*pow(1. - abs(V.y), 4.);
+      float fres = .25 + .75*pow(1. - abs(V.y), 4.);
+      /* the faintest stir of the surface, only enough to break reflected lights into glitter */
+      float e = .06, s0 = n2(p*1.3 + vec2(t*.12, -t*.09)) + n2(p*2.7 - vec2(t*.07, t*.11))*.5;
+      vec3 Ng = normalize(vec3((s0 - n2((p + vec2(e,0.))*1.3 + vec2(t*.12, -t*.09)) - n2((p + vec2(e,0.))*2.7 - vec2(t*.07, t*.11))*.5)/e*.035, 1.,
+                                (s0 - n2((p + vec2(0.,e))*1.3 + vec2(t*.12, -t*.09)) - n2((p + vec2(0.,e))*2.7 - vec2(t*.07, t*.11))*.5)/e*.035));
+      vec3 Rg = reflect(V, Ng);
       /* the mirror: sky and its stars above the far shore's dark pines */
       float az = atan(R.x, R.z), line = .2 + .1*n2(vec2(az*9., 1.3)) + .05*n2(vec2(az*25., 7.1));
       float rim = smoothstep(-.02, .02, R.y/max(length(R.xz), 1e-4) - line);
       vec3 col = mix(mix(vec3(.025,.03,.065), vec3(.045,.05,.11), glow), skyCol(R, glow, dawn)*1.9, rim);
       vec2 sp = R.xz/(R.y + .3)*20.; vec2 cell = floor(sp), o = vec2(h2(cell), h2(cell + 7.13))*.7 + .15; float sd = length(fract(sp) - o);
       col += rim*vec3(.72,.8,1.)*exp(-sd*sd*160.)*step(.86, h2(cell + 3.71))*.45;
-      /* the light column standing on the spring, with light running slowly up it */
-      float rl = length(R.xz), s = -dot(vW.xz, R.xz)/max(rl*rl, 1e-4), hc = vW.y + R.y*s, dc = abs(vW.x*R.z - vW.z*R.x)/max(rl, 1e-4);
-      col += vec3(.5,.85,1.)*exp(-dc*dc*2.5)*step(0., s)*step(hc, star.y)*(.2 + energy*.35 + glow*.1)*(.75 + .25*sin(hc*.45 - t*1.3));
-      /* the star overhead and the lanterns, as soft streaks */
-      col += mix(vec3(.55,.9,1.), vec3(.8,.78,1.), glow)*streak(R, normalize(star - vW), 900., 40.)*(.5 + glow*.4 + energy*.4);
-      for (int i = 0; i < 3; i++) col += vec3(1.,.74,.46)*streak(R, normalize(lamps[i] - vW), 2600., 90.)*.55;
-      /* a faint sheen of colour across the mirror, shifting with the angle you look from */
-      col *= mix(vec3(1.), irid(fres*1.3 + f2(p*.12)*.8), .3);
-      /* the water itself: clear over the shallows, deep blue-violet further out */
-      float deep = smoothstep(0., 1.6, vDepth);
-      vec3 body = mix(vec3(.04,.12,.17), vec3(.016,.024,.07), deep);
-      /* slow currents of light swirling out from the spring */
-      float sw = t*.04 + 1.6/(1. + r*.3); vec2 q = mat2(cos(sw), -sin(sw), sin(sw), cos(sw))*p*.2;
-      vec2 wq = vec2(f2(q + vec2(t*.02, -t*.015)), f2(q*1.3 + vec2(5.2 - t*.018, 1.3)));
-      float f = f2(q*1.4 + wq*1.9), band = pow(1. - abs(sin(f*5. - t*.2)), 2.6), broad = smoothstep(.4, .8, f);
-      float pulse = .55 + .45*sin(dot(q, vec2(3.1, 2.3)) + f*6. - t*.7);
-      float flow = (band*pulse*.8 + broad*.4)*(.45 + .55*exp(-r*r/40.))*smoothstep(0., .5, vDepth)*(.75 + glow*.3 + energy*.4);
-      vec3 light = irid(f*1.8 + wq.x*.6 + r*.05 - t*.025)*flow*.42 + vec3(.3,.8,.95)*exp(-r*r/(9. + energy*8.))*(.35 + energy*.4 + glow*.12);
-      float hide = mix(.2, .72, deep), a = fres + (1. - fres)*hide;
-      vec3 c = (col*fres + body*(1. - fres)*hide)/a + light;
+      /* glitter paths: the light column, the star overhead and the lanterns, broken up by the stir */
+      float rl = length(Rg.xz), s = -dot(vW.xz, Rg.xz)/max(rl*rl, 1e-4), hc = vW.y + Rg.y*s, dc = abs(vW.x*Rg.z - vW.z*Rg.x)/max(rl, 1e-4);
+      col += vec3(.5,.88,1.)*exp(-dc*dc*4.)*step(0., s)*step(hc, star.y)*(.35 + energy*.4 + glow*.12);
+      col += mix(vec3(.55,.9,1.), vec3(.8,.78,1.), glow)*streak(Rg, normalize(star - vW), 1400., 60.)*(.7 + glow*.5 + energy*.4);
+      for (int i = 0; i < 3; i++) col += vec3(1.,.76,.5)*streak(Rg, normalize(lamps[i] - vW), 3000., 70.)*.7;
+      /* through the water: clear over the shallows, deep blue-violet further out, the spring glowing in the middle */
+      float deep = smoothstep(0., 1.6, vDepth), spring = exp(-r*r/(12. + energy*8.));
+      vec3 body = mix(vec3(.035,.1,.14), vec3(.016,.024,.07), deep) + vec3(.25,.75,.9)*spring*(.5 + energy*.4 + glow*.15);
+      /* caustics on the lake bed, seen through the water (offset by depth so they sit below the surface) */
+      vec2 bed = p + V.xz/max(-V.y, .15)*vDepth*.75;
+      float ca = caustic(bed*.16, t*.22)*.7 + caustic(bed*.16*1.7 + 3.1, t*.17)*.3;
+      vec3 tint = mix(vec3(.4,.95,1.), vec3(.62,.55,1.), smoothstep(2.5, 9., r + 1.5*sin(t*.08 + atan(p.y, p.x)*2.)));
+      vec3 caus = tint*ca*(.6 + 1.1*spring)*(1. - deep*.5)*smoothstep(0., .25, vDepth)*(.8 + glow*.3 + energy*.4);
+      float hide = mix(.22, .74, deep), a = fres + (1. - fres)*hide;
+      vec3 c = (col*fres + (body*hide + caus)*(1. - fres))/a;
       /* a soft glow breathing along the shore */
-      c += vec3(.4,.8,1.)*smoothstep(.16, .02, vDepth)*smoothstep(0., .03, vDepth)*(.1 + .06*sin(t*.8 + atan(p.y, p.x)*3.));
-      a = max(a, min(1., length(light)*1.2));
+      c += vec3(.4,.8,1.)*smoothstep(.16, .02, vDepth)*smoothstep(0., .03, vDepth)*(.08 + .05*sin(t*.8 + atan(p.y, p.x)*3.));
       a *= smoothstep(0., .04, vDepth)*(1. - smoothstep(${(LAKE_EDGE - .6).toFixed(2)}, ${LAKE_EDGE.toFixed(2)}, r));
       gl_FragColor = vec4(c, a); }` });
 { const g = new THREE.PlaneGeometry(LAKE_EDGE*2, LAKE_EDGE*2, 100, 100); g.rotateX(-Math.PI/2);
