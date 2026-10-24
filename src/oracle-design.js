@@ -248,8 +248,8 @@ export function buildOracleDesign({ main, reduceMotion }) {
           vec4 glass=nebula(n,v,band*.45+offset*7.,t);vec3 col=glass.rgb;float alpha=glass.a;
           float discA,discB,ma=medal(slotU.x,band.y,discA)*outer,mb=medal(slotU.y,band.y,discB)*outer;
           col=mix(col,vec3(.02,.03,.08),(discA+discB)*outer*.6);alpha=mix(alpha,.85,(discA+discB)*outer);
-          float lip=max(1.-smoothstep(.3,.55,vFace),faceK*smoothstep(aa,0.,edge-.06));
-          float stripe=faceK*smoothstep(aa,0.,abs(edge-.17)-.02);
+          float lip=max(1.-smoothstep(.12,.3,vFace),faceK*smoothstep(aa,0.,edge-.028));
+          float stripe=faceK*smoothstep(aa,0.,abs(edge-.15)-.011);
           float glyph=texture2D(map,vec2(vUv.x*2.,vUv.y)).a*faceK*mix(.55,1.,outer);
           float g=clamp(max(max(lip,stripe),max(glyph*.9,max(ma,mb))),0.,1.);
           float leaf=smoothstep(.2,.85,noise2(vec2(vUv.x*circ*1.4+offset*9.,edge*4.)));
@@ -356,7 +356,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
       slotColA: { value: C('#FFFFFF') }, slotColB: { value: C('#FFFFFF') } };
     layered(pivot, band.geo, hemi => ribbonMaterial(hemi, u), i);
     const edges = [circle(edgeRadius, 192, 0, TAU, edgeZ), circle(edgeRadius, 192, 0, TAU, -edgeZ)];
-    threads(edges, { parent: pivot, color: '#EEF0FA', width: 1.1, opacity: .55, bloom: true, order: 70 });
+    threads(edges, { parent: pivot, color: '#EEF0FA', width: .75, opacity: .55, bloom: true, order: 70 });
     glints(pivot, edges.map(e => e.filter((_, k) => k % 2)), { size: 1.25, gain: 1.2, density: .55 });
     return { pivot, gimbal, axis: new THREE.Vector3(...spec.axis).normalize(), speed: spec.speed, u, radius: spec.r, depth, slots: [] };
   });
@@ -368,9 +368,9 @@ export function buildOracleDesign({ main, reduceMotion }) {
   for (const tilt of [[0, 0, 0], [0, .97, 0], [0, -1.06, 0], [1.32, 0, .1]]) wires.push({ r: FR, tilt });
   const arcs = [[13.15, 2.25, 3.95, [.1, .35, .18]], [12.95, -.55, .75, [.3, -.5, 0]], [13.45, 3.7, 4.45, [-.2, .85, .1]]];
   for (const [r, a0, a1, tilt] of arcs) wires.push({ r, a0, a1, tilt });
-  layered(frame, wireGeometry(wires, .028), wireMaterial, 4);
+  layered(frame, wireGeometry(wires, .018), wireMaterial, 4);
   const wirePaths = wires.map(({ r, a0 = 0, a1 = TAU, tilt }) => tilted(circle(r, Math.round((a1 - a0) / TAU * 192), a0, a1), tilt));
-  threads(wirePaths, { parent: frame, color: '#EEF0FA', width: .8, opacity: .35, bloom: true, order: 70 });
+  threads(wirePaths, { parent: frame, color: '#EEF0FA', width: .55, opacity: .35, bloom: true, order: 70 });
   glints(frame, wirePaths, { size: 1.1, gain: 1.1, density: .5 });
   const graduations = [], spurs = [];
   for (let i = 0; i < 144; i++) {
@@ -414,7 +414,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
         vec3 up=abs(l.y)<.9?vec3(0.,1.,0.):vec3(1.,0.,0.),t1=normalize(cross(l,up)),t2=cross(l,t1);
         vec2 f=vec2(dot(vP,t1),dot(vP,t2)),q=f*.45+shell*7.3+l.xy*5.;
         vec4 glass=nebula(n,v,q,t);vec3 col=glass.rgb;float alpha=glass.a;
-        float d=min(min(vE.x,vE.y),vE.z),lip=lipped*smoothstep(fwidth(d)+1e-4,0.,d-.08);
+        float d=min(min(vE.x,vE.y),vE.z),lip=lipped*smoothstep(fwidth(d)+1e-4,0.,d-.03);
         vec3 mc=metal(n,v,smoothstep(.2,.85,noise2(q*2.3)))*(1.+energy*.2+power*.08)+vec3(1.,.99,.97)*glitter(f/.09+shell*13.,n,v,.18)*3.;
         col=mix(col,mc,lip);alpha=mix(alpha,1.,lip);
         float fleck=glitter(f/.06+31.+shell,n,v,.03)*(1.-lip),heat=exp(-length(vP)*.55);
@@ -451,7 +451,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
     // The two outer crystals share the armillary's light: an ice-white bloom
     // and star glints wherever one of their edges mirrors a light.
     if (i < 2) {
-      threads(paths, { parent: holder, color: '#E4ECFF', width: .75, opacity: i ? .32 : .45, bloom: true, leaf: 5, order: 70 });
+      threads(paths, { parent: holder, color: '#E4ECFF', width: .45, opacity: i ? .32 : .45, bloom: true, leaf: 5, order: 70 });
       glints(holder, paths.map(([a, b]) => [.2, .5, .8].map(k => a.map((x, c) => x + (b[c] - x) * k))), { size: .95, gain: i ? .8 : 1.1, density: .45, color: '#EAF0FF' });
     }
     geo.dispose();
