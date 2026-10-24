@@ -393,11 +393,11 @@ const oracleState = { energy:0, target:0, eye:0, eyeTarget:0 };
 const beamVert = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }';
 const beamFrag = `uniform float t; uniform float fade; uniform float rep; uniform vec3 col; varying vec2 vUv;
   void main(){ float f = smoothstep(0.,.1,vUv.y)*smoothstep(1.,.8,vUv.y); float s = .55 + .45*sin(vUv.y*rep - t*4.); float a = f*s*fade; gl_FragColor = vec4(col*a, a); }`;
-/* the star's light, standing in the air from the star down into the lake. It is lit as a volume, not painted on a tube: for each
-   pixel the shader finds how close that line of sight passes to the beam's axis and how high, so the light is brightest down
-   the middle and fades smoothly outward with no edge, from any angle and in the lake's mirror too. A bright core, a soft
-   glow around it and a faint wide haze, with a little more light where it gathers above the water and very slow drifting
-   density, like light through still air */
+/* the star's light, standing in the air from the star down into the lake: a thick, round column, lit as a volume rather than
+   painted on a tube. For each pixel the shader finds how close that line of sight passes to the axis and how much of the
+   column it crosses, so the light is fullest down the middle and ends cleanly at a round edge, from any angle and in the
+   lake's mirror too. Two nested layers, a brighter inner column inside a fainter outer one, with light gathering above the
+   water and very slow, faint brightness drifting down through it */
 const shaftU = { t:{value:0}, power:{value:1} };
 { const top = ORACLE_Y - 3, h = top - WATER_Y;
   const m = new THREE.Mesh(new THREE.CylinderGeometry(6, 6, h, 48, 1, true), new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.BackSide, fog:false,
@@ -409,9 +409,9 @@ const shaftU = { t:{value:0}, power:{value:1} };
       void main(){ vec3 d = normalize(vW - cameraPosition); vec2 o = cameraPosition.xz, k = d.xz; float kk = max(dot(k, k), 1e-6);
         float s = -dot(o, k)/kk, dist = abs(o.x*k.y - o.y*k.x)/sqrt(kk), y = cameraPosition.y + d.y*s, d2 = dist*dist;
         float along = smoothstep(${WATER_Y.toFixed(2)} - .05, ${(WATER_Y + .5).toFixed(2)}, y)*smoothstep(${top.toFixed(1)}, ${(top - 10).toFixed(1)}, y)*step(0., s);
-        float drift = .9 + .1*n2(vec2(dist*1.5, y*.18 + t*.06)), gather = 1. + .9*exp(-(y - ${WATER_Y.toFixed(2)})*.35);
-        float core = exp(-d2/.35), glow = exp(-d2/3.), haze = exp(-d2/14.);
-        vec3 c = (vec3(.85,.97,1.)*core*.36 + vec3(.55,.88,1.)*glow*.13 + vec3(.45,.7,1.)*haze*.04)*along*drift*gather*power;
+        float drift = .92 + .08*n2(vec2(dist*.8, y*.12 + t*.05)), fall = .94 + .06*sin(y*.5 + t*.7), gather = 1. + .7*exp(-(y - ${WATER_Y.toFixed(2)})*.3);
+        float inner = sqrt(max(0., 1. - d2/2.6)), outer = sqrt(max(0., 1. - d2/10.)), heart = exp(-d2/.6);
+        vec3 c = (vec3(.8,.96,1.)*inner*.5 + vec3(.5,.84,1.)*outer*.2 + vec3(.9,.98,1.)*heart*.16)*along*drift*fall*gather*power;
         c *= smoothstep(.8, 3., length(o));   /* fade if the camera is inside the beam */
         gl_FragColor = vec4(c, max(c.r, max(c.g, c.b))); }` }));
   m.position.y = WATER_Y + h/2; m.renderOrder = 3; scene.add(m); }
