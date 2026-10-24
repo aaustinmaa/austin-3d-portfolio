@@ -4,12 +4,14 @@ import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js'
 import './styles.css';
 import { rand, hash, vnoise, fbm, sstep, lerp, ease, C, mixHex, randUnit } from './noise.js';
 import { radialTex, glowTex, softTex, runeTex } from './textures.js';
-import { ABOUT, RELICS, INTENTS, FALLBACK, SKILLS, LINES, FINALE, starLine } from './content.js';
+import { ABOUT, RELICS, INTENTS, FALLBACK, SKILLS, LINES, FINALE, NOTE, starLine } from './content.js';
 import { colliders, addFrustum, addBox, addPrism, floorAt, ceilingAt, pushOut, solidAt } from './colliders.js';
 import { createOracle } from './oracle.js';
 import { createConstellation } from './constellation.js';
 import { buildForm } from './relics.js';
 import { buildHero, animateHero } from './hero.js';
+import { createPaperBird } from './paperbird.js';
+import { createBrazier } from './braziers.js';
 
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const V3 = THREE.Vector3, UP = new V3(0,1,0), ZAX = new V3(0,0,1);
@@ -347,16 +349,9 @@ const braziers = [];
   [stoneTop, stoneBot].forEach(o => { o.castShadow = o.receiveShadow = true; o.userData.stone = true; scene.add(o); pickables.push(o); });
   const plG = new THREE.BufferGeometry(); plG.setAttribute('position', new THREE.Float32BufferAttribute(pathLights.flatMap(p => [p.x, p.y+.18, p.z]), 3));
   scene.add(new THREE.Points(plG, new THREE.PointsMaterial({ size:.9, map:glowTex, color:0x78E6F0, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending })));
-  const bowlMat = new THREE.MeshStandardMaterial({ color:0x4A4F62, roughness:.7, metalness:.3, flatShading:true });
   BRAZIER_AT.forEach(idx => { const { p, x, z, rim } = landings[idx], out = new V3(Math.sin(p.a),0,Math.cos(p.a)), c = new V3(p.x,0,p.z).addScaledVector(out, 2);
-    const b = new THREE.Group(); b.position.set(c.x + out.x*.8, p.y, c.z + out.z*.8);
-    const stem = new THREE.Mesh(new THREE.CylinderGeometry(.12,.3,.8,6).translate(0,.4,0), bowlMat), bowl = new THREE.Mesh(new THREE.CylinderGeometry(.55,.25,.4,10).translate(0,1,0), bowlMat);
-    stem.castShadow = bowl.castShadow = true;
-    const fire = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xFFB062, transparent:true, opacity:0, depthWrite:false, blending:THREE.AdditiveBlending })); fire.position.y = 1.45; fire.scale.set(2.2,2.8,1);
-    const flame = new THREE.Mesh(new THREE.ConeGeometry(.22,.6,6).translate(0,1.45,0), new THREE.MeshBasicMaterial({ color:0xFFD08A, transparent:true, opacity:0 }));
-    const light = new THREE.PointLight(0xFFA050, 0, 9, 2); light.position.y = 1.5;
-    b.add(stem, bowl, fire, flame, light); scene.add(b); braziers.push({ pos:b.position.clone(), top:p.y, fire, flame, light, lit:false });
-    addFrustum(b.position.x, b.position.z, p.y, p.y+1.2, .3, .55, { stand:false });
+    const b = createBrazier(scene,new V3(c.x + out.x*.8,p.y,c.z + out.z*.8),{ seed:idx*.73, reduceMotion }); braziers.push(b);
+    addFrustum(b.pos.x, b.pos.z, p.y, p.y+1.23, .34, .55, { stand:false });
     /* a pine to one side, partway toward the corner of the landing nearest that side so it always stands on the rock */
     const side = new V3(out.z*1.4 - out.x*1.6, 0, -out.x*1.4 - out.z*1.6), k = rim.reduce((b,v) => v.dot(side) > b.dot(side) ? v : b);
     pines.push({ x:x + k.x*.6, y:p.y-.05, z:z + k.z*.6, s:.8, valley:true }); });
@@ -378,6 +373,11 @@ const braziers = [];
     pool.position.set(o.x, o.y + .06, o.z); scene.add(pool);
     addFrustum(o.x, o.z, o.y - .3, o.y + .16, .26, .2, { stand:false }); addFrustum(o.x, o.z, o.y + .16, o.y + 1.85, .08, .08, { stand:false }); });
 }
+
+/* ---------- the paper crane: a way to leave Austin a note, on the last lantern on the right, where the path turns up to the stair ---------- */
+const CRANE_LANTERN = { x:Math.sin(11.4*.35)*.8 + 1.75, z:11.4 };
+const bird = createPaperBird(scene, { perch:new V3(CRANE_LANTERN.x, groundH(CRANE_LANTERN.x, CRANE_LANTERN.z) + 1.83, CRANE_LANTERN.z), star:() => oracle.position, hint:NOTE.crane, reduceMotion });
+pickables.push(...bird.pick);
 
 /* ---------- vegetation ---------- */
 /* a pine: five drooping, ragged tiers over a short trunk, coloured darker inside and frosted at the tips */
@@ -739,7 +739,7 @@ function returnLight(r){
   oracle.sendLight(r.pos.clone(), r.color, () => {
     r.lightGiven = true; const fresh = sky.lightRelic(r.id);
     if (r.secret){ oracle.ripple(r.color, 50); if (fresh.length) showToast(LINES.hiddenStars(fresh.length)); }
-    else { oracle.receive(r); const n = MAIN.filter(x => x.lightGiven).length; world.target = n/MAIN.length; showToast(LINES.lightBack(n, fresh.length)); if (n === MAIN.length) finale(); }
+    else { oracle.receive(r); bird.pulse(); const n = MAIN.filter(x => x.lightGiven).length; world.target = n/MAIN.length; showToast(LINES.lightBack(n, fresh.length)); if (n === MAIN.length) finale(); }
     updateTracker();
   });
 }
@@ -775,14 +775,15 @@ function updateRelics(dt){
 /* ---------- input ---------- */
 const keys = {};
 let mode = 'auto';
-const isTyping = e => e.target && e.target.tagName === 'INPUT';
+const isTyping = e => e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA');
 addEventListener('keydown', e => {
   if (isTyping(e)) return; keys[e.code] = true;
   if (e.code === 'Space'){ e.preventDefault(); if (!e.repeat) jumpPress(); }
   if (/^(Arrow|Key[WASD])/.test(e.code)){ e.preventDefault(); skipIntro(); if (gaze) setGaze(false); }
   if (e.code === 'KeyF') setMode(mode === 'aim' ? 'auto' : 'aim');
   if (e.code === 'KeyC' && !e.repeat) setGaze(!gaze);
-  if (e.code === 'Escape'){ indexEl.hidden = true; if (gaze) setGaze(false); if (openRelic) sendBack(openRelic); if (P.drawing){ P.drawing = false; } }
+  if (e.code === 'KeyN' && !e.repeat) openLetter();
+  if (e.code === 'Escape'){ indexEl.hidden = true; if (writing) closeLetter(); if (gaze) setGaze(false); if (openRelic) sendBack(openRelic); if (P.drawing){ P.drawing = false; } }
   const d = /^Digit([1-7])$/.exec(e.code); if (d){ const r = RELICS.find(x => x.key === +d[1]); if (r) summon(r); }
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
@@ -822,6 +823,7 @@ function clickAt(cx, cy){
   const h = hits.find(x => !x.object.userData.relic); if (!h) return;
   if (h.object.userData.star){ touchStar(h.object.userData.star); return; }
   if (h.object.userData.perch){ flyTo(h.object.userData.perch); return; }
+  if (h.object.userData.bird){ if (byBird) openLetter(); else goToCrane(); return; }
   /* a stone: land on its top (where you clicked, if you clicked the top), flying across unless you already stand on it */
   const st = h.object.userData.stone && stoneAt(h.point);
   if (st){ const p = Math.abs(h.point.y - st.y) < .02 ? h.point.clone() : new V3(st.x, st.y, st.z);
@@ -837,7 +839,7 @@ let hoverStar = null;
 function updateHover(){
   if (!pointer || !pointer.dirty || drag) return; pointer.dirty = false;
   ndc.set(pointer.x/innerWidth*2-1, -(pointer.y/innerHeight)*2+1); ray.setFromCamera(ndc, camera);
-  const h = ray.intersectObjects(sky.hits, false)[0]; hoverStar = h ? h.object.userData.star : null; canvas.classList.toggle('pointing', !!hoverStar && mode !== 'aim');
+  const h = ray.intersectObjects(sky.hits.concat(bird.pick), false)[0]; hoverStar = h && h.object.userData.star || null; canvas.classList.toggle('pointing', !!h && mode !== 'aim');
 }
 /* a star touched (or a skill named in the chat): the Oracle says which relics use it */
 function touchStar(s, asked){
@@ -910,7 +912,7 @@ const pushP = { x:0, z:0 };
 function updatePlayer(dt){
   if (P.flight){ const f = P.flight; f.t += dt/f.dur; const t = Math.min(1,f.t), e = f.ease === 'out' ? 1 - (1-t)*(1-t) : t<.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;
     const prev = P.pos.clone(); P.pos.lerpVectors(f.from, f.to, e); P.pos.y += Math.sin(Math.PI*e)*f.arc; const d = P.pos.clone().sub(prev); if (d.x*d.x+d.z*d.z > 1e-6) P.facing = Math.atan2(d.x,d.z);
-    if (t >= 1){ P.flight = null; P.vel.set(0,0,0); P.onGround = true;
+    if (t >= 1){ P.flight = null; P.vel.set(0,0,0); P.onGround = true; if (f.arrivalFacing !== undefined) P.facing = f.arrivalFacing;
       if (overWater(P.pos.x, P.pos.z) && P.pos.y < WATER_Y + .1) dipIn(2.2); }
     P.speed = 0; return; }
   /* touching the water: a brief, shallow dip, then straight back out to the bank */
@@ -1014,8 +1016,7 @@ function updateWorld(dt){
     if (b.life <= 0){ scene.remove(b.pts); scene.remove(b.ring); b.pts.geometry.dispose(); bursts.splice(i,1); } }
   braziers.forEach(b => { if (!b.lit && !P.flight && Math.hypot(P.pos.x-b.pos.x, P.pos.z-b.pos.z) < 2.8 && Math.abs(P.pos.y - b.top) < 2){ b.lit = true; litCount++; updateTracker();
       showToast(litCount < 4 ? `Brazier lit · ${litCount} of 4` : 'All four braziers burn. Something stirs in the lake.'); if (litCount === 4) wakeSecret(); }
-    b.fire.material.opacity = b.lit ? .75 + Math.sin(T*9 + b.top)*.15 : 0; b.flame.material.opacity = b.lit ? .9 : 0; b.flame.scale.y = b.lit ? 1 + Math.sin(T*12 + b.top)*.15 : 1;
-    b.light.intensity = b.lit ? 1.2 + Math.sin(T*9 + b.top)*.2 : 0; });
+    b.update(dt,T); });
 }
 function wakeSecret(){ const r = byId.offclock; r.state = 'waking'; r.t = 0; r.from = new V3(0, -3, 0); r.pos.copy(r.from); r.group.visible = true; beamTo(r);
   oracleSay(LINES.woke); }
@@ -1061,11 +1062,64 @@ function renderCard(o, isRelic, withLinks){
   card.hidden = false; card.style.animation = 'none'; void card.offsetWidth; card.style.animation = ''; cardFor = o;
 }
 function showRelicCard(r){ renderCard(r, true); }
-/* the introduction lives behind Austin's name in the top bar, and opens once on arrival */
-function showAbout(){ if (openRelic) sendBack(openRelic); renderCard(ABOUT, false); }
-document.getElementById('brand').addEventListener('click', () => cardFor === ABOUT && !card.hidden ? hideCard() : showAbout());
+/* Austin's name returns the wanderer to the crane; the card follows the paper's unfolding. */
+document.getElementById('brand').addEventListener('click', goToCrane);
 let welcomed = false;
-function welcome(){ if (welcomed) return; welcomed = true; if (!cardFor && !openRelic) renderCard(ABOUT, false); }
+function welcome(){ if (!welcomed) goToCrane(); }
+/* ---------- the note: the crane flies toward you and opens into a large sheet of paper to write on ---------- */
+const letter = document.getElementById('letter'), letterForm = document.getElementById('letterForm'), letterMsg = document.getElementById('letterMsg');
+const letterFrom = document.getElementById('letterFrom'), letterStatus = document.getElementById('letterStatus'), letterSend = document.getElementById('letterSend');
+document.getElementById('letterTo').textContent = NOTE.to; letterMsg.placeholder = NOTE.placeholder; letterFrom.placeholder = NOTE.from; letterFrom.setAttribute('aria-label', NOTE.from); letterSend.textContent = NOTE.send;
+let writing = false, cardBeforeNote = null;
+function openLetter(){ if (writing || bird.busy) return; writing = true; cardBeforeNote = card.hidden ? null : cardFor; hideCard(); if (gaze) setGaze(false); P.drawing = false; P.target = null;
+  const f = camera.getWorldDirection(new V3()); bird.setWriting(true, camera.position.clone().addScaledVector(f, 2.4).add(new V3(0, -.12, 0)));
+  letterStatus.textContent = ''; document.body.classList.add('writing'); }
+function closeLetter(){ if (!writing) return; writing = false; letter.hidden = true; document.body.classList.remove('writing'); bird.setWriting(false); canvas.focus({ preventScroll:true });
+  if (cardBeforeNote === ABOUT) craneCardPending = byBird; cardBeforeNote = null; }
+/* Arrival and the name button share the same landing beside the crane, facing the unfolding paper. */
+function goToCrane(){
+  intro = null; welcomed = true;
+  if (openRelic) sendBack(openRelic); if (writing) closeLetter();
+  if (!card.hidden) hideCard(); if (gaze) setGaze(false); if (mode === 'aim') setMode('auto');
+  P.drawing = false; P.draw = 0; P.auto = null; P.target = null; P.vel.set(0,0,0); P.flying = P.soared = false;
+  const to = new V3(CRANE_LANTERN.x - 1.2, 0, CRANE_LANTERN.z + 1.0); to.y = groundH(to.x, to.z);
+  const travel = !byBird && P.pos.distanceTo(to) > .35, at = travel ? to : P.pos;
+  const facing = Math.atan2(CRANE_LANTERN.x - at.x, CRANE_LANTERN.z - at.z);
+  camS.yaw = facing - Math.PI; camS.pitch = -.06; camS.dist = Math.min(camS.dist,7);
+  if (travel && !reduceMotion){ flyTo(to); P.flight.arrivalFacing = facing; P.onGround = false; }
+  else { P.flight = null; if (travel){ P.pos.copy(to); P.onGround = true; } P.facing = facing; }
+  craneCardPending = true;
+}
+document.getElementById('letterClose').addEventListener('click', closeLetter);
+letter.addEventListener('click', e => { if (e.target === letter) closeLetter(); });
+letter.addEventListener('keydown', e => { if (e.key === 'Escape'){ e.stopPropagation(); closeLetter(); } });
+letterForm.addEventListener('submit', async e => { e.preventDefault(); if (letterForm.company.value) return;
+  const message = letterMsg.value.trim(), name = letterFrom.value.trim();
+  if (!message){ letterStatus.textContent = NOTE.empty; return; }
+  if (!NOTE.endpoint){ letterStatus.textContent = NOTE.offline; return; }
+  letterSend.disabled = true; letterSend.textContent = NOTE.sending; letterStatus.textContent = '';
+  try { const res = await fetch(NOTE.endpoint, { method:'POST', headers:{ 'Content-Type':'application/json', Accept:'application/json' }, body:JSON.stringify({ name, message }) });
+    if (!res.ok) throw new Error(res.status);
+    letterMsg.value = ''; writing = false; letter.hidden = true; document.body.classList.remove('writing'); bird.send(); showToast(NOTE.sent);
+    if (cardBeforeNote === ABOUT) craneCardPending = byBird; cardBeforeNote = null; }
+  catch { letterStatus.textContent = NOTE.failed; }
+  letterSend.disabled = false; letterSend.textContent = NOTE.send; });
+/* Show the name card once the crane has opened, once per visit. Leaving closes it immediately;
+   the small distance margin keeps the paper from folding and reopening at the edge of the visit. */
+let byBird = false, craneCardPending = false;
+function updateBird(dt){
+  const d = Math.hypot(P.pos.x - CRANE_LANTERN.x, P.pos.z - CRANE_LANTERN.z), level = Math.abs(P.pos.y - groundH(CRANE_LANTERN.x, CRANE_LANTERN.z)) < 3;
+  const near = welcomed && level && !P.flight && d < (byBird ? 3.6 : 3);
+  if (near !== byBird){
+    byBird = near; bird.setNear(near); craneCardPending = near;
+    if (!near && cardFor === ABOUT) hideCard();
+  }
+  bird.update(dt, T, camera);
+  if (byBird && craneCardPending && bird.unfolded && !writing && !openRelic && (card.hidden || cardFor === ABOUT)){
+    renderCard(ABOUT, false); craneCardPending = false;
+  }
+  if (writing && letter.hidden && bird.ready){ letter.hidden = false; letterMsg.focus({ preventScroll:true }); }
+}
 const cross = document.getElementById('cross'), crossRing = document.getElementById('crossRing');
 const stamEl = document.getElementById('stamina'), stamFg = document.getElementById('stamFg');
 function updateStamina(){
@@ -1114,7 +1168,7 @@ document.querySelectorAll('[data-placeholder]').forEach(a => a.addEventListener(
 let last = performance.now();
 function simulate(dt){
   T += dt;
-  updatePlayer(dt); updateHero(dt); updateRelics(dt); updateArrows(dt); updateSplashes(dt); updateCamera(dt); updateWorld(dt); updateHover();
+  updatePlayer(dt); updateHero(dt); updateRelics(dt); updateArrows(dt); updateSplashes(dt); updateCamera(dt); updateWorld(dt); updateBird(dt); updateHover();
   sky.update(dt, T, camera, { showAll:gaze, hover:hoverStar, focus:openRelic });
   updateLabels(); updateCross(); updateStamina();
 }
@@ -1131,5 +1185,5 @@ setTimeout(() => oracleSay(LINES.intro), reduceMotion ? 200 : 2000);
 if (!intro) setTimeout(welcome, 600);
 
 /* dev-only handle for poking at the scene from the browser console; stripped from production builds */
-if (import.meta.env.DEV) window.__valley = { P, camS, RELICS, sky, oracle, world, colliders, summon, setGaze, scene, camera, renderer, keys, fireArrow, arrows,
+if (import.meta.env.DEV) window.__valley = { P, camS, RELICS, sky, oracle, world, colliders, bird, braziers, openLetter, closeLetter, summon, setGaze, scene, camera, renderer, keys, fireArrow, arrows,
   step(n=60, dt=1/60){ for (let i=0;i<n;i++) simulate(dt); reflectLake(); renderer.render(scene, camera); } };

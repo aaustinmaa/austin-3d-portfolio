@@ -1,141 +1,59 @@
 import * as THREE from 'three';
-import { glowTex, hazeTex, ringTex, rayTex, runeTex } from './textures.js';
-import { withEdges, corners, icosidodecahedron, rhombicTriacontahedron, rhombicDodecahedron, cube, glass } from './polyhedra.js';
+import { glowTex, ringTex } from './textures.js';
+import { buildOracleDesign } from './oracle-design.js';
 
-// The star above the valley (the Oracle): a heart of light inside a rhombic triacontahedron of clear glass, nested in
-// six shells (octahedron, cube, icosahedron, dodecahedron, icosidodecahedron, rhombic dodecahedron). Every solid is
-// convex. While the star sleeps the shells are fine line drawings, each tumbling on its own axis around three faint
-// symmetry axes, with three golden rectangles inside the icosahedron. Its light is sealed in the six main relics:
-// each one opened sends a beam back, fills one shell with glass in that relic's colour, grows a ray, and turns that
-// shell into line with the axes. These solids share their symmetry axes, so with every relic open the shells settle
-// into one ordered, symmetric jewel instead of six layers at odds.
-export function createOracle(scene, { y, main, reduceMotion }){
-  const C = h => new THREE.Color(h), PHI = (1 + Math.sqrt(5))/2;
+// The shared interaction boundary for the Oracle's option-A armillary design.
+export function createOracle(scene, { y, main, reduceMotion }) {
   const group = new THREE.Group(); group.position.set(0, y, 0); scene.add(group);
-  const sprite = (map, color, opacity, scale, parent=group) => { const s = new THREE.Sprite(new THREE.SpriteMaterial({ map, color, transparent:true, opacity, depthWrite:false, blending:THREE.AdditiveBlending, fog:false }));
-    s.scale.set(scale, scale, 1); parent.add(s); return s; };
-  const px = Math.min(devicePixelRatio || 1, 1.75);
-
-  /* soft light around everything: a wide haze, slow ray fans and a corona */
-  const haze = sprite(hazeTex, 0x5A86C8, .32, 150);
-  const fanA = sprite(rayTex, 0x9FE8FF, .2, 64), fanB = sprite(rayTex, 0xC9B8FF, .14, 50);
-  const corona = sprite(glowTex, 0x9FE8FF, .7, 22), bloomS = sprite(glowTex, 0xE8FDFF, .55, 9);
-
-  /* the core: a rhombic triacontahedron of clear glass around a smaller icosahedral heart, both lit from within */
-  const core = new THREE.Group(), heart = new THREE.Group(); group.add(core); core.add(heart);
-  const coreMat = glass({ color:'#BFF6FF', lit:1.1, edge:.25, halo:10 }), heartMat = glass({ color:'#F2FEFF', lit:1.5, edge:.35, halo:8 });
-  core.add(new THREE.Mesh(withEdges(rhombicTriacontahedron(2.8)), coreMat));
-  heart.add(new THREE.Mesh(withEdges(new THREE.IcosahedronGeometry(1.25, 0)), heartMat));
-
-  /* the shared frame the shells turn into line with: three symmetry axes, fading at their ends */
-  const frame = new THREE.Group(); frame.rotation.set(.38, 0, .16); group.add(frame);
-  { const pts = [], cols = [], L = 13.5; [[1,0,0],[0,1,0],[0,0,1]].forEach(([x,y,z]) => { for (const [a, b] of [[-1, 0], [0, 1]]){ pts.push(x*a*L, y*a*L, z*a*L, x*b*L, y*b*L, z*b*L); cols.push(a ? 0 : 1, a ? 0 : 1, a ? 0 : 1, b ? 0 : 1, b ? 0 : 1, b ? 0 : 1); } });
-    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
-    frame.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors:true, color:0x8FD8EC, transparent:true, opacity:.3, blending:THREE.AdditiveBlending, depthWrite:false, fog:false }))); }
-  const axesMat = frame.children[0].material;
-  const qa = new THREE.Quaternion(), qy = new THREE.Quaternion(), eu = new THREE.Euler(), Y = new THREE.Vector3(0,1,0), ease = t => t*t*(3 - 2*t);
-
-  /* six shells, one per main relic: fine line drawings until that relic's light returns, then glass in its colour */
-  const SHAPES = [r => new THREE.OctahedronGeometry(r, 0), cube, r => new THREE.IcosahedronGeometry(r, 0), r => new THREE.DodecahedronGeometry(r, 0), icosidodecahedron, rhombicDodecahedron];
-  const RADII = [4.1, 5.1, 6.2, 7.4, 8.7, 10.8], DORMANT = C('#4E6E96');
-  const nodeMat = () => new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, fog:false, uniforms:{ col:{value:C('#BFF6FF')}, lit:{value:.2}, px:{value:px} },
-    vertexShader:'uniform float lit; uniform float px; void main(){ vec4 mv = modelViewMatrix*vec4(position,1.); gl_PointSize = (5. + 13.*lit)*px*60./-mv.z; gl_Position = projectionMatrix*mv; }',
-    fragmentShader:`uniform vec3 col; uniform float lit; void main(){ vec2 p = gl_PointCoord - .5; float d2 = dot(p,p);
-      float a = (exp(-d2*90.) + exp(-d2*16.)*.35 + (exp(-abs(p.x)*60.)*exp(-abs(p.y)*8.) + exp(-abs(p.y)*60.)*exp(-abs(p.x)*8.))*.4*lit)*(.35 + lit*.65);
-      gl_FragColor = vec4(mix(col, vec3(1.), exp(-d2*90.))*a, a); }` });
-  const slots = main.map((r, i) => {
-    const R = RADII[i % RADII.length], geo = withEdges(SHAPES[i % SHAPES.length](R)), holder = new THREE.Group(); group.add(holder);
-    const tilt = new THREE.Quaternion().setFromEuler(new THREE.Euler(i*1.3 + .4, i*2.1, i*.7));
-    const mat = glass({ color:DORMANT, lit:1, edge:.08, halo:12, body:.12, wire:.55 }); holder.add(new THREE.Mesh(geo, mat));
-    const nm = nodeMat(), nodes = new THREE.Points(new THREE.BufferGeometry().setFromPoints(corners(geo)), nm); holder.add(nodes);
-    /* inside the icosahedron, the three golden rectangles whose corners are its twelve vertices */
-    let gold = null; if (SHAPES[i % SHAPES.length] === SHAPES[2]){ const k = R/Math.sqrt(1 + PHI*PHI), pts = [];
-      [[[-1,PHI,0],[1,PHI,0],[1,-PHI,0],[-1,-PHI,0]], [[0,-1,PHI],[0,1,PHI],[0,1,-PHI],[0,-1,-PHI]], [[PHI,0,-1],[PHI,0,1],[-PHI,0,1],[-PHI,0,-1]]].forEach(q => q.forEach((v, j) => pts.push(...v.map(c => c*k), ...q[(j+1)%4].map(c => c*k))));
-      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-      gold = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color:0xC9A86A, transparent:true, opacity:.4, blending:THREE.AdditiveBlending, depthWrite:false, fog:false })); holder.add(gold); }
-    /* the ray this relic gives back: a view-facing spike drawn in the vertex shader */
-    const a = i/main.length*Math.PI*2;
-    const rayMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, fog:false,
-      uniforms:{ ang:{value:Math.PI/2 + a}, len:{value:30}, wid:{value:2.2}, grow:{value:0}, t:{value:0}, seed:{value:i*1.7}, col:{value:C(r.color).lerp(C('#FFFFFF'), .35)} },
-      vertexShader:`uniform float ang; uniform float len; uniform float wid; varying vec2 vUv;
-        void main(){ vUv = uv; vec4 c = modelViewMatrix*vec4(0.,0.,0.,1.); vec2 d = vec2(cos(ang), sin(ang)), n = vec2(-d.y, d.x);
-          c.xy += d*(uv.x*len) + n*((uv.y - .5)*wid*mix(1., .15, uv.x)); gl_Position = projectionMatrix*c; }`,
-      fragmentShader:`uniform float grow; uniform float t; uniform float seed; uniform vec3 col; varying vec2 vUv;
-        void main(){ float x = vUv.x, y = abs(vUv.y - .5)*2.; float core = exp(-y*y*7.);
-          float a = core*pow(1. - x, 1.5)*smoothstep(0.,.05,x)*(.82 + .18*sin(t*2.6 + seed*5. + x*14.))*grow*(1. - smoothstep(grow - .08, grow, x));
-          gl_FragColor = vec4(mix(col, vec3(1.), core*core*.6)*a, a); }` });
-    const ray = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), rayMat); ray.frustumCulled = false; group.add(ray);
-    return { relic:r, holder, tilt, ang:i*1.1, mat, nm, gold, rayMat, color:C(r.color).lerp(C('#E8F6FF'), .12), spd:(i%2 ? -1 : 1)*(.05 + i*.012), fade:1 - i*.07, lit:0, target:0, flash:0 };
-  });
-
-  /* a slow band of runes on a twelve-sided frame */
-  runeTex.repeat.set(4, 1);
-  const band = new THREE.Mesh(new THREE.CylinderGeometry(12.8, 12.8, .9, 12, 1, true), new THREE.MeshBasicMaterial({ map:runeTex, color:0x78E6F0, transparent:true, opacity:.14, side:THREE.DoubleSide, depthWrite:false, blending:THREE.AdditiveBlending, fog:false }));
-  band.rotation.x = .16; group.add(band);
-
-  /* a ripple of light whenever the star speaks or a beam arrives */
-  const ripples = [];
-  function ripple(color, size=46){ const s = sprite(ringTex, C(color), 0, 8); ripples.push({ s, t:0, size }); }
-
-  /* the light point that actually brightens the valley */
+  const design = buildOracleDesign({ main, reduceMotion }); group.add(design.group);
   const light = new THREE.PointLight(0x9FE8FF, 1, 160, 1); group.add(light);
-
-  /* beams of light travelling from an opened relic back up into the star */
-  const travellers = [];
-  function sendLight(from, color, onArrive){
-    if (reduceMotion){ onArrive(); return; }
-    const head = sprite(glowTex, C(color).lerp(C('#FFFFFF'), .5), 1, 6, scene), tail = [];
-    for (let i=0;i<22;i++) tail.push(sprite(glowTex, C(color), .8*(1 - i/22), 4.2*(1 - i/26), scene));
-    const p0 = from.clone(), p2 = group.position.clone(), p1 = p0.clone().lerp(p2, .25); p1.y = p0.y + (p2.y - p0.y)*.8;
-    travellers.push({ head, tail, p0, p1, p2, t:0, hist:[], onArrive });
-  }
-  const bez = (o, a, b, c, t) => o.set(0,0,0).addScaledVector(a, (1-t)*(1-t)).addScaledVector(b, 2*(1-t)*t).addScaledVector(c, t*t);
-
+  const sprite = (map, color, opacity, size, parent = group) => {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map, color, opacity, transparent: true,
+      depthWrite: false, blending: THREE.AdditiveBlending, fog: false }));
+    s.scale.set(size, size, 1); parent.add(s); return s;
+  };
+  const ripples = [], travellers = [];
   let flash = 0, finale = 0;
-  const hotA = C('#EFFFFF'), hotB = C('#FFF2D2'), rimA = C('#9FEAF5'), rimB = C('#F4D58D'), gold = C('#F4D58D');
-  function update(dt, T, { power, speak }){
-    flash = Math.max(0, flash - dt*.9); finale = Math.min(1, finale + (finale > 0 ? dt*.25 : 0));
-    const p = Math.min(1, power + finale*.25), u = coreMat.uniforms, hu = heartMat.uniforms;
-    u.col.value.copy(rimA).lerp(rimB, p*.55); u.lit.value = .8 + p*.15 + speak*.25 + flash*.5;
-    hu.col.value.copy(hotA).lerp(hotB, p); hu.lit.value = .95 + p*.2 + speak*.3 + flash*.6;
-    group.position.y = y + Math.sin(T*.4)*.5;
-    /* the core tumbles while the star sleeps and settles into the frame as its light returns */
-    frame.rotation.y += dt*.035*(1 + speak); const order = ease(p);
-    core.userData.a = (core.userData.a || 0) + dt*.09; qa.setFromEuler(eu.set(core.userData.a*.34, core.userData.a, 0)); core.quaternion.slerpQuaternions(qa, frame.quaternion, order);
-    heart.rotation.y -= dt*.22*(1 - order*.7); heart.rotation.z += dt*.07*(1 - order);
-    axesMat.opacity = .22 + p*.18 + speak*.1;
-    const pulse = 1 + Math.sin(T*1.3)*.03 + speak*.06 + flash*.12;
-    corona.scale.setScalar((18 + p*8)*pulse); corona.material.color.copy(u.col.value).lerp(hotA, .35); corona.material.opacity = .3 + p*.08 + flash*.25;
-    bloomS.scale.setScalar((7 + p*1.5)*pulse); bloomS.material.opacity = .26 + p*.03 + speak*.08;
-    haze.scale.setScalar(130 + p*90); haze.material.opacity = .22 + p*.28; haze.material.color.set(0x5A86C8).lerp(gold, p*.45);
-    fanA.material.rotation += dt*.012; fanB.material.rotation -= dt*.018;
-    fanA.scale.setScalar(56 + p*30); fanB.scale.setScalar(44 + p*20); fanA.material.opacity = .12 + p*.1 + speak*.08; fanB.material.opacity = .08 + p*.05;
-    band.rotation.y += dt*.03*(1 + speak*3);
-    slots.forEach(s => { s.lit += (s.target - s.lit)*(1 - Math.exp(-dt*(reduceMotion ? 30 : 1.2))); s.flash = Math.max(0, s.flash - dt*.7);
-      /* dormant: a fine line drawing; lit: coloured glass whose lines quieten, outer shells a little fainter */
-      const m = s.mat.uniforms, l = s.lit; m.col.value.copy(DORMANT).lerp(s.color, l).lerp(gold, finale*.35);
-      m.body.value = (.12 + l*.5)*s.fade; m.wire.value = .42 - l*.2; m.edgeK.value = .08 + l*.06; m.lit.value = 1 + speak*.2 + s.flash*.8;
-      s.nm.uniforms.col.value.copy(m.col.value); s.nm.uniforms.lit.value = .25 + l*.12 + s.flash;
-      if (s.gold){ s.gold.material.opacity = .4 + l*.2 + speak*.1; s.gold.material.color.set(0xC9A86A).lerp(s.color, l*.4); }
-      /* tumbling on its own axis, turning into line with the frame as its light returns */
-      s.ang += dt*s.spd*(1 + speak*2.5 + s.flash*3)*(1 - ease(l)*.85);
-      qa.copy(s.tilt).multiply(qy.setFromAxisAngle(Y, s.ang));
-      s.holder.quaternion.slerpQuaternions(qa, frame.quaternion, ease(l));
-      const ru = s.rayMat.uniforms; ru.grow.value = s.lit; ru.t.value = T; ru.ang.value += dt*.012; ru.len.value = (28 + p*4 + finale*3)*(1 + Math.sin(T*.7 + ru.seed.value)*.05); });
-    for (let i = ripples.length-1; i >= 0; i--){ const r = ripples[i]; r.t += dt/1.8; r.s.scale.setScalar(8 + r.size*r.t); r.s.material.opacity = Math.sin(Math.min(1, r.t)*Math.PI)*.8;
-      if (r.t >= 1){ group.remove(r.s); r.s.material.dispose(); ripples.splice(i,1); } }
-    for (let i = travellers.length-1; i >= 0; i--){ const tr = travellers[i]; tr.t += dt/1.5; const e = Math.min(1, tr.t), k = e*e*(3 - 2*e);
-      bez(tr.head.position, tr.p0, tr.p1, tr.p2.copy(group.position), k); tr.hist.unshift(tr.head.position.clone()); if (tr.hist.length > 44) tr.hist.pop();
-      tr.tail.forEach((s, j) => { const h = tr.hist[Math.min(tr.hist.length-1, j*2)]; if (h) s.position.copy(h); });
-      if (tr.t >= 1){ scene.remove(tr.head); tr.tail.forEach(s => scene.remove(s)); travellers.splice(i,1); tr.onArrive(); } }
+  function ripple(color, size = 46) {
+    if (reduceMotion) return;
+    const s = sprite(ringTex, color, 0, 8); ripples.push({ s, t: 0, size });
   }
-
+  function sendLight(from, color, onArrive) {
+    if (reduceMotion) { onArrive(); return; }
+    const head = sprite(glowTex, new THREE.Color(color).lerp(new THREE.Color('#F4F9EF'), .5), 1, 6, scene), tail = [];
+    for (let i = 0; i < 22; i++) tail.push(sprite(glowTex, color, .8 * (1 - i / 22), 4.2 * (1 - i / 26), scene));
+    const p0 = from.clone(), p2 = group.position.clone(), p1 = p0.clone().lerp(p2, .25);
+    p1.y = p0.y + (p2.y - p0.y) * .8;
+    travellers.push({ head, tail, p0, p1, p2, t: 0, hist: [], onArrive });
+  }
+  const bez = (out, a, b, c, t) => out.set(0, 0, 0).addScaledVector(a, (1 - t) ** 2).addScaledVector(b, 2 * (1 - t) * t).addScaledVector(c, t * t);
+  function update(dt, T, { power, speak }) {
+    flash = Math.max(0, flash - dt * .75);
+    finale = Math.min(1, finale + (finale > 0 ? dt * .22 : 0));
+    group.position.y = y + (reduceMotion ? 0 : Math.sin(T * .23) * .12);
+    design.update(dt, T, { power: Math.min(1, power + finale * .2), speak, flash, finale });
+    for (let i = ripples.length - 1; i >= 0; i--) {
+      const r = ripples[i]; r.t += dt / 1.8; r.s.scale.setScalar(8 + r.size * r.t);
+      r.s.material.opacity = Math.sin(Math.min(1, r.t) * Math.PI) * .8;
+      if (r.t >= 1) { group.remove(r.s); r.s.material.dispose(); ripples.splice(i, 1); }
+    }
+    for (let i = travellers.length - 1; i >= 0; i--) {
+      const tr = travellers[i]; tr.t += dt / 1.5; const e = Math.min(1, tr.t), k = e * e * (3 - 2 * e);
+      bez(tr.head.position, tr.p0, tr.p1, tr.p2.copy(group.position), k);
+      tr.hist.unshift(tr.head.position.clone()); if (tr.hist.length > 44) tr.hist.pop();
+      tr.tail.forEach((s, j) => { const h = tr.hist[Math.min(tr.hist.length - 1, j * 2)]; if (h) s.position.copy(h); });
+      if (tr.t >= 1) {
+        scene.remove(tr.head); tr.head.material.dispose();
+        tr.tail.forEach(s => { scene.remove(s); s.material.dispose(); });
+        travellers.splice(i, 1); tr.onArrive();
+      }
+    }
+  }
   return {
     group, light, update, sendLight, ripple,
-    get position(){ return group.position; },
-    /* a relic's light has arrived: ignite its shell, grow its ray and flare */
-    receive(r){ const s = slots.find(x => x.relic === r); if (s){ s.target = 1; s.flash = 1; } flash = 1; ripple(r.color, 60); },
-    speakPulse(){ ripple('#9FE8FF', 34); },
-    bloom(){ finale = .001; flash = 1.4; slots.forEach(s => s.flash = 1); ripple('#F4D58D', 90); },
+    get position() { return group.position; },
+    receive(relic) { design.receive(relic); flash = 1; ripple(relic.color, 60); },
+    speakPulse() { ripple('#9FE8FF', 34); },
+    bloom() { finale = .001; flash = 1.2; design.bloom(); ripple('#F4D58D', 90); },
   };
 }

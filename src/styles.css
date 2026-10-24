@@ -77,6 +77,31 @@ button,input{font:inherit;color:inherit}
 .pill:hover{border-color:var(--cyan);color:var(--cyan)}
 .card .x{position:absolute;top:12px;right:12px;width:30px;height:30px;border-radius:50%;border:0;background:rgba(255,255,255,.06);cursor:pointer;font-size:16px}
 
+/* the crane's note: a large unfolded sheet of paper to write on, below the top bar */
+.letter{position:fixed;left:0;right:0;top:calc(66px + env(safe-area-inset-top, 0px));bottom:0;z-index:4;display:grid;place-items:center;
+  padding:10px var(--gxr) calc(18px + env(safe-area-inset-bottom, 0px)) var(--gx);background:radial-gradient(ellipse at center,rgba(8,10,26,.2),rgba(5,7,18,.55))}
+.sheet{position:relative;width:min(620px,100%);height:min(720px,100%);display:flex;flex-direction:column;gap:12px;padding:36px 42px 26px;border-radius:3px;color:#262A4E;
+  background:linear-gradient(to right,transparent calc(33.33% - 1px),rgba(60,58,98,.13) calc(33.33% - 1px) 33.33%,transparent 33.33% calc(66.66% - 1px),rgba(60,58,98,.13) calc(66.66% - 1px) 66.66%,transparent 66.66%),
+    linear-gradient(to bottom,transparent calc(50% - 1px),rgba(60,58,98,.13) calc(50% - 1px) 50%,transparent 50%),#DCD7EB;
+  box-shadow:inset 0 0 90px rgba(70,66,120,.3),0 30px 80px -30px rgba(0,0,0,.9),0 0 70px -12px rgba(201,194,255,.35);
+  transform-origin:50% 60%;animation:sheetOpen .6s cubic-bezier(.2,.8,.2,1)}
+@keyframes sheetOpen{from{opacity:0;transform:perspective(900px) rotateX(24deg) scale(.55)}to{opacity:1;transform:none}}
+.sheet .to{font-family:var(--f-display);font-style:italic;font-weight:500;font-size:34px;line-height:1.1;padding-right:36px}
+.sheet textarea{flex:1;min-height:0;resize:none;border:0;outline:none;padding:0 2px;font-family:var(--f-display);font-size:23px;line-height:36px;color:#262A4E;
+  background:transparent repeating-linear-gradient(to bottom,transparent 0 35px,rgba(60,58,98,.22) 35px 36px);background-attachment:local;-webkit-user-select:text;user-select:text}
+.sheet textarea::placeholder{color:rgba(38,42,78,.42);font-style:italic}
+.sheet .from{display:flex;align-items:baseline;gap:10px;font-family:var(--f-display);font-size:24px}
+.sheet .from input{flex:1;min-width:0;border:0;border-bottom:1px solid rgba(60,58,98,.32);background:transparent;outline:none;font-family:var(--f-display);font-style:italic;font-size:21px;color:#262A4E;padding:2px 2px 5px;-webkit-user-select:text;user-select:text}
+.sheet .from input::placeholder{color:rgba(38,42,78,.42)}
+.sheet .foot{display:flex;align-items:center;justify-content:space-between;gap:14px}
+.sheet .status{font-size:13px;line-height:1.4;color:#4A4F86}
+.sheet .fold{flex:none;border:0;border-radius:999px;background:#2A2F5A;color:#F2EEFA;padding:10px 20px;font-size:14px;font-weight:600;cursor:pointer}
+.sheet .fold:hover{background:#3A4078}
+.sheet .fold:disabled{opacity:.6;cursor:default}
+.sheet .x{position:absolute;top:12px;right:12px;width:32px;height:32px;border-radius:50%;border:0;background:rgba(30,34,64,.08);color:#262A4E;font-size:18px;cursor:pointer}
+.sheet .hp{position:absolute;left:-9999px;width:1px;height:1px;opacity:0}
+body.writing .dock,body.writing .modes,body.writing .hint,body.writing .tracker,body.writing .flybtn,body.writing #labels,body.writing #starLabels{display:none!important}
+
 #labels,#starLabels{position:fixed;inset:0;pointer-events:none;z-index:2;overflow:hidden}
 .slabel{position:absolute;left:0;top:0;pointer-events:none;will-change:transform,opacity;white-space:nowrap;font-family:var(--f-mono);font-size:10px;letter-spacing:.06em;color:#B4BEDC;text-shadow:0 0 8px rgba(0,0,0,.95),0 0 2px rgba(0,0,0,.9);transition:color .8s}
 .slabel.cur{color:#F4E7C6;text-shadow:0 0 8px rgba(0,0,0,.95),0 0 2px rgba(0,0,0,.9),0 0 12px rgba(244,231,198,.25)}
@@ -161,8 +186,11 @@ button,input{font:inherit;color:inherit}
   .modes{bottom:auto;top:calc(66px + env(safe-area-inset-top, 0px))}
   .card{top:calc(118px + env(safe-area-inset-top, 0px));width:calc(100% - 92px);padding:15px;gap:8px}
   .card h2{font-size:28px}
+  .sheet{padding:26px 22px 20px}
+  .sheet .to{font-size:27px}
+  .sheet textarea{font-size:20px;line-height:31px;background-image:repeating-linear-gradient(to bottom,transparent 0 30px,rgba(60,58,98,.22) 30px 31px)}
   .card p{font-size:13.5px;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
   .log{max-height:20vh}
   .msg{font-size:13.5px}
 }
-@media (prefers-reduced-motion: reduce){ .eye,.card{animation:none} }
+@media (prefers-reduced-motion: reduce){ .eye,.card,.sheet{animation:none} }
