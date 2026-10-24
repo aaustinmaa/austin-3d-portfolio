@@ -808,13 +808,13 @@ canvas.addEventListener('pointerdown', e => { try { canvas.setPointerCapture(e.p
 canvas.addEventListener('pointermove', e => { pointer = { x:e.clientX, y:e.clientY, dirty:true }; if (!drag) return;
   const locked = isLocked(), dx = locked ? e.movementX : e.clientX - drag.x, dy = locked ? e.movementY : e.clientY - drag.y;
   if (!drag.moved && Math.hypot(dx,dy) > 6){ drag.moved = true; if (mode !== 'aim') canvas.classList.add('dragging'); }
-  if (drag.moved || mode === 'aim'){ const k = mode === 'aim' ? .0032 : .0055; camS.yaw -= dx*k; camS.pitch = Math.min(gaze ? 1.5 : 1.32, Math.max(-.62, camS.pitch - dy*k*.8)); drag.x = e.clientX; drag.y = e.clientY; gazeT = 9; } });
+  if (drag.moved || mode === 'aim'){ craneApproach = null; const k = mode === 'aim' ? .0032 : .0055; camS.yaw -= dx*k; camS.pitch = Math.min(gaze ? 1.5 : 1.32, Math.max(-.62, camS.pitch - dy*k*.8)); drag.x = e.clientX; drag.y = e.clientY; gazeT = 9; } });
 canvas.addEventListener('pointerleave', () => { pointer = null; });
 canvas.addEventListener('pointerup', e => { if (!drag) return; const was = drag.moved; drag = null; canvas.classList.remove('dragging'); unlockPointer();
   if (mode === 'aim'){ if (P.drawing){ P.drawing = false; if (P.draw > .12) fireManual(); else P.draw = 0; } return; }
   if (!was) clickAt(e.clientX, e.clientY); });
 canvas.addEventListener('pointercancel', () => { drag = null; P.drawing = false; canvas.classList.remove('dragging'); unlockPointer(); });
-canvas.addEventListener('wheel', e => { e.preventDefault(); camS.dist = Math.min(20, Math.max(4, camS.dist*(1 + e.deltaY*.0011))); }, { passive:false });
+canvas.addEventListener('wheel', e => { e.preventDefault(); craneApproach = null; camS.dist = Math.min(20, Math.max(4, camS.dist*(1 + e.deltaY*.0011))); }, { passive:false });
 function clickAt(cx, cy){
   ndc.set(cx/innerWidth*2-1, -(cy/innerHeight)*2+1); ray.setFromCamera(ndc, camera);
   const hits = ray.intersectObjects(pickables.concat(sky.hits), false); if (!hits.length) return;
@@ -858,7 +858,7 @@ function fireManual(){
   if (relicAim) aimPt = camera.position.clone().addScaledVector(ray.ray.direction, relicAim.t);
   fireArrow(from, aimPt.sub(from), 26 + 52*P.draw, null); P.draw = 0;
 }
-function setMode(m){ mode = m; document.getElementById('modeAuto').setAttribute('aria-pressed', m === 'auto'); document.getElementById('modeAim').setAttribute('aria-pressed', m === 'aim');
+function setMode(m){ craneApproach = null; mode = m; document.getElementById('modeAuto').setAttribute('aria-pressed', m === 'auto'); document.getElementById('modeAim').setAttribute('aria-pressed', m === 'aim');
   document.getElementById('cross').hidden = m !== 'aim'; canvas.classList.toggle('aiming', m === 'aim'); P.drawing = false; P.draw = 0; renderHint(); skipIntro();
   if (m === 'aim'){ if (gaze) setGaze(false); if (camS.pitch < .25) camS.pitch = .35; } }
 document.getElementById('modeAuto').addEventListener('click', () => setMode('auto'));
@@ -872,13 +872,15 @@ renderHint();
 /* looking up at the constellation: the camera tilts to the sky and every lit star is labelled */
 let gaze = false, gazeT = 0, gazePitch = -.12;
 const lookBtn = document.getElementById('lookUp');
-function setGaze(on){ if (on === gaze) return; gaze = on; skipIntro(); gazeT = 0;
+function setGaze(on){ if (on === gaze) return; craneApproach = null; gaze = on; skipIntro(); gazeT = 0;
   if (on){ gazePitch = camS.pitch; if (mode === 'aim') setMode('auto'); } else camS.pitch = Math.min(camS.pitch, gazePitch > .6 ? .2 : gazePitch);
   lookBtn.setAttribute('aria-pressed', on); lookBtn.textContent = on ? 'Back down · C' : 'Look up · C'; }
 lookBtn.addEventListener('click', () => setGaze(!gaze));
 
 /* ---------- camera ---------- */
 let intro = reduceMotion ? null : { t:0, dur:6.5, from:new V3(5, 5, 36), look:new V3(0, ORACLE_Y-4, 0) };
+let craneApproach = null;
+const glideEase = t => t*t*t*(t*(t*6 - 15) + 10);
 function skipIntro(){ if (intro && intro.t < intro.dur - 1.1) intro.t = intro.dur - 1.1; }
 const camPos = new V3(), camLook = new V3(), wantPos = new V3(), wantLook = new V3();
 function followPose(){
@@ -900,9 +902,18 @@ followPose(); camPos.copy(intro ? intro.from : wantPos); camLook.copy(intro ? in
 function updateCamera(dt){
   if (gaze && gazeT < 2.5){ gazeT += dt; camS.pitch = lerp(camS.pitch, 1.42, 1 - Math.exp(-dt*(reduceMotion ? 30 : 2.6))); }
   followPose();
-  if (intro){ intro.t += dt; const e = ease(Math.min(1, Math.max(0, (intro.t-1.6)/(intro.dur-1.6))));
+  const ride = craneApproach;
+  if (ride && (P.flight === ride.flight || ride.flight.t >= 1)){
+    const t = Math.min(1,ride.flight.t), e = glideEase(t);
+    camS.dist = lerp(ride.fromDist,ride.toDist,e);
+    // Translate with the wanderer and dolly forward along the existing view. No orbit or lens change.
+    camPos.copy(ride.fromCamera).add(P.pos.clone().sub(ride.fromPlayer)).addScaledVector(ride.direction,ride.fromDist - camS.dist);
+    camLook.copy(camPos).addScaledVector(ride.direction,30);
+    if (t >= 1) craneApproach = null;
+  }
+  else if (intro){ intro.t += dt; const e = ease(Math.min(1, Math.max(0, (intro.t-1.6)/(intro.dur-1.6))));
     camPos.lerpVectors(intro.from, wantPos, e); camLook.lerpVectors(intro.look, wantLook, e); if (intro.t >= intro.dur){ intro = null; welcome(); } }
-  else { const k = 1 - Math.exp(-dt*(mode === 'aim' ? 14 : 7)); camPos.lerp(wantPos, k); camLook.lerp(wantLook, 1 - Math.exp(-dt*(mode === 'aim' ? 20 : 10))); }
+  else { craneApproach = null; const k = 1 - Math.exp(-dt*(mode === 'aim' ? 14 : 7)); camPos.lerp(wantPos, k); camLook.lerp(wantLook, 1 - Math.exp(-dt*(mode === 'aim' ? 20 : 10))); }
   camera.position.copy(camPos); camera.lookAt(camLook); skyGroup.position.copy(camera.position);
   const fov = mode === 'aim' ? baseFov - 6 - P.draw*12 : gaze ? baseFov + 14 : baseFov; if (Math.abs(camera.fov - fov) > .05){ camera.fov = lerp(camera.fov, fov, 1 - Math.exp(-dt*8)); camera.updateProjectionMatrix(); }
 }
@@ -910,7 +921,7 @@ function updateCamera(dt){
 /* ---------- simulation ---------- */
 const pushP = { x:0, z:0 };
 function updatePlayer(dt){
-  if (P.flight){ const f = P.flight; f.t += dt/f.dur; const t = Math.min(1,f.t), e = f.ease === 'out' ? 1 - (1-t)*(1-t) : t<.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;
+  if (P.flight){ const f = P.flight; f.t += dt/f.dur; const t = Math.min(1,f.t), e = f.ease === 'glide' ? glideEase(t) : f.ease === 'out' ? 1 - (1-t)*(1-t) : t<.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;
     const prev = P.pos.clone(); P.pos.lerpVectors(f.from, f.to, e); P.pos.y += Math.sin(Math.PI*e)*f.arc; const d = P.pos.clone().sub(prev); if (d.x*d.x+d.z*d.z > 1e-6) P.facing = Math.atan2(d.x,d.z);
     if (t >= 1){ P.flight = null; P.vel.set(0,0,0); P.onGround = true; if (f.arrivalFacing !== undefined) P.facing = f.arrivalFacing;
       if (overWater(P.pos.x, P.pos.z) && P.pos.y < WATER_Y + .1) dipIn(2.2); }
@@ -1076,18 +1087,29 @@ function openLetter(){ if (writing || bird.busy) return; writing = true; cardBef
   letterStatus.textContent = ''; document.body.classList.add('writing'); }
 function closeLetter(){ if (!writing) return; writing = false; letter.hidden = true; document.body.classList.remove('writing'); bird.setWriting(false); canvas.focus({ preventScroll:true });
   if (cardBeforeNote === ABOUT) craneCardPending = byBird; cardBeforeNote = null; }
-/* Arrival and the name button share the same landing beside the crane, facing the unfolding paper. */
+/* Approach the crane in a straight glide, keeping the current view while the camera gently dollies in. */
 function goToCrane(){
+  if (craneApproach && P.flight === craneApproach.flight){
+    if (writing) closeLetter(); if (openRelic) sendBack(openRelic); if (!card.hidden) hideCard();
+    craneCardPending = true; return;
+  }
+  const yaw = camS.yaw, pitch = camS.pitch;
   intro = null; welcomed = true;
   if (openRelic) sendBack(openRelic); if (writing) closeLetter();
   if (!card.hidden) hideCard(); if (gaze) setGaze(false); if (mode === 'aim') setMode('auto');
   P.drawing = false; P.draw = 0; P.auto = null; P.target = null; P.vel.set(0,0,0); P.flying = P.soared = false;
   const to = new V3(CRANE_LANTERN.x - 1.2, 0, CRANE_LANTERN.z + 1.0); to.y = groundH(to.x, to.z);
-  const travel = !byBird && P.pos.distanceTo(to) > .35, at = travel ? to : P.pos;
-  const facing = Math.atan2(CRANE_LANTERN.x - at.x, CRANE_LANTERN.z - at.z);
-  camS.yaw = facing - Math.PI; camS.pitch = -.06; camS.dist = Math.min(camS.dist,7);
-  if (travel && !reduceMotion){ flyTo(to); P.flight.arrivalFacing = facing; P.onGround = false; }
-  else { P.flight = null; if (travel){ P.pos.copy(to); P.onGround = true; } P.facing = facing; }
+  const travel = !byBird && P.pos.distanceTo(to) > .35;
+  camS.yaw = yaw; camS.pitch = pitch;
+  if (travel && !reduceMotion){
+    flyTo(to); P.flight.dur = Math.min(4.8,Math.max(2.4,P.pos.distanceTo(to)/10)); P.flight.arc = 0; P.flight.ease = 'glide'; P.onGround = false;
+    craneApproach = { flight:P.flight, fromCamera:camPos.clone(), fromPlayer:P.pos.clone(), direction:camLook.clone().sub(camPos).normalize(), fromDist:camS.dist, toDist:Math.min(camS.dist,5.8) };
+  }
+  else {
+    craneApproach = null; P.flight = null; P.dip = null;
+    if (travel){ P.pos.copy(to); P.onGround = true; camS.dist = Math.min(camS.dist,5.8); }
+    if (reduceMotion){ followPose(); camPos.copy(wantPos); camLook.copy(wantLook); }
+  }
   craneCardPending = true;
 }
 document.getElementById('letterClose').addEventListener('click', closeLetter);
@@ -1104,7 +1126,7 @@ letterForm.addEventListener('submit', async e => { e.preventDefault(); if (lette
     if (cardBeforeNote === ABOUT) craneCardPending = byBird; cardBeforeNote = null; }
   catch { letterStatus.textContent = NOTE.failed; }
   letterSend.disabled = false; letterSend.textContent = NOTE.send; });
-/* Show the name card once the crane has opened, once per visit. Leaving closes it immediately;
+/* Show the name card halfway through the crane's unfolding, once per visit. Leaving closes it immediately;
    the small distance margin keeps the paper from folding and reopening at the edge of the visit. */
 let byBird = false, craneCardPending = false;
 function updateBird(dt){
@@ -1115,7 +1137,7 @@ function updateBird(dt){
     if (!near && cardFor === ABOUT) hideCard();
   }
   bird.update(dt, T, camera);
-  if (byBird && craneCardPending && bird.unfolded && !writing && !openRelic && (card.hidden || cardFor === ABOUT)){
+  if (byBird && craneCardPending && bird.cardReady && !writing && !openRelic && (card.hidden || cardFor === ABOUT)){
     renderCard(ABOUT, false); craneCardPending = false;
   }
   if (writing && letter.hidden && bird.ready){ letter.hidden = false; letterMsg.focus({ preventScroll:true }); }

@@ -238,6 +238,7 @@ export function createPaperBird(scene, { perch, star, hint, reduceMotion }){
   const SWAP = .3, KS = [0, SWAP, .51, .7, 1], SECS = [.4, .35, .05, .23], REFOLD = SECS.reduce((a, b) => a + b);
   const rate = (k, up) => { let i = 0; while (i < 3 && (up ? k >= KS[i+1] : k > KS[i+1])) i++; return (KS[i+1] - KS[i])/SECS[i]; };
   const kAt = t => { for (let i=0;i<4;i++){ if (t < SECS[i]) return KS[i] + (KS[i+1] - KS[i])*t/SECS[i]; t -= SECS[i]; } return 1; };
+  const CARD_K = kAt(REFOLD*.5);   // halfway through the timed unfolding, whose stages have different speeds
   const refoldK = t => kAt(Math.max(0, REFOLD - t));
   function pose(k, light){
     crane.visible = k < SWAP; sheet.visible = !crane.visible;
@@ -282,6 +283,7 @@ export function createPaperBird(scene, { perch, star, hint, reduceMotion }){
   }
   return { pick, update, position:group.position, sheetPosition:group.position,
     get busy(){ return away >= 0; }, get unfolded(){ return away < 0 && k > .99 && z === 0; }, get ready(){ return writing && z > .97; },
+    get cardReady(){ return away < 0 && k >= CARD_K && z === 0; },
     /* the wanderer is close: unfold above the lantern (or fold back up when they leave) */
     setNear(on){ near = on; },
     /* bring the sheet close to write on (to: a point in front of the camera), or send it back above the lantern */
