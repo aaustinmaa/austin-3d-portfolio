@@ -8,7 +8,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
   const TAU = Math.PI * 2, C = v => new THREE.Color(v), motion = reduceMotion ? 0 : 1;
   const group = new THREE.Group(), clock = { value: 0 }, energy = { value: 0 }, power = { value: 0 };
   // Tighten the armillary silhouette without scaling the central polyhedra.
-  const armillary = new THREE.Group(); armillary.scale.setScalar(.88); group.add(armillary);
+  const armillary = new THREE.Group(); armillary.scale.setScalar(.88 * .88); group.add(armillary);
   const gold = C('#FFE3AC'), ice = C('#C6E9FF');
   const px = Math.min(devicePixelRatio || 1, 1.75);
   const sprite = (parent, color, size, opacity, map = glowTex) => {
@@ -180,7 +180,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
     threads([path], { parent: frame, width: .15, opacity: .55, flow: 0 });
   }
 
-  const core = new THREE.Group(); core.rotation.set(.03, 0, .1); group.add(core);
+  const core = new THREE.Group(); core.scale.setScalar(1.3); core.rotation.set(.03, 0, .1); group.add(core);
   const alignment = new THREE.Group(); alignment.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, (1 + Math.sqrt(5)) / 2).normalize(), new THREE.Vector3(0, 0, 1)); core.add(alignment);
   const coreShapes = [new THREE.IcosahedronGeometry(4.05, 0), new THREE.DodecahedronGeometry(3.2, 0), new THREE.OctahedronGeometry(2.4, 0), rhombicTriacontahedron(1.7)];
   coreShapes.forEach((geo, i) => {
