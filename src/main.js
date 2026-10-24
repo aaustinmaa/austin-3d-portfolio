@@ -530,6 +530,7 @@ function orbitPos(r, out){ const o = r.orbit, a = o.phase + T*o.speed; return ou
 const bursts = [];
 /* something falling into the lake: rings spread across the water and, unless motion is reduced, a spray of droplets jumps up and falls back */
 const splashes = []; let rippleNext = 0;
+const overWater = (x, z) => Math.hypot(x, z) < LAKE_EDGE && groundH(x, z) < WATER_Y - .05;
 function splashLake(at, power=1){
   lakeMat.uniforms.ripples.value[rippleNext].set(at.x, at.z, T, Math.min(1.2, .6 + power*.5)); rippleNext = (rippleNext + 1) % 4;
   if (reduceMotion) return;
@@ -566,8 +567,8 @@ const SPEED = 7, GRAV = 26, JUMP = 9.6, STEP_UP = .6, ASCEND = 7.5, CEILING = 47
 function jumpPress(){ if (P.flight) return; skipIntro(); if (P.onGround){ P.vel.y = JUMP; P.onGround = false; P.jumpT = T; } else P.jumpT = T - 1; }
 function supportAt(x,z,y){ return floorAt(x, z, y, STEP_UP, groundH(x,z)); }
 function flyTo(dest){ const from = P.pos.clone(), dist = from.distanceTo(dest); P.flight = { from, to:dest.clone(), t:0, dur:Math.min(3.6, Math.max(1.2, dist/12)), arc:2 + dist*.12 }; P.target = null; P.vel.set(0,0,0); }
-/* Catch a descent over open water and ease onto dry ground instead of snapping to the bank. */
-function glideToShore(){
+/* Leave the lake for dry ground: a low glide off the bank, or with a higher arc, a hop back out after touching the water. */
+function glideToShore(arc=.35){
   const r = Math.hypot(P.pos.x, P.pos.z), angle = r > .1 ? Math.atan2(P.pos.x, P.pos.z) : camS.yaw;
   const radius = LAKE_BLOCK + .6;
   for (let i=0;i<24;i++){
@@ -577,7 +578,7 @@ function glideToShore(){
     const check = { x:to.x, z:to.z };
     if (to.y < WATER_Y + .15 || pushOut(check, to.y + STEP_UP, to.y + HEAD, BODY_R)) continue;
     const from = P.pos.clone(), dist = from.distanceTo(to);
-    P.flight = { from, to, t:0, dur:Math.max(.6, dist/7), arc:.35 };
+    P.flight = { from, to, t:0, dur:Math.max(.6, dist/(arc > .5 ? 9 : 7)), arc };
     P.target = null; P.vel.set(0,0,0); P.onGround = false; P.flying = false; P.soared = true; P.speed = 0;
     return;
   }
@@ -757,7 +758,11 @@ function clickAt(cx, cy){
   const st = h.object.userData.stone && stoneAt(h.point);
   if (st){ const p = Math.abs(h.point.y - st.y) < .02 ? h.point.clone() : new V3(st.x, st.y, st.z);
     if (Math.abs(P.pos.y - st.y) < .05 && Math.hypot(P.pos.x - st.x, P.pos.z - st.z) < st.reach) P.target = p; else flyTo(p); return; }
-  const p = h.point.clone(); if (Math.abs(p.y - P.pos.y) > 2.4) flyTo(p); else P.target = p;
+  const p = h.point.clone();
+  /* the lake: the ray hits the bed under the water, so aim at the surface above it and always jump there */
+  if (p.y < WATER_Y && ray.ray.direction.y < 0){ const k = (WATER_Y - ray.ray.origin.y)/ray.ray.direction.y; p.copy(ray.ray.origin).addScaledVector(ray.ray.direction, k);
+    if (overWater(p.x, p.z)){ flyTo(p); return; } p.copy(h.point); }
+  if (Math.abs(p.y - P.pos.y) > 2.4) flyTo(p); else P.target = p;
 }
 /* which star the pointer is over, if any (checked once per frame) */
 let hoverStar = null;
@@ -837,7 +842,9 @@ const pushP = { x:0, z:0 };
 function updatePlayer(dt){
   if (P.flight){ const f = P.flight; f.t += dt/f.dur; const t = Math.min(1,f.t), e = t<.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;
     const prev = P.pos.clone(); P.pos.lerpVectors(f.from, f.to, e); P.pos.y += Math.sin(Math.PI*e)*f.arc; const d = P.pos.clone().sub(prev); if (d.x*d.x+d.z*d.z > 1e-6) P.facing = Math.atan2(d.x,d.z);
-    if (t >= 1){ P.flight = null; P.vel.set(0,0,0); P.onGround = true; } P.speed = 0; return; }
+    if (t >= 1){ P.flight = null; P.vel.set(0,0,0); P.onGround = true;
+      if (overWater(P.pos.x, P.pos.z) && P.pos.y < WATER_Y + .1){ splashLake(P.pos, 1.6); glideToShore(1.4); } }
+    P.speed = 0; return; }
   let mx = 0, mz = 0;
   const fwd = (keys.KeyW||keys.ArrowUp?1:0) - (keys.KeyS||keys.ArrowDown?1:0), side = (keys.KeyD||keys.ArrowRight?1:0) - (keys.KeyA||keys.ArrowLeft?1:0);
   if (fwd || side){ const fx = -Math.sin(camS.yaw), fz = -Math.cos(camS.yaw), rx = Math.cos(camS.yaw), rz = -Math.sin(camS.yaw); mx = fx*fwd + rx*side; mz = fz*fwd + rz*side; P.target = null; }
@@ -872,8 +879,13 @@ function updatePlayer(dt){
   /* ceilings: platform undersides stop the head */
   if (P.vel.y > 0){ const ceil = ceilingAt(nx, nz, P.pos.y + HEAD); if (ny + HEAD > ceil){ ny = Math.max(P.pos.y, ceil - HEAD); P.vel.y = 0; } }
   const sup = supportAt(nx, nz, P.pos.y);
-  if (!sup.onPlatform && !P.flying && P.vel.y <= 0 && ny < 2 && Math.hypot(nx,nz) < LAKE_BLOCK - 1e-4){
-    glideToShore(); if (P.flight) return;
+  /* the lake: coming down onto open water (falling, flying or diving) touches the surface with a splash and hops straight back to
+     the bank; landing on the dry bank inside the lake's ring glides off it as before */
+  if (!sup.onPlatform && !P.flying && P.vel.y <= 0 && Math.hypot(nx,nz) < LAKE_BLOCK - 1e-4){
+    const water = overWater(nx, nz), surface = water ? WATER_Y : sup.h + .05;
+    if (ny <= surface){ P.pos.set(nx, Math.max(surface, sup.h), nz);
+      if (water) splashLake(P.pos, 1.2 + Math.min(.6, -P.vel.y/15));
+      glideToShore(water ? 1.4 : .35); if (P.flight) return; }
   }
   if (ny > CEILING){ ny = CEILING; P.vel.y = Math.min(P.vel.y, 0); }
   if (ny <= sup.h){ ny = sup.h; P.vel.y = 0; P.onGround = true; } else P.onGround = ny - sup.h < .05;
