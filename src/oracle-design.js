@@ -105,6 +105,28 @@ export function buildOracleDesign({ main, reduceMotion }) {
     return mat;
   }
 
+  // A dense blue center supplies real depth, so rear rings and rear filaments
+  // disappear behind it instead of accumulating into a transparent wire ball.
+  function solidCrystal() {
+    return new THREE.ShaderMaterial({ depthWrite: true, side: THREE.FrontSide, fog: false,
+      uniforms: { energy, power },
+      vertexShader: `varying vec3 vN;varying vec3 vV;varying vec2 vCenter;
+        void main(){vec4 mv=modelViewMatrix*vec4(position,1.);vN=normalize(normalMatrix*normal);vV=-mv.xyz;
+          vCenter=mv.xy-(modelViewMatrix*vec4(0.,0.,0.,1.)).xy;gl_Position=projectionMatrix*mv;}`,
+      fragmentShader: `uniform float energy;uniform float power;varying vec3 vN;varying vec3 vV;varying vec2 vCenter;
+        void main(){vec3 n=normalize(vN),v=normalize(vV),r=reflect(-v,n);
+          float key=max(dot(n,normalize(vec3(-.5,.8,.65))),0.);
+          float fill=max(dot(n,normalize(vec3(.65,-.2,.5))),0.);
+          float rim=pow(1.-max(dot(n,v),0.),3.);
+          float spec=pow(max(dot(r,normalize(vec3(-.5,.8,.65))),0.),42.);
+          float heart=exp(-dot(vCenter,vCenter)*.3);
+          vec3 col=mix(vec3(.035,.065,.14),vec3(.19,.32,.49),key*.8+fill*.22);
+          col+=vec3(.055,.075,.14)*rim+vec3(.28,.4,.57)*spec*.55;
+          col+=vec3(.15,.27,.43)*heart*(.6+energy*.25+power*.12);
+          gl_FragColor=vec4(col,1.);}`
+    });
+  }
+
   // The art's inscriptions are tiny abstract diagrams, degree ticks and stars.
   // Draw them with a private seed so the valley's shared decoration never shifts.
   const canvas = document.createElement('canvas'); canvas.width = 2048; canvas.height = 256;
@@ -199,6 +221,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
 
   const core = new THREE.Group(); core.scale.setScalar(1.3 * 1.3); core.rotation.set(.03, 0, .1); group.add(core);
   const alignment = new THREE.Group(); alignment.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, (1 + Math.sqrt(5)) / 2).normalize(), new THREE.Vector3(0, 0, 1)); core.add(alignment);
+  alignment.add(new THREE.Mesh(rhombicTriacontahedron(2.75), solidCrystal()));
   const coreShapes = [new THREE.IcosahedronGeometry(4.05, 0), new THREE.DodecahedronGeometry(3.2, 0), new THREE.OctahedronGeometry(2.4, 0), rhombicTriacontahedron(1.7)];
   coreShapes.forEach((geo, i) => {
     const holder = new THREE.Group(); holder.rotation.set(0, i === 2 ? Math.PI / 4 : 0, 0); alignment.add(holder);

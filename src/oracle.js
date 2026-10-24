@@ -33,8 +33,8 @@ export function createOracle(scene, { y, main, reduceMotion }) {
     group.position.y = y + (reduceMotion ? 0 : Math.sin(T * .23) * .12);
     design.update(dt, T, { power: Math.min(1, power + finale * .2), speak, flash, finale });
     for (let i = ripples.length - 1; i >= 0; i--) {
-      const r = ripples[i]; r.t += dt / 2.2; r.s.scale.setScalar(9 + r.size * r.t);
-      r.s.material.opacity = Math.sin(Math.min(1, r.t) * Math.PI) * .12;
+      const r = ripples[i]; r.t += dt / 1.8; r.s.scale.setScalar(8 + r.size * r.t);
+      r.s.material.opacity = Math.sin(Math.min(1, r.t) * Math.PI) * .8;
       if (r.t >= 1) { group.remove(r.s); r.s.material.dispose(); ripples.splice(i, 1); }
     }
     for (let i = travellers.length - 1; i >= 0; i--) {
@@ -52,8 +52,8 @@ export function createOracle(scene, { y, main, reduceMotion }) {
   return {
     group, light, update, sendLight, ripple,
     get position() { return group.position; },
-    receive(relic) { design.receive(relic); flash = 1; ripple(relic.color, 34); },
-    speakPulse() { ripple('#CEE7F2', 24); },
-    bloom() { finale = .001; flash = 1.2; design.bloom(); ripple('#F1D8AD', 44); },
+    receive(relic) { design.receive(relic); flash = 1; ripple(relic.color, 60); },
+    speakPulse() { ripple('#9FE8FF', 34); },
+    bloom() { finale = .001; flash = 1.2; design.bloom(); ripple('#F4D58D', 90); },
   };
 }
