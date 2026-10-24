@@ -190,7 +190,10 @@ export function createPaperBird(scene, { perch, star, hint, reduceMotion }){
 
   /* the paper from bird base to open sheet: k from SWAP to 1 */
   function poseSheet(k, light){
-    const rf = Math.PI*(1 - span(k,.30,.50)), rb = Math.PI*(1 - span(k,.31,.51));
+    /* the petals take their time swinging out toward you (that is where the outline changes), then flick down flat, so the
+       square base does not sit still before it opens */
+    const land = (a, b) => { const l = Math.min(1, Math.max(0, (k - a)/(b - a))); return l*l*l; };
+    const rf = Math.PI*(1 - land(.30,.50)), rb = Math.PI*(1 - land(.31,.51));
     let mix, frame = null;
     if (k < .51){   /* the petals: front and back swing down, their sides spread, the legs widen again into the square base */
       PRESSED.forEach((p, i) => sp[i].copy(p));
@@ -198,19 +201,21 @@ export function createPaperBird(scene, { perch, star, hint, reduceMotion }){
       petal(rb, tipA, sideM); sp[A(2)].set(tipA.x, tipA.y, -tipA.z); sp[M(3)].set(sideM.x, sideM.y, -sideM.z); sp[M(2)].set(-sp[M(3)].x, sp[M(3)].y, sp[M(3)].z);
       mix = smooth(rf/Math.PI);
     } else {        /* the square base: it tips its open end toward you, its four fins part, and it opens out flat */
-      const spread = span(k,.51,.70), tip = span(k,.51,.78), chi = Math.PI/4*(1 + span(k,.62,1)), sc = Math.sin(chi), cc = Math.cos(chi);
+      const spread = span(k,.51,.70), chi = Math.PI/4*(1 + span(k,.62,1)), sc = Math.sin(chi), cc = Math.cos(chi);
       const psi = [0, Math.PI - spread*Math.PI/2, Math.PI, -spread*Math.PI/2];
       ms.forEach((m, j) => m.set(sc*Math.cos(psi[j]), sc*Math.sin(psi[j]), cc));
       as.forEach((a, j) => cornerBetween(ms[j], ms[(j+1) & 3], a));
       sp[0].set(0,0,0); for (let j=0;j<4;j++){ sp[M(j)].copy(ms[j]); sp[P(j)].copy(ms[j]).multiplyScalar(PK); sp[A(j)].copy(as[j]).multiplyScalar(R2); sp[H(j)].copy(as[j]).multiplyScalar(HK); }
-      frame = { psi, fade:1 - span(k,.64,.8), turn:Math.PI/2*(1 - tip) };
+      frame = { psi, fade:1 - span(k,.64,.8) };
     }
-    const pa = sPos.array;
+    /* the folded paper starts tipping its foot toward you while the front petal is still landing, so it never sits still */
+    const tl = Math.min(1, Math.max(0, (k - .44)/.34)), tip = (1 - (1 - tl)*(1 - tl))*Math.PI/2, ct = Math.cos(tip), st = Math.sin(tip), pa = sPos.array;
     FACES.forEach((f, i) => {
       if (frame){ const d = frame.psi[f.fin] - (f.fin === 1 || f.fin === 2 ? Math.PI : 0), l = f.lp*LAYER*frame.fade; off.set(-Math.sin(d)*l, Math.cos(d)*l, 0); }
       else off.set(0, 0, (f.lp + (f.lb - f.lp)*mix)*LAYER);
       f.v.forEach((p, k) => { const v = e1.copy(sp[p]).add(off);
-        if (frame){ const c = Math.cos(frame.turn), s = Math.sin(frame.turn), y = v.y*c - v.z*s; v.z = v.y*s + v.z*c; v.y = y; }
+        if (frame){ const y = -v.z; v.z = v.y; v.y = y; }   // the opening square base, turned to hang facing you like the petals
+        const y = v.y*ct + v.z*st; v.z = v.z*ct - v.y*st; v.y = y;
         pa[i*9+k*3] = v.x; pa[i*9+k*3+1] = v.y; pa[i*9+k*3+2] = v.z; }); });
     sPos.needsUpdate = true;
     /* each facet lit on the side you see: the inside faces its normal, the outside the reverse */
@@ -224,7 +229,7 @@ export function createPaperBird(scene, { perch, star, hint, reduceMotion }){
     inGeo.attributes.color.needsUpdate = outGeo.attributes.color.needsUpdate = true;
     inGeo.computeBoundingSphere(); outGeo.boundingSphere = inGeo.boundingSphere;
     /* keep the folded paper hanging centred: the petal hinge at the crane's wing roots, the open sheet centred on its middle */
-    sheet.position.y = BIRD_Y*(1 - span(k,.51,.8));
+    sheet.position.y = BIRD_Y*(1 - span(k,.44,.8));
   }
 
   /* how long each stage of k takes: the crane lifting and laying out its bird base goes briskly, the petals opening into
