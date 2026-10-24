@@ -71,13 +71,13 @@ export function buildHero(scene){
   const restGrounding = HEM_GAP - .025 - hem.geometry.boundingBox.min.y;
 
   const head = new THREE.Group(); head.position.set(0,1.13,0); body.add(head);
-  /* A small pointed arch frames the face. Its lower corners spread and fall toward the neck like the reference
-     hood; the cloth behind the opening stays full enough to cover the head. */
+  /* A small pointed arch frames the face. Rounded cheek turns keep the lower opening's raised, tucked-in
+     middle; the cloth behind the opening stays full enough to cover the head. */
   const faceY = -.035 + headLift, faceZ = -.018;
   const rimPoint = new V3(), rimCurves = [
     new THREE.CubicBezierCurve3(new V3(0,faceY+.205,.330), new V3(.059,faceY+.155,.330), new V3(.149,faceY+.113,.293), new V3(.158,faceY+.020,.268)),
-    new THREE.CubicBezierCurve3(new V3(.158,faceY+.020,.268), new V3(.160,faceY-.060,.253), new V3(.180,faceY-.160,.230), new V3(.183,faceY-.205,.219)),
-    new THREE.CubicBezierCurve3(new V3(.183,faceY-.205,.219), new V3(.124,faceY-.205,.219), new V3(.053,faceY-.180,.222), new V3(0,faceY-.180,.222)),
+    new THREE.CubicBezierCurve3(new V3(.158,faceY+.020,.268), new V3(.167,faceY-.073,.243), new V3(.184,faceY-.144,.234), new V3(.172,faceY-.190,.223)),
+    new THREE.CubicBezierCurve3(new V3(.172,faceY-.190,.223), new V3(.166,faceY-.214,.217), new V3(.053,faceY-.180,.222), new V3(0,faceY-.180,.222)),
   ];
   const hoodAt = (u, depth, out) => {
     const a = u*Math.PI*2, c = Math.cos(a), sn = Math.sin(a);
