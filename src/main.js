@@ -548,15 +548,44 @@ const dropMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, u
 const streakMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false,
   vertexShader:'attribute float lineA; varying float vA; void main(){ vA = lineA; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
   fragmentShader:'varying float vA; void main(){ gl_FragColor = vec4(vec3(.62,.86,.93), vA); }' });
+/* small ripples where single drops land: a pool of flat rings on the water, each spreading a pair of fine rings and fading */
+const dropRings = [], dropRingGeo = new THREE.CircleGeometry(1, 40).rotateX(-Math.PI/2);
+for (let i = 0; i < 48; i++){
+  const u = { a:{value:0}, k:{value:0} };
+  const m = new THREE.Mesh(dropRingGeo, new THREE.ShaderMaterial({ transparent:true, depthWrite:false, uniforms:u,
+    vertexShader:'varying vec2 vP; void main(){ vP = position.xz; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
+    fragmentShader:`uniform float a; uniform float k; varying vec2 vP;
+      void main(){ float r = length(vP), ring = exp(-pow((r - .82)/.07, 2.)) + .55*exp(-pow((r - .55 + k*.1)/.06, 2.))*(1. - k);
+        gl_FragColor = vec4(vec3(.72,.9,.98), ring*a); }` }));
+  m.visible = false; m.renderOrder = 2; scene.add(m); dropRings.push({ m, u, age:9, life:1, size:.3 });
+}
+let dropRingNext = 0;
+function dropRipple(x, z, s){
+  const o = dropRings[dropRingNext]; dropRingNext = (dropRingNext + 1) % dropRings.length;
+  o.m.position.set(x, WATER_Y + .012, z); o.age = 0; o.life = .6 + s*2.5; o.size = .16 + s*3.2; o.m.visible = true;
+}
+function updateDropRings(dt){
+  dropRings.forEach(o => { if (!o.m.visible) return; o.age += dt; const k = o.age/o.life;
+    if (k >= 1){ o.m.visible = false; return; }
+    o.m.scale.setScalar(.04 + o.size*Math.sqrt(k)); o.u.k.value = k; o.u.a.value = .24*(1 - k)*(1 - k)*Math.min(1, o.age*20); });
+}
 function splashLake(at, power=1){
   lakeMat.uniforms.ripples.value[rippleNext].set(at.x, at.z, T, Math.min(2, .5 + power*.55)); rippleNext = (rippleNext + 1) % 4;
   if (reduceMotion) return;
-  const r0 = .08 + power*.2, crown = Math.round(18 + 30*power), jet = Math.round(4 + 7*power), n = crown + jet;
+  /* an orderly splash: the crown is two rings of evenly spaced drops leaving together at nearly the same speed and angle (the
+     outer ring lower and wider), and the jet is a single file of drops rising straight up from the middle one after another,
+     smaller toward the top */
+  const r0 = .08 + power*.2, ring = Math.round(10 + 10*power), crown = ring*2, jet = Math.round(4 + 4*power), n = crown + jet, a0 = rand()*6.283;
   const pos = new Float32Array(n*3), size = new Float32Array(n), alpha = new Float32Array(n), line = new Float32Array(n*6), drops = [];
-  for (let i=0;i<n;i++){ const isJet = i >= crown, a = rand()*6.283, rr = isJet ? rand()*r0*.25 : r0*(.8 + rand()*.4);
-    const out = isJet ? (rand() - .5)*.5 : (.7 + rand()*1.5)*(.6 + power*.4), up = isJet ? (3.2 + rand()*2.2)*(.7 + power*.35) : (1.6 + rand()*2.4)*(.6 + power*.4);
-    drops.push({ p:new V3(at.x + Math.cos(a)*rr, WATER_Y + .02, at.z + Math.sin(a)*rr), v:new V3(Math.cos(a)*out, up, Math.sin(a)*out), wait:isJet ? .12 + rand()*.12 : rand()*.05, on:true });
-    size[i] = (isJet ? .1 : .05) + rand()*rand()*.18*(.5 + power*.4); }
+  for (let i=0;i<n;i++){ let p, v, wait;
+    if (i < crown){ const outer = i >= ring, k = i % ring, a = a0 + (k + (outer ? .5 : 0))/ring*6.283 + (rand() - .5)*.08, rr = r0*(outer ? 1.15 : .85);
+      const out = (outer ? 1.5 : 1.)*(.6 + power*.4)*(.94 + rand()*.12), up = (outer ? 2.3 : 3.2)*(.6 + power*.35)*(.94 + rand()*.12);
+      p = new V3(at.x + Math.cos(a)*rr, WATER_Y + .02, at.z + Math.sin(a)*rr); v = new V3(Math.cos(a)*out, up, Math.sin(a)*out); wait = outer ? .03 : 0;
+      size[i] = (.06 + .04*power)*(outer ? .85 : 1)*(.9 + rand()*.2); }
+    else { const j = i - crown, f = j/Math.max(1, jet - 1);
+      p = new V3(at.x + (rand() - .5)*.03, WATER_Y + .02, at.z + (rand() - .5)*.03); v = new V3((rand() - .5)*.12, (2.6 + 2.6*f)*(.7 + power*.3), (rand() - .5)*.12); wait = .14 + (1 - f)*.16;
+      size[i] = (.12 + .06*power)*(1 - f*.55); }
+    drops.push({ p, v, wait, on:true, s:size[i] }); }
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('size', new THREE.BufferAttribute(size, 1)); g.setAttribute('alpha', new THREE.BufferAttribute(alpha, 1));
   const pts = new THREE.Points(g, dropMat); pts.frustumCulled = false; scene.add(pts);
   const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.BufferAttribute(line, 3)); lg.setAttribute('lineA', new THREE.BufferAttribute(new Float32Array(n*2), 1));
@@ -580,7 +609,8 @@ function updateSplashes(dt){
   for (let i = splashes.length-1; i >= 0; i--){ const s = splashes[i]; s.age += dt;
     const pos = s.pts.geometry.attributes.position.array, al = s.pts.geometry.attributes.alpha.array, ln = s.streaks.geometry.attributes.position.array, la = s.streaks.geometry.attributes.lineA.array; let live = 0;
     s.drops.forEach((d, k) => {
-      if (d.on && s.age > d.wait){ d.v.y -= 9.8*1.3*dt; d.v.multiplyScalar(Math.exp(-dt*.4)); d.p.addScaledVector(d.v, dt); if (d.p.y < WATER_Y) d.on = false; }
+      if (d.on && s.age > d.wait){ d.v.y -= 9.8*1.3*dt; d.v.multiplyScalar(Math.exp(-dt*.4)); d.p.addScaledVector(d.v, dt);
+        if (d.p.y < WATER_Y){ d.on = false; if (overWater(d.p.x, d.p.z)) dropRipple(d.p.x, d.p.z, d.s); } }
       const shown = d.on && s.age > d.wait; if (shown) live++;
       pos.set([d.p.x, d.p.y, d.p.z], k*3); al[k] = shown ? Math.min(1, (s.age - d.wait)*12) : 0;
       const tail = shown ? .05 : 0; ln.set([d.p.x, d.p.y, d.p.z, d.p.x - d.v.x*tail, d.p.y - d.v.y*tail, d.p.z - d.v.z*tail], k*6); la[k*2] = al[k]*.55; la[k*2 + 1] = 0; });
@@ -1093,7 +1123,7 @@ document.querySelectorAll('[data-placeholder]').forEach(a => a.addEventListener(
 let last = performance.now();
 function simulate(dt){
   T += dt;
-  updatePlayer(dt); updateHero(dt); updateRelics(dt); updateArrows(dt); updateSplashes(dt); updateCamera(dt); updateWorld(dt); updateHover();
+  updatePlayer(dt); updateHero(dt); updateRelics(dt); updateArrows(dt); updateSplashes(dt); updateDropRings(dt); updateCamera(dt); updateWorld(dt); updateHover();
   sky.update(dt, T, camera, { showAll:gaze, hover:hoverStar, focus:openRelic });
   updateLabels(); updateCross(); updateStamina();
 }
