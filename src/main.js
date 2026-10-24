@@ -182,7 +182,7 @@ const lakeMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false,
         float wave = sin((dd - front)*16./sc)*exp(-pow((dd - front)/((.1 + age*.16)*sc), 2.))*fade;
         bend += off/max(dd, 1e-3)*wave; glint += max(wave, 0.); }
       vec4 m = vM; m.xy += bend*.035*m.w;
-      vec3 col = texture2DProj(mirror, m).rgb*mix(vec3(1.3,1.38,1.55), vec3(1.05,1.6,1.55), spring) + vec3(.55,.85,1.)*glint*.22;
+      vec3 col = texture2DProj(mirror, m).rgb*mix(vec3(1.3,1.38,1.55), vec3(1.05,1.6,1.55), spring) + vec3(.8,.87,1.)*glint*.22;
       /* soft paths of light under the star overhead and the lanterns */
       col += mix(vec3(.55,.9,1.), vec3(.8,.78,1.), glow)*streak(R, normalize(star - vW), 900., 50.)*(.3 + glow*.25 + energy*.3);
       for (int i = 0; i < 3; i++) col += vec3(1.,.76,.5)*streak(R, normalize(lamps[i] - vW), 2400., 60.)*.25;
@@ -543,16 +543,16 @@ const overWater = (x, z) => Math.hypot(x, z) < LAKE_EDGE && groundH(x, z) < WATE
 const dropMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, uniforms:{ scale:wispScale },
   vertexShader:`attribute float size; attribute float alpha; uniform float scale; varying float vA;
     void main(){ vA = alpha; vec4 mv = modelViewMatrix*vec4(position,1.); gl_PointSize = size*scale/-mv.z; gl_Position = projectionMatrix*mv; }`,
-  /* a drop of clear water, a small solid lens: a faint teal body, a small highlight on top from the star overhead, and a brighter
+  /* a drop of clear water, a small solid lens: a faint, nearly colourless body, a small highlight on top from the star overhead, and a brighter
      crescent at the bottom where the light focuses through it */
   fragmentShader:`varying float vA; void main(){ vec2 q = gl_PointCoord - .5; float r = length(q)*2.; if (r > 1.) discard;
-    float body = sqrt(1. - r*r)*.16*smoothstep(1., .8, r);
+    float body = sqrt(1. - r*r)*.09*smoothstep(1., .8, r);
     vec2 h = q - vec2(0., -.2), b = q - vec2(0., .22); float spec = exp(-dot(h, h)*130.), focus = exp(-dot(b, b)*38.)*smoothstep(1., .75, r);
-    gl_FragColor = vec4(mix(mix(vec3(.3,.54,.62), vec3(.58,.82,.9), focus), vec3(.95,.99,1.), spec), (body + focus*.16 + spec*.55)*vA); }` });
+    gl_FragColor = vec4(mix(mix(vec3(.7,.76,.86), vec3(.9,.94,1.), focus), vec3(1.), spec), (body + focus*.1 + spec*.45)*vA); }` });
 /* motion trails behind the drops: brightest at the drop, fading out behind it */
 const streakMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false,
   vertexShader:'attribute float lineA; varying float vA; void main(){ vA = lineA; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
-  fragmentShader:'varying float vA; void main(){ gl_FragColor = vec4(vec3(.48,.7,.78), vA); }' });
+  fragmentShader:'varying float vA; void main(){ gl_FragColor = vec4(vec3(.78,.84,.94), vA); }' });
 /* small ripples where single drops land: real ripples in the water like the big ones (see the lake shader), only smaller and
    quicker, kept in a ring of 32 */
 let dripNext = 0;
@@ -592,7 +592,7 @@ function splashLake(at, power=1){
   const foam = new THREE.Mesh(new THREE.CircleGeometry(1, 48).rotateX(-Math.PI/2), new THREE.ShaderMaterial({ transparent:true, depthWrite:false, uniforms:fu,
     vertexShader:'varying vec2 vP; void main(){ vP = position.xz; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
     fragmentShader:`uniform float a; varying vec2 vP;
-      void main(){ float d = length(vP), ring = exp(-pow((d - .8)/.12, 2.)) + exp(-d*d*6.)*.35; gl_FragColor = vec4(vec3(.82,.92,1.), ring*a); }` }));
+      void main(){ float d = length(vP), ring = exp(-pow((d - .8)/.12, 2.)) + exp(-d*d*6.)*.35; gl_FragColor = vec4(vec3(.88,.91,1.), ring*a); }` }));
   foam.position.set(at.x, WATER_Y + .012, at.z); foam.renderOrder = 2; scene.add(foam);
   splashes.push({ pts, streaks, drops, foam, fu, mistPts, mist, r0, age:0, power });
 }
@@ -604,7 +604,7 @@ function updateSplashes(dt){
         if (d.p.y < WATER_Y){ d.on = false; if (overWater(d.p.x, d.p.z) && (d.jet || rand() < .4)) dropRipple(d.p.x, d.p.z, d.s, d.jet); } }
       const shown = d.on && s.age > d.wait; if (shown) live++;
       pos.set([d.p.x, d.p.y, d.p.z], k*3); al[k] = shown ? Math.min(1, (s.age - d.wait)*12) : 0;
-      const tail = shown ? .05 : 0; ln.set([d.p.x, d.p.y, d.p.z, d.p.x - d.v.x*tail, d.p.y - d.v.y*tail, d.p.z - d.v.z*tail], k*6); la[k*2] = al[k]*.28; la[k*2 + 1] = 0; });
+      const tail = shown ? .05 : 0; ln.set([d.p.x, d.p.y, d.p.z, d.p.x - d.v.x*tail, d.p.y - d.v.y*tail, d.p.z - d.v.z*tail], k*6); la[k*2] = al[k]*.18; la[k*2 + 1] = 0; });
     s.pts.geometry.attributes.position.needsUpdate = true; s.pts.geometry.attributes.alpha.needsUpdate = true; s.streaks.geometry.attributes.position.needsUpdate = true; s.streaks.geometry.attributes.lineA.needsUpdate = true;
     const f = Math.min(1, s.age/1.4); s.foam.scale.setScalar(s.r0 + (.9 + s.power*.5)*Math.sqrt(f)); s.fu.a.value = .45*(1 - f)*(1 - f);
     const mp = s.mistPts.geometry.attributes.position.array, ml = Math.min(1, s.age/1.3);
