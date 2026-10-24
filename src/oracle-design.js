@@ -32,10 +32,10 @@ const SURFACE = `${LIGHTS}${NOISE}
   // clouds and fine white fractures that mirrors the sky, more so at grazing.
   vec4 nebula(vec3 n,vec3 v,vec2 q,float t){vec3 env=sky(reflect(-v,n));float fres=.05+.95*pow(1.-abs(dot(n,v)),4.);
     float neb=fbm2(q+vec2(t*.01,0.)),vio=smoothstep(.5,.82,fbm2(q*.55+11.));
-    float crack=exp(-abs(fbm2(q*1.6+4.)-.5)*55.)*smoothstep(.4,.75,noise2(q*.7-2.));
-    vec3 col=mix(vec3(.04,.07,.18),vec3(.2,.33,.64),smoothstep(.25,.85,neb));
-    col=mix(col,vec3(.38,.23,.62),vio*.75)*.8+env*(.35+fres*1.5)+vec3(.78,.88,1.)*crack*.55;
-    return vec4(col,min(.95,.85+fres*.1+crack*.05));}
+    float crack=exp(-abs(fbm2(q*1.6+4.)-.5)*80.)*smoothstep(.45,.8,noise2(q*.7-2.));
+    vec3 col=mix(vec3(.04,.07,.18),vec3(.2,.33,.64),.3+.45*smoothstep(.25,.85,neb));
+    col=mix(col,vec3(.38,.23,.62),vio*.45)*.8+env*(.35+fres*1.5)+vec3(.78,.88,1.)*crack*.22;
+    return vec4(col,min(.95,.85+fres*.1+crack*.02));}
   bool hidden(vec3 w,vec3 center,float hemi){return dot(w-center,w-cameraPosition)*hemi>0.;}`;
 // A glint drawn as a thin four-point star with fainter diagonals, not a disc.
 const STAR = `uniform vec3 col;varying float vI;varying float vA;varying vec3 vCol;
