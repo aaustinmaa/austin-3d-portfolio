@@ -398,13 +398,15 @@ const beamFrag = `uniform float t; uniform float fade; uniform float rep; unifor
    that line of sight passes closest to the axis and how far off it passes there, measured against the cone's width at that
    height, so the light is fullest down the middle and ends at a clean round edge from any angle (and in the lake's mirror).
    The same light spreads over more width as it falls, so it is densest and whitest under the star and thins to cyan over the
-   water, gathering a little where it lands. The only motion is a slow, faint brightening that drifts down */
-const shaftU = { t:{value:0}, power:{value:1} };
+   water, gathering a little where it lands. Its colour is the star's own (hue), leaning to violet in the outer layer (veil).
+   It breathes slowly, and every so often it blinks: dims for a moment, then wells up again in a swell of light that flows
+   from the star down to the water (wave, waveAmp; see updateWorld) */
+const shaftU = { t:{value:0}, power:{value:1}, hue:{value:C('#9FE8FF')}, veil:{value:C('#9484FF')}, wave:{value:-1}, waveAmp:{value:0} };
 { const top = ORACLE_Y - 3, h = top - WATER_Y;
   const m = new THREE.Mesh(new THREE.CylinderGeometry(2, 8.5, h, 64, 1, true), new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.BackSide, fog:false,
     uniforms:shaftU,
     vertexShader:'varying vec3 vW; void main(){ vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }',
-    fragmentShader:`uniform float t; uniform float power; varying vec3 vW;
+    fragmentShader:`uniform float t; uniform float power; uniform vec3 hue; uniform vec3 veil; uniform float wave; uniform float waveAmp; varying vec3 vW;
       void main(){ vec3 d = normalize(vW - cameraPosition); vec2 o = cameraPosition.xz, k = d.xz; float kk = max(dot(k, k), 1e-6);
         float s = -dot(o, k)/kk, dist = abs(o.x*k.y - o.y*k.x)/sqrt(kk), y = cameraPosition.y + d.y*s;
         float f = clamp((${top.toFixed(1)} - y)/${h.toFixed(1)}, 0., 1.);            /* 0 under the star, 1 at the water */
@@ -413,8 +415,9 @@ const shaftU = { t:{value:0}, power:{value:1} };
         float inner = sqrt(max(0., 1. - qi*qi)), outer = sqrt(max(0., 1. - qo*qo));
         float along = smoothstep(${WATER_Y.toFixed(2)} - .05, ${(WATER_Y + .4).toFixed(2)}, y)*smoothstep(${top.toFixed(1)} + .5, ${(top - 4).toFixed(1)}, y)*step(0., s);
         float spread = pow(.45/rIn, .3), gather = 1. + .8*exp(-(y - ${WATER_Y.toFixed(2)})*.3), fall = .95 + .05*sin(y*.4 + t*.6);
-        vec3 tint = mix(vec3(.95,.99,1.), vec3(.6,.9,1.), smoothstep(0., .8, f));
-        vec3 c = (tint*inner*.36 + mix(tint, vec3(.45,.78,1.), .5)*outer*.16)*spread*gather*fall*along*power;
+        vec3 tint = mix(vec3(.96,.98,1.), hue, smoothstep(0., .85, f)*.8), mist = mix(hue, veil, .55);
+        float swell = 1. + waveAmp*exp(-pow((f - wave)/.14, 2.));
+        vec3 c = (tint*inner*.36 + mist*outer*.17)*spread*gather*fall*swell*along*power;
         c *= smoothstep(.8, 3., length(o));   /* fade if the camera is inside the light */
         gl_FragColor = vec4(c, 1.); }` }));   /* additive blending scales by alpha, so alpha 1 adds the light as shaded */
   m.position.y = WATER_Y + h/2; m.renderOrder = 3; scene.add(m); }
@@ -758,7 +761,13 @@ function updateWorld(dt){
   moon.intensity = lerp(.06, .2, L) + D*.04;
   scene.fog.color.copy(fogCol[0]).lerp(fogCol[1], L).lerp(fogCol[2], D*.4); scene.fog.near = lerp(14, 26, L); scene.fog.far = lerp(95, 150, L);
   skyMat.uniforms.glow.value = L; skyMat.uniforms.dawn.value = D;
-  shaftU.t.value = reduceMotion ? 0 : T; shaftU.power.value = .85 + L*.3 + ey*.45; lakeMat.uniforms.t.value = reduceMotion ? 0 : T; lakeMat.uniforms.energy.value = ey; lakeMat.uniforms.glow.value = L; fallMat.uniforms.t.value = T; beamMat.uniforms.t.value = T;
+  shaftU.t.value = reduceMotion ? 0 : T; shaftU.hue.value.copy(oracle.light.color);
+  /* the star's light breathes, and every ten seconds it blinks: a short dip, then a swell that flows from the star down to the water */
+  let breath = 1, blink = 1; shaftU.waveAmp.value = 0;
+  if (!reduceMotion){ const b = T % 10; breath = .9 + .1*Math.sin(T*.95);
+    blink = 1 - .6*Math.sin(Math.PI*Math.min(1, b/.7)) + .28*Math.exp(-Math.pow((b - 1.5)/.6, 2));
+    if (b > .6 && b < 4){ shaftU.wave.value = (b - .6)/3.2; shaftU.waveAmp.value = .65*(1 - (b - .6)/3.4); } }
+  shaftU.power.value = (.85 + L*.3 + ey*.45)*breath*blink; lakeMat.uniforms.t.value = reduceMotion ? 0 : T; lakeMat.uniforms.energy.value = ey; lakeMat.uniforms.glow.value = L; fallMat.uniforms.t.value = T; beamMat.uniforms.t.value = T;
   if (beamState.life > 0){ beamState.life -= dt; const from = oracle.position.clone(), to = beamState.relic.pos.clone(); const dir = to.clone().sub(from), len = dir.length(); dir.normalize();
     beam.scale.set(1,len,1); beam.position.copy(from).addScaledVector(dir, len/2); beam.quaternion.setFromUnitVectors(UP, dir.clone().negate());
     beamMat.uniforms.rep.value = len/1.5; beamMat.uniforms.fade.value = Math.min(1, beamState.life/.8)*Math.min(1,(3.2-beamState.life)/.25)*1.3;
