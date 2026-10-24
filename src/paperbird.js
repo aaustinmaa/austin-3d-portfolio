@@ -227,11 +227,13 @@ export function createPaperBird(scene, { perch, star, hint, reduceMotion }){
     sheet.position.y = BIRD_Y*(1 - span(k,.51,.8));
   }
 
-  /* the crane becomes folded paper over k 0 to FOLDED, unhurried; the folded paper then opens out quickly (and the same
-     the other way: the paper folds up quickly, then takes its time becoming a crane) */
-  const SWAP = .3, FOLDED = .51, CRANE_SECS = 1.1, PAPER_SECS = .35, REFOLD = CRANE_SECS + PAPER_SECS;
-  const rate = k => k < FOLDED ? FOLDED/CRANE_SECS : (1 - FOLDED)/PAPER_SECS;
-  const refoldK = t => t < PAPER_SECS ? 1 - (1 - FOLDED)*t/PAPER_SECS : Math.max(0, FOLDED*(1 - (t - PAPER_SECS)/CRANE_SECS));
+  /* how long each stage of k takes: the crane lifting and laying out its bird base goes briskly, the petals opening into
+     the square base and the base tipping and parting its layers take their time, and the last opening out is quick
+     (the other way round when it folds back up) */
+  const SWAP = .3, KS = [0, SWAP, .51, .7, 1], SECS = [.45, .6, .2, .15], REFOLD = SECS.reduce((a, b) => a + b);
+  const rate = (k, up) => { let i = 0; while (i < 3 && (up ? k >= KS[i+1] : k > KS[i+1])) i++; return (KS[i+1] - KS[i])/SECS[i]; };
+  const kAt = t => { for (let i=0;i<4;i++){ if (t < SECS[i]) return KS[i] + (KS[i+1] - KS[i])*t/SECS[i]; t -= SECS[i]; } return 1; };
+  const refoldK = t => kAt(Math.max(0, REFOLD - t));
   function pose(k, light){
     crane.visible = k < SWAP; sheet.visible = !crane.visible;
     if (crane.visible) poseCrane(k/SWAP, light); else poseSheet(k, light);
@@ -257,7 +259,7 @@ export function createPaperBird(scene, { perch, star, hint, reduceMotion }){
       glow.position.copy(group.position); glow.scale.setScalar(1.2); glow.material.opacity = away < F + 2.8 ? .4*(1 - fly) : .14*back;
       if (back >= 1){ away = -1; k = 0; z = 0; writing = false; group.scale.setScalar(1); }
       return; }
-    const step = reduceMotion ? 1 : dt*rate(k), wantK = near || writing ? 1 : 0, wantZ = writing && k > .99 ? 1 : 0;
+    const wantK = near || writing ? 1 : 0, step = reduceMotion ? 1 : dt*rate(k, wantK > k), wantZ = writing && k > .99 ? 1 : 0;
     if (z > 0 || wantZ > 0) z += Math.sign(wantZ - z)*Math.min(Math.abs(wantZ - z), reduceMotion ? 1 : dt/1.2);
     else { if (k === 0 && wantK > 0) chooseSide(); k += Math.sign(wantK - k)*Math.min(Math.abs(wantK - k), step); }
     /* the crane rises off its lantern and turns its folds toward you; once open, the sheet can come close */
