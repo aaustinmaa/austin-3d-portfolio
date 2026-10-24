@@ -369,7 +369,7 @@ const braziers = [];
 
 /* ---------- the paper crane: a way to leave Austin a note, on the last lantern on the right, where the path turns up to the stair ---------- */
 const CRANE_LANTERN = { x:Math.sin(11.4*.35)*.8 + 1.75, z:11.4 };
-const bird = createPaperBird(scene, { perch:new V3(CRANE_LANTERN.x, groundH(CRANE_LANTERN.x, CRANE_LANTERN.z) + 1.83, CRANE_LANTERN.z), star:() => oracle.position, reduceMotion });
+const bird = createPaperBird(scene, { perch:new V3(CRANE_LANTERN.x, groundH(CRANE_LANTERN.x, CRANE_LANTERN.z) + 1.83, CRANE_LANTERN.z), star:() => oracle.position, hint:NOTE.crane, reduceMotion });
 pickables.push(...bird.pick);
 
 /* ---------- vegetation ---------- */
@@ -938,9 +938,10 @@ function updateTracker(){
 }
 updateTracker();
 const card = document.getElementById('card');
-let cardFor = null;
-function hideCard(){ card.hidden = true; cardFor = null; }
+let cardFor = null, introCard = null;   // introCard: where the wanderer stood when the name card opened on arrival (it closes on their first move, once)
+function hideCard(){ card.hidden = true; cardFor = null; introCard = null; }
 function renderCard(o, isRelic, withLinks){
+  introCard = null;
   card.innerHTML = `<button class="x" type="button" aria-label="Close">×</button>
     <div class="kicker"><span class="gem" style="background:${o.color};color:${o.color}"></span>${o.kicker}</div>
     <h2>${o.title || o.name}</h2>${o.meta ? `<div class="meta">${o.meta}</div>` : ''}<p>${o.body}</p>
@@ -958,12 +959,13 @@ function showRelicCard(r){ renderCard(r, true); }
 function showAbout(){ if (openRelic) sendBack(openRelic); renderCard(ABOUT, false); }
 document.getElementById('brand').addEventListener('click', () => cardFor === ABOUT && !card.hidden ? hideCard() : showAbout());
 let welcomed = false;
-function welcome(){ if (welcomed) return; welcomed = true; if (!cardFor && !openRelic) renderCard(ABOUT, false); }
+function welcome(){ if (welcomed) return; welcomed = true; if (!cardFor && !openRelic){ renderCard(ABOUT, false); introCard = P.pos.clone(); } }
+/* the name card that greets a new visitor steps aside as soon as they first move, so they meet it again at the crane */
+function closeIntroCard(){ if (introCard && (P.pos.distanceTo(introCard) > .3 || P.flight)) hideCard(); }
 /* ---------- the note: the crane flies toward you and opens into a large sheet of paper to write on ---------- */
 const letter = document.getElementById('letter'), letterForm = document.getElementById('letterForm'), letterMsg = document.getElementById('letterMsg');
 const letterFrom = document.getElementById('letterFrom'), letterStatus = document.getElementById('letterStatus'), letterSend = document.getElementById('letterSend');
 document.getElementById('letterTo').textContent = NOTE.to; letterMsg.placeholder = NOTE.placeholder; letterFrom.placeholder = NOTE.from; letterFrom.setAttribute('aria-label', NOTE.from); letterSend.textContent = NOTE.send;
-const craneLabel = document.createElement('div'); craneLabel.className = 'plabel'; craneLabel.innerHTML = `<kbd>N</kbd><b>${NOTE.crane}</b>`; document.getElementById('labels').appendChild(craneLabel);
 let writing = false, cardBeforeNote = null;
 function openLetter(){ if (writing || bird.busy) return; writing = true; cardBeforeNote = card.hidden ? null : cardFor; hideCard(); if (gaze) setGaze(false); P.drawing = false; P.target = null;
   const f = camera.getWorldDirection(new V3()); bird.setWriting(true, camera.position.clone().addScaledVector(f, 2.4).add(new V3(0, -.12, 0)));
@@ -987,19 +989,14 @@ letterForm.addEventListener('submit', async e => { e.preventDefault(); if (lette
   catch { letterStatus.textContent = NOTE.failed; }
   letterSend.disabled = false; letterSend.textContent = NOTE.send; });
 /* walking up to the crane unfolds it above its lantern and opens the name card; the writing sheet appears once the paper
-   has come close; a hint floats over the unfolded paper */
+   has come close; a quiet line on the paper itself hints that it can be written on */
 let byBird = false;
 function updateBird(dt){
-  bird.update(dt, T, camera);
+  closeIntroCard(); bird.update(dt, T, camera);
   const d = Math.hypot(P.pos.x - CRANE_LANTERN.x, P.pos.z - CRANE_LANTERN.z), level = Math.abs(P.pos.y - groundH(CRANE_LANTERN.x, CRANE_LANTERN.z)) < 3;
   if (!byBird && welcomed && d < 3 && level && !P.flight){ byBird = true; bird.setNear(true); if (!openRelic && !writing && (card.hidden || cardFor === ABOUT)) renderCard(ABOUT, false); }
   else if (byBird && (d > 5.5 || !level)){ byBird = false; bird.setNear(false); }
   if (writing && letter.hidden && bird.ready){ letter.hidden = false; letterMsg.focus({ preventScroll:true }); }
-  const show = bird.unfolded && !writing && mode !== 'aim' && !gaze;
-  if (show){ pv.copy(bird.sheetPosition); pv.y += 1.0; pv.project(camera); }
-  if (!show || pv.z > 1 || Math.abs(pv.x) > 1.05 || Math.abs(pv.y) > 1.05){ craneLabel.style.visibility = 'hidden'; return; }
-  craneLabel.style.visibility = 'visible'; craneLabel.style.opacity = 1;
-  craneLabel.style.transform = `translate(${((pv.x*.5+.5)*innerWidth).toFixed(1)}px,${((-pv.y*.5+.5)*innerHeight).toFixed(1)}px) translate(-50%,-100%)`;
 }
 const cross = document.getElementById('cross'), crossRing = document.getElementById('crossRing');
 const stamEl = document.getElementById('stamina'), stamFg = document.getElementById('stamFg');

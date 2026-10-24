@@ -100,7 +100,7 @@ const petal = (() => {
     tip.set(0, -HK - Math.cos(rho), Math.sin(rho));
     d.subVectors(c, tip); const p = 2*r*d.dot(e1), qq = 2*r*d.z;
     let g = 2*Math.atan2(qq, p) - Math.PI; g = Math.max(0, Math.min(Math.PI, Math.abs(wrapA(g))));
-    if (rho > Math.PI - 1e-4) g = Math.PI;
+    if (rho > Math.PI - 1e-4) g = Math.PI; else if (rho < 1e-4) g = 0;   // flat: the tip sits on the leg crease, so any turn fits; the side lies flat
     out.copy(c).addScaledVector(e1, r*Math.cos(g)); out.z += r*Math.sin(g); return out; };
 })();
 
@@ -115,20 +115,24 @@ function cornerBetween(ma, mb, out){
 }
 
 /* blank writing paper: pale lavender, faint ruled lines, the creases of the crane it was folded from, and a greeting */
-function letterTexture(){
+function letterTexture(hint){
   const w = 512, h = 512, c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d');
   const X = x => (x + 1)/2*w, Y = y => (1 - y)/2*h;
+  const draw = () => {
   g.fillStyle = '#E4DFF0'; g.fillRect(0,0,w,h);
   const v = g.createRadialGradient(w/2,h/2,h*.3,w/2,h/2,h*.75); v.addColorStop(0,'rgba(70,66,120,0)'); v.addColorStop(1,'rgba(70,66,120,.22)'); g.fillStyle = v; g.fillRect(0,0,w,h);
   g.strokeStyle = 'rgba(60,58,98,.2)'; g.lineWidth = 2; for (let y=150; y<h-40; y+=40){ g.beginPath(); g.moveTo(40,y); g.lineTo(w-40,y); g.stroke(); }
   /* the crane's creases, a shade darker where they fold toward you */
   g.lineWidth = 1.5; const line = (a, b, al) => { g.strokeStyle = `rgba(60,58,98,${al})`; g.beginPath(); g.moveTo(X(PTS[a][0]), Y(PTS[a][1])); g.lineTo(X(PTS[b][0]), Y(PTS[b][1])); g.stroke(); };
   for (let j=0;j<4;j++){ line(0, A(j), .16); line(0, M(j), .12); line(P(j), P(j+1), .12); line(A(j), P(j), .1); line(A(j), P(j+1), .1); }
-  const greet = () => { g.fillStyle = 'rgba(38,42,78,.75)'; g.font = 'italic 500 44px "Cormorant Garamond", Georgia, serif'; g.fillText('To Austin,', 42, 104); };
-  const t = new THREE.CanvasTexture(c);
-  /* draw the greeting again once the handwriting face has loaded */
-  if (document.fonts) document.fonts.load('italic 500 44px "Cormorant Garamond"').then(() => { g.fillStyle = '#E4DFF0'; g.fillRect(38,62,250,56); greet(); t.needsUpdate = true; }).catch(() => {});
-  greet(); return t;
+  /* the heading says what the paper is for, in a hand sized to fit the page */
+  const title = hint || 'To Austin,'; let fs = 44; g.fillStyle = 'rgba(38,42,78,.75)';
+  do { g.font = `italic 500 ${fs}px "Cormorant Garamond", Georgia, serif`; } while (g.measureText(title).width > w - 84 && --fs > 24);
+  g.fillText(title, 42, 104); };
+  draw(); const t = new THREE.CanvasTexture(c);
+  /* draw the page again once the handwriting face has loaded */
+  if (document.fonts) document.fonts.load('italic 500 44px "Cormorant Garamond"').then(() => { draw(); t.needsUpdate = true; }).catch(() => {});
+  return t;
 }
 
 /* paper lights itself evenly: a soft key from just above the viewer and a little sky, worked out per facet, so a flat
@@ -136,7 +140,7 @@ function letterTexture(){
 const KEY = new V3(), UP = new V3(0,1,0), nW = new V3(), e1 = new V3(), e2 = new V3();
 function lightFacet(n, pulse){ return Math.min(1.1, .3 + .54*Math.max(0, n.dot(KEY)) + .1*Math.max(0, n.y) + pulse*.25); }
 
-export function createPaperBird(scene, { perch, star, reduceMotion }){
+export function createPaperBird(scene, { perch, star, hint, reduceMotion }){
   const pick = [], group = new THREE.Group(); group.rotation.order = 'YXZ'; scene.add(group);
   const onlyVisible = function(r, out){ if (this.visible) THREE.Mesh.prototype.raycast.call(this, r, out); };
 
@@ -153,7 +157,7 @@ export function createPaperBird(scene, { perch, star, reduceMotion }){
   const inGeo = new THREE.BufferGeometry(), outGeo = new THREE.BufferGeometry();
   inGeo.setAttribute('position', sPos); outGeo.setAttribute('position', sPos); inGeo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   inGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(NF*9), 3)); outGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(NF*9), 3));
-  const sheetIn = new THREE.Mesh(inGeo, new THREE.MeshBasicMaterial({ map:letterTexture(), vertexColors:true, side:THREE.FrontSide }));
+  const sheetIn = new THREE.Mesh(inGeo, new THREE.MeshBasicMaterial({ map:letterTexture(hint), vertexColors:true, side:THREE.FrontSide }));
   const sheetOut = new THREE.Mesh(outGeo, new THREE.MeshBasicMaterial({ vertexColors:true, side:THREE.BackSide }));
   const sheet = new THREE.Group(); sheet.add(sheetIn, sheetOut); sheet.scale.setScalar(HS); sheet.rotation.y = Math.PI/2; sheet.visible = false; group.add(sheet);
   [sheetIn, sheetOut].forEach(m => { m.userData.bird = true; m.raycast = onlyVisible; pick.push(m); });
@@ -186,7 +190,10 @@ export function createPaperBird(scene, { perch, star, reduceMotion }){
 
   /* the paper from bird base to open sheet: k from SWAP to 1 */
   function poseSheet(k, light){
-    const rf = Math.PI*(1 - span(k,.30,.50)), rb = Math.PI*(1 - span(k,.31,.51));
+    /* the petals take their time swinging out toward you (that is where the outline changes), then flick down flat, so the
+       square base does not sit still before it opens */
+    const land = (a, b) => { const l = Math.min(1, Math.max(0, (k - a)/(b - a))); return l*l*l; };
+    const rf = Math.PI*(1 - land(.30,.50)), rb = Math.PI*(1 - land(.31,.51));
     let mix, frame = null;
     if (k < .51){   /* the petals: front and back swing down, their sides spread, the legs widen again into the square base */
       PRESSED.forEach((p, i) => sp[i].copy(p));
@@ -194,19 +201,21 @@ export function createPaperBird(scene, { perch, star, reduceMotion }){
       petal(rb, tipA, sideM); sp[A(2)].set(tipA.x, tipA.y, -tipA.z); sp[M(3)].set(sideM.x, sideM.y, -sideM.z); sp[M(2)].set(-sp[M(3)].x, sp[M(3)].y, sp[M(3)].z);
       mix = smooth(rf/Math.PI);
     } else {        /* the square base: it tips its open end toward you, its four fins part, and it opens out flat */
-      const spread = span(k,.51,.70), tip = span(k,.51,.78), chi = Math.PI/4*(1 + span(k,.62,1)), sc = Math.sin(chi), cc = Math.cos(chi);
+      const spread = span(k,.51,.70), chi = Math.PI/4*(1 + span(k,.62,1)), sc = Math.sin(chi), cc = Math.cos(chi);
       const psi = [0, Math.PI - spread*Math.PI/2, Math.PI, -spread*Math.PI/2];
       ms.forEach((m, j) => m.set(sc*Math.cos(psi[j]), sc*Math.sin(psi[j]), cc));
       as.forEach((a, j) => cornerBetween(ms[j], ms[(j+1) & 3], a));
       sp[0].set(0,0,0); for (let j=0;j<4;j++){ sp[M(j)].copy(ms[j]); sp[P(j)].copy(ms[j]).multiplyScalar(PK); sp[A(j)].copy(as[j]).multiplyScalar(R2); sp[H(j)].copy(as[j]).multiplyScalar(HK); }
-      frame = { psi, fade:1 - span(k,.64,.8), turn:Math.PI/2*(1 - tip) };
+      frame = { psi, fade:1 - span(k,.64,.8) };
     }
-    const pa = sPos.array;
+    /* the folded paper starts tipping its foot toward you while the front petal is still landing, so it never sits still */
+    const tl = Math.min(1, Math.max(0, (k - .44)/.34)), tip = (1 - (1 - tl)*(1 - tl))*Math.PI/2, ct = Math.cos(tip), st = Math.sin(tip), pa = sPos.array;
     FACES.forEach((f, i) => {
       if (frame){ const d = frame.psi[f.fin] - (f.fin === 1 || f.fin === 2 ? Math.PI : 0), l = f.lp*LAYER*frame.fade; off.set(-Math.sin(d)*l, Math.cos(d)*l, 0); }
       else off.set(0, 0, (f.lp + (f.lb - f.lp)*mix)*LAYER);
       f.v.forEach((p, k) => { const v = e1.copy(sp[p]).add(off);
-        if (frame){ const c = Math.cos(frame.turn), s = Math.sin(frame.turn), y = v.y*c - v.z*s; v.z = v.y*s + v.z*c; v.y = y; }
+        if (frame){ const y = -v.z; v.z = v.y; v.y = y; }   // the opening square base, turned to hang facing you like the petals
+        const y = v.y*ct + v.z*st; v.z = v.z*ct - v.y*st; v.y = y;
         pa[i*9+k*3] = v.x; pa[i*9+k*3+1] = v.y; pa[i*9+k*3+2] = v.z; }); });
     sPos.needsUpdate = true;
     /* each facet lit on the side you see: the inside faces its normal, the outside the reverse */
@@ -220,10 +229,16 @@ export function createPaperBird(scene, { perch, star, reduceMotion }){
     inGeo.attributes.color.needsUpdate = outGeo.attributes.color.needsUpdate = true;
     inGeo.computeBoundingSphere(); outGeo.boundingSphere = inGeo.boundingSphere;
     /* keep the folded paper hanging centred: the petal hinge at the crane's wing roots, the open sheet centred on its middle */
-    sheet.position.y = BIRD_Y*(1 - span(k,.51,.8));
+    sheet.position.y = BIRD_Y*(1 - span(k,.44,.8));
   }
 
-  const SWAP = .3;
+  /* how long each stage of k takes: the crane lifting and laying out its bird base goes briskly, the petals opening into
+     the square base and the base tipping and parting its layers take their time, and the last opening out is quick
+     (the other way round when it folds back up) */
+  const SWAP = .3, KS = [0, SWAP, .51, .7, 1], SECS = [.4, .35, .05, .23], REFOLD = SECS.reduce((a, b) => a + b);
+  const rate = (k, up) => { let i = 0; while (i < 3 && (up ? k >= KS[i+1] : k > KS[i+1])) i++; return (KS[i+1] - KS[i])/SECS[i]; };
+  const kAt = t => { for (let i=0;i<4;i++){ if (t < SECS[i]) return KS[i] + (KS[i+1] - KS[i])*t/SECS[i]; t -= SECS[i]; } return 1; };
+  const refoldK = t => kAt(Math.max(0, REFOLD - t));
   function pose(k, light){
     crane.visible = k < SWAP; sheet.visible = !crane.visible;
     if (crane.visible) poseCrane(k/SWAP, light); else poseSheet(k, light);
@@ -242,18 +257,18 @@ export function createPaperBird(scene, { perch, star, reduceMotion }){
   function update(dt, T, camera){
     pulse = Math.max(0, pulse - dt); camPos.setFromMatrixPosition(camera.matrixWorld);
     if (away >= 0){ /* a sent note: fold back into a crane where it is, fly off to the star, then a new crane settles on the lantern */
-      away += reduceMotion ? 5.3 : dt; const fold = 1 - span(away, 0, 1.3), fly = span(away, 1.3, 3.9), back = span(away, 4.4, 5.3), s = star();
-      if (away < 4.2){ at.lerpVectors(close, s, fly); at.y += Math.sin(Math.PI*fly)*2; group.position.copy(at); group.scale.setScalar(Math.max(.001, 1 - fly*.9)); light(camera);
-        const fy = faceYaw(); group.rotation.set(-.3*fly, fy + wrapA(Math.atan2(s.x - at.x, s.z - at.z) - fy)*span(away, 1.3, 2.1), 0); pose(fold, 0); }
+      const F = REFOLD; away += reduceMotion ? F + 3.8 : dt; const fly = span(away, F, F + 2.5), back = span(away, F + 3, F + 3.8), s = star();
+      if (away < F + 2.8){ at.lerpVectors(close, s, fly); at.y += Math.sin(Math.PI*fly)*2; group.position.copy(at); group.scale.setScalar(Math.max(.001, 1 - fly*.9)); light(camera);
+        const fy = faceYaw(); group.rotation.set(-.3*fly, fy + wrapA(Math.atan2(s.x - at.x, s.z - at.z) - fy)*span(away, F, F + .7), 0); pose(refoldK(away), 0); }
       else { group.position.copy(rest); group.rotation.set(0, REST_YAW, 0); group.scale.setScalar(Math.max(.001, back)); light(camera); pose(0, 0); }
-      glow.position.copy(group.position); glow.scale.setScalar(1.2); glow.material.opacity = away < 4.2 ? .4*(1 - fly) : .14*back;
+      glow.position.copy(group.position); glow.scale.setScalar(1.2); glow.material.opacity = away < F + 2.8 ? .4*(1 - fly) : .14*back;
       if (back >= 1){ away = -1; k = 0; z = 0; writing = false; group.scale.setScalar(1); }
       return; }
-    const step = reduceMotion ? 1 : dt/2.6, wantK = near || writing ? 1 : 0, wantZ = writing && k > .99 ? 1 : 0;
+    const wantK = near || writing ? 1 : 0, step = reduceMotion ? 1 : dt*rate(k, wantK > k), wantZ = writing && k > .99 ? 1 : 0;
     if (z > 0 || wantZ > 0) z += Math.sign(wantZ - z)*Math.min(Math.abs(wantZ - z), reduceMotion ? 1 : dt/1.2);
     else { if (k === 0 && wantK > 0) chooseSide(); k += Math.sign(wantK - k)*Math.min(Math.abs(wantK - k), step); }
     /* the crane rises off its lantern and turns its folds toward you; once open, the sheet can come close */
-    const lift = span(k, 0, .3), zz = smooth(z), idle = k === 0 && !reduceMotion;
+    const lift = span(k, 0, KS[2]), zz = smooth(z), idle = k === 0 && !reduceMotion;
     group.position.lerpVectors(rest, above, lift).lerp(close, zz);
     if (idle) group.position.y += Math.sin(T*1.6)*.015;
     else if (!reduceMotion) group.position.y += Math.sin(T*1.1)*.03*span(k,.7,1)*(1 - zz);
