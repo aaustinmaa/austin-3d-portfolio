@@ -11,6 +11,7 @@ import { createConstellation } from './constellation.js';
 import { buildForm } from './relics.js';
 import { buildHero, animateHero } from './hero.js';
 import { createPaperBird } from './paperbird.js';
+import { createBrazier } from './braziers.js';
 
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const V3 = THREE.Vector3, UP = new V3(0,1,0), ZAX = new V3(0,0,1);
@@ -335,16 +336,9 @@ const braziers = [];
   [stoneTop, stoneBot].forEach(o => { o.castShadow = o.receiveShadow = true; o.userData.stone = true; scene.add(o); pickables.push(o); });
   const plG = new THREE.BufferGeometry(); plG.setAttribute('position', new THREE.Float32BufferAttribute(pathLights.flatMap(p => [p.x, p.y+.18, p.z]), 3));
   scene.add(new THREE.Points(plG, new THREE.PointsMaterial({ size:.9, map:glowTex, color:0x78E6F0, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending })));
-  const bowlMat = new THREE.MeshStandardMaterial({ color:0x4A4F62, roughness:.7, metalness:.3, flatShading:true });
   BRAZIER_AT.forEach(idx => { const { p, x, z, rim } = landings[idx], out = new V3(Math.sin(p.a),0,Math.cos(p.a)), c = new V3(p.x,0,p.z).addScaledVector(out, 2);
-    const b = new THREE.Group(); b.position.set(c.x + out.x*.8, p.y, c.z + out.z*.8);
-    const stem = new THREE.Mesh(new THREE.CylinderGeometry(.12,.3,.8,6).translate(0,.4,0), bowlMat), bowl = new THREE.Mesh(new THREE.CylinderGeometry(.55,.25,.4,10).translate(0,1,0), bowlMat);
-    stem.castShadow = bowl.castShadow = true;
-    const fire = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xFFB062, transparent:true, opacity:0, depthWrite:false, blending:THREE.AdditiveBlending })); fire.position.y = 1.45; fire.scale.set(2.2,2.8,1);
-    const flame = new THREE.Mesh(new THREE.ConeGeometry(.22,.6,6).translate(0,1.45,0), new THREE.MeshBasicMaterial({ color:0xFFD08A, transparent:true, opacity:0 }));
-    const light = new THREE.PointLight(0xFFA050, 0, 9, 2); light.position.y = 1.5;
-    b.add(stem, bowl, fire, flame, light); scene.add(b); braziers.push({ pos:b.position.clone(), top:p.y, fire, flame, light, lit:false });
-    addFrustum(b.position.x, b.position.z, p.y, p.y+1.2, .3, .55, { stand:false });
+    const b = createBrazier(scene,new V3(c.x + out.x*.8,p.y,c.z + out.z*.8),{ seed:idx*.73, reduceMotion, pixelRatio:PIXEL }); braziers.push(b);
+    addFrustum(b.pos.x, b.pos.z, p.y, p.y+1.23, .34, .55, { stand:false });
     /* a pine to one side, partway toward the corner of the landing nearest that side so it always stands on the rock */
     const side = new V3(out.z*1.4 - out.x*1.6, 0, -out.x*1.4 - out.z*1.6), k = rim.reduce((b,v) => v.dot(side) > b.dot(side) ? v : b);
     pines.push({ x:x + k.x*.6, y:p.y-.05, z:z + k.z*.6, s:.8, valley:true }); });
@@ -907,8 +901,7 @@ function updateWorld(dt){
     if (b.life <= 0){ scene.remove(b.pts); scene.remove(b.ring); b.pts.geometry.dispose(); bursts.splice(i,1); } }
   braziers.forEach(b => { if (!b.lit && !P.flight && Math.hypot(P.pos.x-b.pos.x, P.pos.z-b.pos.z) < 2.8 && Math.abs(P.pos.y - b.top) < 2){ b.lit = true; litCount++; updateTracker();
       showToast(litCount < 4 ? `Brazier lit · ${litCount} of 4` : 'All four braziers burn. Something stirs in the lake.'); if (litCount === 4) wakeSecret(); }
-    b.fire.material.opacity = b.lit ? .75 + Math.sin(T*9 + b.top)*.15 : 0; b.flame.material.opacity = b.lit ? .9 : 0; b.flame.scale.y = b.lit ? 1 + Math.sin(T*12 + b.top)*.15 : 1;
-    b.light.intensity = b.lit ? 1.2 + Math.sin(T*9 + b.top)*.2 : 0; });
+    b.update(dt,T); });
 }
 function wakeSecret(){ const r = byId.offclock; r.state = 'waking'; r.t = 0; r.from = new V3(0, -3, 0); r.pos.copy(r.from); r.group.visible = true; beamTo(r);
   oracleSay(LINES.woke); }
@@ -1060,5 +1053,5 @@ setTimeout(() => oracleSay(LINES.intro), reduceMotion ? 200 : 2000);
 if (!intro) setTimeout(welcome, 600);
 
 /* dev-only handle for poking at the scene from the browser console; stripped from production builds */
-if (import.meta.env.DEV) window.__valley = { P, camS, RELICS, sky, oracle, world, colliders, bird, openLetter, closeLetter, summon, setGaze, scene, camera, renderer, keys, fireArrow, arrows,
+if (import.meta.env.DEV) window.__valley = { P, camS, RELICS, sky, oracle, world, colliders, bird, braziers, openLetter, closeLetter, summon, setGaze, scene, camera, renderer, keys, fireArrow, arrows,
   step(n=60, dt=1/60){ for (let i=0;i<n;i++) simulate(dt); reflectLake(); renderer.render(scene, camera); } };
