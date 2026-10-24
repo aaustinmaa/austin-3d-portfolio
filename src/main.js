@@ -809,7 +809,7 @@ const pushP = { x:0, z:0 };
 function updatePlayer(dt){
   if (P.flight){ const f = P.flight; f.t += dt/f.dur; const t = Math.min(1,f.t), e = t<.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;
     const prev = P.pos.clone(); P.pos.lerpVectors(f.from, f.to, e); P.pos.y += Math.sin(Math.PI*e)*f.arc; const d = P.pos.clone().sub(prev); if (d.x*d.x+d.z*d.z > 1e-6) P.facing = Math.atan2(d.x,d.z);
-    if (t >= 1){ P.flight = null; P.vel.set(0,0,0); P.onGround = true; } P.speed = 0; return; }
+    if (t >= 1){ P.flight = null; P.vel.set(0,0,0); P.onGround = true; if (f.arrivalFacing !== undefined) P.facing = f.arrivalFacing; } P.speed = 0; return; }
   let mx = 0, mz = 0;
   const fwd = (keys.KeyW||keys.ArrowUp?1:0) - (keys.KeyS||keys.ArrowDown?1:0), side = (keys.KeyD||keys.ArrowRight?1:0) - (keys.KeyA||keys.ArrowLeft?1:0);
   if (fwd || side){ const fx = -Math.sin(camS.yaw), fz = -Math.cos(camS.yaw), rx = Math.cos(camS.yaw), rz = -Math.sin(camS.yaw); mx = fx*fwd + rx*side; mz = fz*fwd + rz*side; P.target = null; }
@@ -931,10 +931,9 @@ function updateTracker(){
 }
 updateTracker();
 const card = document.getElementById('card');
-let cardFor = null, introCard = null;   // introCard: where the wanderer stood when the name card opened on arrival (it closes on their first move, once)
-function hideCard(){ card.hidden = true; cardFor = null; introCard = null; }
+let cardFor = null;
+function hideCard(){ card.hidden = true; cardFor = null; }
 function renderCard(o, isRelic, withLinks){
-  introCard = null;
   card.innerHTML = `<button class="x" type="button" aria-label="Close">×</button>
     <div class="kicker"><span class="gem" style="background:${o.color};color:${o.color}"></span>${o.kicker}</div>
     <h2>${o.title || o.name}</h2>${o.meta ? `<div class="meta">${o.meta}</div>` : ''}<p>${o.body}</p>
@@ -948,13 +947,10 @@ function renderCard(o, isRelic, withLinks){
   card.hidden = false; card.style.animation = 'none'; void card.offsetWidth; card.style.animation = ''; cardFor = o;
 }
 function showRelicCard(r){ renderCard(r, true); }
-/* the introduction lives behind Austin's name in the top bar, and opens once on arrival */
-function showAbout(){ if (openRelic) sendBack(openRelic); renderCard(ABOUT, false); }
-document.getElementById('brand').addEventListener('click', () => cardFor === ABOUT && !card.hidden ? hideCard() : showAbout());
+/* Austin's name returns the wanderer to the crane; the card follows the paper's unfolding. */
+document.getElementById('brand').addEventListener('click', goToCrane);
 let welcomed = false;
-function welcome(){ if (welcomed) return; welcomed = true; if (!cardFor && !openRelic){ renderCard(ABOUT, false); introCard = P.pos.clone(); } }
-/* the name card that greets a new visitor steps aside as soon as they first move, so they meet it again at the crane */
-function closeIntroCard(){ if (introCard && (P.pos.distanceTo(introCard) > .3 || P.flight)) hideCard(); }
+function welcome(){ if (!welcomed) goToCrane(); }
 /* ---------- the note: the crane flies toward you and opens into a large sheet of paper to write on ---------- */
 const letter = document.getElementById('letter'), letterForm = document.getElementById('letterForm'), letterMsg = document.getElementById('letterMsg');
 const letterFrom = document.getElementById('letterFrom'), letterStatus = document.getElementById('letterStatus'), letterSend = document.getElementById('letterSend');
@@ -964,9 +960,21 @@ function openLetter(){ if (writing || bird.busy) return; writing = true; cardBef
   const f = camera.getWorldDirection(new V3()); bird.setWriting(true, camera.position.clone().addScaledVector(f, 2.4).add(new V3(0, -.12, 0)));
   letterStatus.textContent = ''; document.body.classList.add('writing'); }
 function closeLetter(){ if (!writing) return; writing = false; letter.hidden = true; document.body.classList.remove('writing'); bird.setWriting(false); canvas.focus({ preventScroll:true });
-  if (cardBeforeNote === ABOUT && card.hidden) renderCard(ABOUT, false); cardBeforeNote = null; }
-/* walk over to the crane (fly up if it is far above or below) */
-function goToCrane(){ const to = new V3(CRANE_LANTERN.x - 1.2, 0, CRANE_LANTERN.z + 1.0); to.y = groundH(to.x, to.z); if (Math.abs(to.y - P.pos.y) > 2.4) flyTo(to); else P.target = to; }
+  if (cardBeforeNote === ABOUT) craneCardPending = byBird; cardBeforeNote = null; }
+/* Arrival and the name button share the same landing beside the crane, facing the unfolding paper. */
+function goToCrane(){
+  intro = null; welcomed = true;
+  if (openRelic) sendBack(openRelic); if (writing) closeLetter();
+  if (!card.hidden) hideCard(); if (gaze) setGaze(false); if (mode === 'aim') setMode('auto');
+  P.drawing = false; P.draw = 0; P.auto = null; P.target = null; P.vel.set(0,0,0); P.flying = P.soared = false;
+  const to = new V3(CRANE_LANTERN.x - 1.2, 0, CRANE_LANTERN.z + 1.0); to.y = groundH(to.x, to.z);
+  const travel = !byBird && P.pos.distanceTo(to) > .35, at = travel ? to : P.pos;
+  const facing = Math.atan2(CRANE_LANTERN.x - at.x, CRANE_LANTERN.z - at.z);
+  camS.yaw = facing - Math.PI; camS.pitch = -.06; camS.dist = Math.min(camS.dist,7);
+  if (travel && !reduceMotion){ flyTo(to); P.flight.arrivalFacing = facing; P.onGround = false; }
+  else { P.flight = null; if (travel){ P.pos.copy(to); P.onGround = true; } P.facing = facing; }
+  craneCardPending = true;
+}
 document.getElementById('letterClose').addEventListener('click', closeLetter);
 letter.addEventListener('click', e => { if (e.target === letter) closeLetter(); });
 letter.addEventListener('keydown', e => { if (e.key === 'Escape'){ e.stopPropagation(); closeLetter(); } });
@@ -978,17 +986,23 @@ letterForm.addEventListener('submit', async e => { e.preventDefault(); if (lette
   try { const res = await fetch(NOTE.endpoint, { method:'POST', headers:{ 'Content-Type':'application/json', Accept:'application/json' }, body:JSON.stringify({ name, message }) });
     if (!res.ok) throw new Error(res.status);
     letterMsg.value = ''; writing = false; letter.hidden = true; document.body.classList.remove('writing'); bird.send(); showToast(NOTE.sent);
-    if (cardBeforeNote === ABOUT && card.hidden) renderCard(ABOUT, false); cardBeforeNote = null; }
+    if (cardBeforeNote === ABOUT) craneCardPending = byBird; cardBeforeNote = null; }
   catch { letterStatus.textContent = NOTE.failed; }
   letterSend.disabled = false; letterSend.textContent = NOTE.send; });
-/* walking up to the crane unfolds it above its lantern and opens the name card; the writing sheet appears once the paper
-   has come close; a quiet line on the paper itself hints that it can be written on */
-let byBird = false;
+/* Show the name card once the crane has opened, once per visit. Leaving closes it immediately;
+   the small distance margin keeps the paper from folding and reopening at the edge of the visit. */
+let byBird = false, craneCardPending = false;
 function updateBird(dt){
-  closeIntroCard(); bird.update(dt, T, camera);
   const d = Math.hypot(P.pos.x - CRANE_LANTERN.x, P.pos.z - CRANE_LANTERN.z), level = Math.abs(P.pos.y - groundH(CRANE_LANTERN.x, CRANE_LANTERN.z)) < 3;
-  if (!byBird && welcomed && d < 3 && level && !P.flight){ byBird = true; bird.setNear(true); if (!openRelic && !writing && (card.hidden || cardFor === ABOUT)) renderCard(ABOUT, false); }
-  else if (byBird && (d > 5.5 || !level)){ byBird = false; bird.setNear(false); }
+  const near = welcomed && level && !P.flight && d < (byBird ? 3.6 : 3);
+  if (near !== byBird){
+    byBird = near; bird.setNear(near); craneCardPending = near;
+    if (!near && cardFor === ABOUT) hideCard();
+  }
+  bird.update(dt, T, camera);
+  if (byBird && craneCardPending && bird.unfolded && !writing && !openRelic && (card.hidden || cardFor === ABOUT)){
+    renderCard(ABOUT, false); craneCardPending = false;
+  }
   if (writing && letter.hidden && bird.ready){ letter.hidden = false; letterMsg.focus({ preventScroll:true }); }
 }
 const cross = document.getElementById('cross'), crossRing = document.getElementById('crossRing');

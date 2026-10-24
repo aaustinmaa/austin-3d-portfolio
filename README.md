@@ -35,7 +35,7 @@ Requires Node 18 or newer.
 | Click a star | The Oracle names the relics that use that skill |
 | Esc | Send the open relic back to the sky |
 
-Light the four braziers on the spiral stairs to wake a hidden seventh relic. The wish pillars' caps, boulders, stair stones and the brazier landings can all be stood on; click a pillar to fly up onto it. The short introduction opens on arrival and again whenever you click Austin's name in the top bar.
+Light the four braziers on the spiral stairs to wake a hidden seventh relic. The wish pillars' caps, boulders, stair stones and the brazier landings can all be stood on; click a pillar to fly up onto it. After the opening view, the wanderer flies to the paper crane. Austin's name card appears once the crane has unfolded and closes when you leave. Clicking Austin's name in the top bar flies back to the crane and reopens the card. With reduced motion, the arrival and unfolding happen immediately.
 
 Each brazier holds a rising fire made of soft light, using the same cream and honey palette as the path and carried lanterns. Three uneven tongues curl upward from a bright base and dissolve into wisps, with a diffuse halo, a faint pool inside the bowl and gentle local lighting. A volumetric shader gives the light depth without a solid surface. Ignition eases in; with reduced motion the fire and lighting stay steady.
 
