@@ -172,9 +172,9 @@ const lakeMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false,
       float spring = exp(-r*r/(34. + energy*10.)), heart = exp(-r*r/7.);
       /* ripples from things falling into the water: rings spreading out, bending the reflection and catching a little light */
       vec2 bend = vec2(0.); float glint = 0.;
-      for (int i = 0; i < 4; i++){ vec4 q = ripples[i]; float age = now - q.z; if (age < 0. || age > 3.2) continue;
-        vec2 off = p - q.xy; float dd = length(off), front = age*1.9, fade = q.w*(1. - age/3.2)*(1. - age/3.2);
-        float wave = sin((dd - front)*9.)*exp(-pow((dd - front)/(.35 + age*.25), 2.))*smoothstep(0., .25, dd)*fade;
+      for (int i = 0; i < 4; i++){ vec4 q = ripples[i]; float life = 2.4 + q.w*1.1, age = now - q.z; if (age < 0. || age > life) continue;
+        float sc = .65 + .4*q.w; vec2 off = p - q.xy; float dd = length(off), front = age*1.8*sc, fade = q.w*(1. - age/life)*(1. - age/life);
+        float wave = sin((dd - front)*9./sc)*exp(-pow((dd - front)/((.3 + age*.25)*sc), 2.))*smoothstep(0., .25, dd)*fade;
         bend += off/max(dd, 1e-3)*wave; glint += max(wave, 0.); }
       vec4 m = vM; m.xy += bend*.035*m.w;
       vec3 col = texture2DProj(mirror, m).rgb*mix(vec3(1.3,1.38,1.55), vec3(1.05,1.6,1.55), spring) + vec3(.55,.85,1.)*glint*.22;
@@ -528,23 +528,52 @@ function orbitPos(r, out){ const o = r.orbit, a = o.phase + T*o.speed; return ou
 
 /* bursts */
 const bursts = [];
-/* something falling into the lake: rings spread across the water and, unless motion is reduced, a spray of droplets jumps up and falls back */
+/* something falling into the lake: rings spread across the water and, unless motion is reduced, the water splashes up the way
+   it really does: a crown of droplets thrown up and out from a ring around the impact, a jet rising from the middle a moment
+   later as the water closes in, droplets of many sizes drawn as short streaks along their flight, and a ring of foam spreading
+   on the surface. The droplets are pale and translucent, not glowing, and vanish where they fall back in */
 const splashes = []; let rippleNext = 0;
 const overWater = (x, z) => Math.hypot(x, z) < LAKE_EDGE && groundH(x, z) < WATER_Y - .05;
+const dropMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, uniforms:{ scale:wispScale },
+  vertexShader:`attribute float size; attribute float alpha; uniform float scale; varying float vA;
+    void main(){ vA = alpha; vec4 mv = modelViewMatrix*vec4(position,1.); gl_PointSize = size*scale/-mv.z; gl_Position = projectionMatrix*mv; }`,
+  fragmentShader:`varying float vA; void main(){ vec2 q = gl_PointCoord - .5; float r = length(q); if (r > .5) discard;
+    float body = smoothstep(.5, .3, r), glint = smoothstep(.22, 0., length(q + vec2(.12, .12)));
+    gl_FragColor = vec4(mix(vec3(.62,.8,.95), vec3(1.), glint*.8), body*(.55 + glint*.4)*vA); }` });
+const streakMat = new THREE.LineBasicMaterial({ color:0xCFEAFF, transparent:true, opacity:.4, depthWrite:false });
 function splashLake(at, power=1){
-  lakeMat.uniforms.ripples.value[rippleNext].set(at.x, at.z, T, Math.min(1.2, .6 + power*.5)); rippleNext = (rippleNext + 1) % 4;
+  lakeMat.uniforms.ripples.value[rippleNext].set(at.x, at.z, T, Math.min(2, .5 + power*.55)); rippleNext = (rippleNext + 1) % 4;
   if (reduceMotion) return;
-  const n = Math.round(26*power), g = new THREE.BufferGeometry(), p = new Float32Array(n*3), v = [];
-  for (let i=0;i<n;i++){ const a = rand()*6.283, out = .6 + rand()*1.6; p.set([at.x, WATER_Y + .02, at.z], i*3); v.push(new V3(Math.cos(a)*out, 2.6 + rand()*3.4*power, Math.sin(a)*out)); }
-  g.setAttribute('position', new THREE.BufferAttribute(p,3));
-  const pts = new THREE.Points(g, new THREE.PointsMaterial({ map:softTex, size:.16, color:0xBFEFFF, transparent:true, opacity:.9, depthWrite:false, blending:THREE.AdditiveBlending }));
-  pts.frustumCulled = false; scene.add(pts); splashes.push({ pts, v, life:1.1 });
+  const r0 = .08 + power*.2, crown = Math.round(18 + 30*power), jet = Math.round(4 + 7*power), n = crown + jet;
+  const pos = new Float32Array(n*3), size = new Float32Array(n), alpha = new Float32Array(n), line = new Float32Array(n*6), drops = [];
+  for (let i=0;i<n;i++){ const isJet = i >= crown, a = rand()*6.283, rr = isJet ? rand()*r0*.25 : r0*(.8 + rand()*.4);
+    const out = isJet ? (rand() - .5)*.5 : (.7 + rand()*1.5)*(.6 + power*.4), up = isJet ? (3.2 + rand()*2.2)*(.7 + power*.35) : (1.6 + rand()*2.4)*(.6 + power*.4);
+    drops.push({ p:new V3(at.x + Math.cos(a)*rr, WATER_Y + .02, at.z + Math.sin(a)*rr), v:new V3(Math.cos(a)*out, up, Math.sin(a)*out), wait:isJet ? .12 + rand()*.12 : rand()*.05, on:true });
+    size[i] = (isJet ? .07 : .035) + rand()*rand()*.09*(.6 + power*.4); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('size', new THREE.BufferAttribute(size, 1)); g.setAttribute('alpha', new THREE.BufferAttribute(alpha, 1));
+  const pts = new THREE.Points(g, dropMat); pts.frustumCulled = false; scene.add(pts);
+  const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.BufferAttribute(line, 3));
+  const streaks = new THREE.LineSegments(lg, streakMat); streaks.frustumCulled = false; scene.add(streaks);
+  /* the foam: a soft pale ring on the water spreading from the impact */
+  const fu = { a:{value:.5} };
+  const foam = new THREE.Mesh(new THREE.CircleGeometry(1, 48).rotateX(-Math.PI/2), new THREE.ShaderMaterial({ transparent:true, depthWrite:false, uniforms:fu,
+    vertexShader:'varying vec2 vP; void main(){ vP = position.xz; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
+    fragmentShader:`uniform float a; varying vec2 vP;
+      void main(){ float d = length(vP), ring = exp(-pow((d - .8)/.12, 2.)) + exp(-d*d*6.)*.35; gl_FragColor = vec4(vec3(.82,.92,1.), ring*a); }` }));
+  foam.position.set(at.x, WATER_Y + .012, at.z); foam.renderOrder = 2; scene.add(foam);
+  splashes.push({ pts, streaks, drops, foam, fu, r0, age:0, power });
 }
 function updateSplashes(dt){
-  for (let i = splashes.length-1; i >= 0; i--){ const s = splashes[i]; s.life -= dt; const p = s.pts.geometry.attributes.position.array;
-    s.v.forEach((v,k) => { if (p[k*3+1] < WATER_Y) return; v.y -= 14*dt; p[k*3] += v.x*dt; p[k*3+1] += v.y*dt; p[k*3+2] += v.z*dt; if (p[k*3+1] < WATER_Y) p[k*3+1] = WATER_Y - 1; });
-    s.pts.geometry.attributes.position.needsUpdate = true; s.pts.material.opacity = Math.min(.9, s.life*1.4);
-    if (s.life <= 0){ scene.remove(s.pts); s.pts.geometry.dispose(); s.pts.material.dispose(); splashes.splice(i,1); } }
+  for (let i = splashes.length-1; i >= 0; i--){ const s = splashes[i]; s.age += dt;
+    const pos = s.pts.geometry.attributes.position.array, al = s.pts.geometry.attributes.alpha.array, ln = s.streaks.geometry.attributes.position.array; let live = 0;
+    s.drops.forEach((d, k) => {
+      if (d.on && s.age > d.wait){ d.v.y -= 9.8*1.3*dt; d.v.multiplyScalar(1 - dt*.4); d.p.addScaledVector(d.v, dt); if (d.p.y < WATER_Y) d.on = false; }
+      const shown = d.on && s.age > d.wait; if (shown) live++;
+      pos.set([d.p.x, d.p.y, d.p.z], k*3); al[k] = shown ? Math.min(1, (s.age - d.wait)*12) : 0;
+      const tail = shown ? .045 : 0; ln.set([d.p.x, d.p.y, d.p.z, d.p.x - d.v.x*tail, d.p.y - d.v.y*tail, d.p.z - d.v.z*tail], k*6); });
+    s.pts.geometry.attributes.position.needsUpdate = true; s.pts.geometry.attributes.alpha.needsUpdate = true; s.streaks.geometry.attributes.position.needsUpdate = true;
+    const f = Math.min(1, s.age/1.4); s.foam.scale.setScalar(s.r0 + (.9 + s.power*.5)*Math.sqrt(f)); s.fu.a.value = .45*(1 - f)*(1 - f);
+    if (!live && s.age > 1.4){ [s.pts, s.streaks, s.foam].forEach(o => scene.remove(o)); s.pts.geometry.dispose(); s.streaks.geometry.dispose(); s.foam.geometry.dispose(); s.foam.material.dispose(); splashes.splice(i,1); } }
 }
 function burst(pos, color, n=70, power=1){
   const g = new THREE.BufferGeometry(), p = new Float32Array(n*3), v = [];
@@ -566,8 +595,9 @@ P.pos.y = groundH(P.pos.x, P.pos.z);
 const SPEED = 7, GRAV = 26, JUMP = 9.6, STEP_UP = .6, ASCEND = 7.5, CEILING = 47, AIR_R = 33, FLY_SECONDS = 7.5, BODY_R = .32, HEAD = 1.7;
 function jumpPress(){ if (P.flight) return; skipIntro(); if (P.onGround){ P.vel.y = JUMP; P.onGround = false; P.jumpT = T; } else P.jumpT = T - 1; }
 function supportAt(x,z,y){ return floorAt(x, z, y, STEP_UP, groundH(x,z)); }
-function flyTo(dest){ const from = P.pos.clone(), dist = from.distanceTo(dest); P.flight = { from, to:dest.clone(), t:0, dur:Math.min(3.6, Math.max(1.2, dist/12)), arc:2 + dist*.12 }; P.target = null; P.vel.set(0,0,0); }
+function flyTo(dest){ P.dip = null; const from = P.pos.clone(), dist = from.distanceTo(dest); P.flight = { from, to:dest.clone(), t:0, dur:Math.min(3.6, Math.max(1.2, dist/12)), arc:2 + dist*.12 }; P.target = null; P.vel.set(0,0,0); }
 /* Leave the lake for dry ground: a low glide off the bank, or with a higher arc, a hop back out after touching the water. */
+function dipIn(power){ P.dip = { t:0 }; P.target = null; P.flying = false; splashLake(P.pos, power); }
 function glideToShore(arc=.35){
   const r = Math.hypot(P.pos.x, P.pos.z), angle = r > .1 ? Math.atan2(P.pos.x, P.pos.z) : camS.yaw;
   const radius = LAKE_BLOCK + .6;
@@ -843,8 +873,13 @@ function updatePlayer(dt){
   if (P.flight){ const f = P.flight; f.t += dt/f.dur; const t = Math.min(1,f.t), e = t<.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;
     const prev = P.pos.clone(); P.pos.lerpVectors(f.from, f.to, e); P.pos.y += Math.sin(Math.PI*e)*f.arc; const d = P.pos.clone().sub(prev); if (d.x*d.x+d.z*d.z > 1e-6) P.facing = Math.atan2(d.x,d.z);
     if (t >= 1){ P.flight = null; P.vel.set(0,0,0); P.onGround = true;
-      if (overWater(P.pos.x, P.pos.z) && P.pos.y < WATER_Y + .1){ splashLake(P.pos, 1.6); glideToShore(1.4); } }
+      if (overWater(P.pos.x, P.pos.z) && P.pos.y < WATER_Y + .1) dipIn(2.2); }
     P.speed = 0; return; }
+  /* in the water: sink in, linger a moment with a slight bob, then push off back to the bank */
+  if (P.dip){ const d = P.dip; d.t += dt; const sink = Math.min(1, d.t/.32), out = 1 - Math.pow(1 - sink, 3);
+    P.pos.y = WATER_Y - .42*out + (d.t > .32 ? Math.sin((d.t - .32)*7.)*.03 : 0); P.vel.set(0,0,0); P.onGround = true; P.speed = 0;
+    if (d.t > .85){ P.dip = null; splashLake(P.pos, .9); glideToShore(1.5); }
+    return; }
   let mx = 0, mz = 0;
   const fwd = (keys.KeyW||keys.ArrowUp?1:0) - (keys.KeyS||keys.ArrowDown?1:0), side = (keys.KeyD||keys.ArrowRight?1:0) - (keys.KeyA||keys.ArrowLeft?1:0);
   if (fwd || side){ const fx = -Math.sin(camS.yaw), fz = -Math.cos(camS.yaw), rx = Math.cos(camS.yaw), rz = -Math.sin(camS.yaw); mx = fx*fwd + rx*side; mz = fz*fwd + rz*side; P.target = null; }
@@ -884,8 +919,8 @@ function updatePlayer(dt){
   if (!sup.onPlatform && !P.flying && P.vel.y <= 0 && Math.hypot(nx,nz) < LAKE_BLOCK - 1e-4){
     const water = overWater(nx, nz), surface = water ? WATER_Y : sup.h + .05;
     if (ny <= surface){ P.pos.set(nx, Math.max(surface, sup.h), nz);
-      if (water) splashLake(P.pos, 1.2 + Math.min(.6, -P.vel.y/15));
-      glideToShore(water ? 1.4 : .35); if (P.flight) return; }
+      if (water){ dipIn(1.8 + Math.min(.6, -P.vel.y/15)); return; }
+      glideToShore(); if (P.flight) return; }
   }
   if (ny > CEILING){ ny = CEILING; P.vel.y = Math.min(P.vel.y, 0); }
   if (ny <= sup.h){ ny = sup.h; P.vel.y = 0; P.onGround = true; } else P.onGround = ny - sup.h < .05;
