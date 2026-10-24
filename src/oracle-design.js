@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { glowTex, hazeTex } from './textures.js';
 import { withEdges, corners, rhombicTriacontahedron } from './polyhedra.js';
+import { crystalMaterial } from './oracle-crystal.js';
 
 // Option A: crystal armillary ribbons, fine champagne filaments and a nested
 // luminous jewel. All curves and glass surfaces exist in world space.
@@ -88,18 +89,18 @@ export function buildOracleDesign({ main, reduceMotion }) {
     parent.add(new THREE.Points(geo, mat)); return mat;
   }
 
-  function crystal({ color = ice, body = .1, edge = .1, opacity = 1 } = {}) {
+  function crystal({ color = ice, body = .1, edge = .1 } = {}) {
     const mat = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending, fog: false, extensions: { derivatives: true },
-      uniforms: { t: clock, energy, power, col: { value: C(color) }, body: { value: body }, edgeK: { value: edge }, opacity: { value: opacity } },
+      uniforms: { t: clock, energy, power, col: { value: C(color) }, body: { value: body }, edgeK: { value: edge } },
       vertexShader: `attribute vec3 edge;varying vec3 vEdge;varying vec3 vN;varying vec3 vV;varying vec3 vObject;
         void main(){vEdge=edge;vObject=position;vec4 mv=modelViewMatrix*vec4(position,1.);vN=normalize(normalMatrix*normal);vV=-mv.xyz;gl_Position=projectionMatrix*mv;}`,
-      fragmentShader: `uniform vec3 col;uniform float body;uniform float edgeK;uniform float opacity;uniform float energy;uniform float power;varying vec3 vEdge;varying vec3 vN;varying vec3 vV;varying vec3 vObject;
+      fragmentShader: `uniform vec3 col;uniform float body;uniform float edgeK;uniform float energy;uniform float power;varying vec3 vEdge;varying vec3 vN;varying vec3 vV;varying vec3 vObject;
         void main(){vec3 n=normalize(vN),v=normalize(vV);float facing=abs(dot(n,v)),rim=pow(1.-facing,2.5);vec3 r=reflect(-v,n);
           float shine=pow(max(dot(r,normalize(vec3(-.5,.8,.65))),0.),28.)+pow(max(dot(r,normalize(vec3(.7,-.3,.8))),0.),55.)*.5;
           float d=min(min(vEdge.x,vEdge.y),vEdge.z),w=max(fwidth(d),.0001);float border=exp(-d/(w*3.));
           vec3 c=mix(col,vec3(.47,.4,.7),(.5+.5*sin(dot(normalize(vObject),vec3(2.,3.,1.))))*.22);
-          float a=((.1+rim*.48+shine*.42)*body+border*edgeK)*(gl_FrontFacing?1.:.16)*(1.+energy*.12)*opacity;
+          float a=((.1+rim*.48+shine*.42)*body+border*edgeK)*(gl_FrontFacing?1.:.16)*(1.+energy*.12);
           gl_FragColor=vec4(mix(c,vec3(.67,.72,.95),clamp(shine*.4,0.,1.)),a);}`
     });
     return mat;
@@ -202,14 +203,29 @@ export function buildOracleDesign({ main, reduceMotion }) {
   const coreShapes = [new THREE.IcosahedronGeometry(4.05, 0), new THREE.DodecahedronGeometry(3.2, 0), new THREE.OctahedronGeometry(2.4, 0), rhombicTriacontahedron(1.7)];
   coreShapes.forEach((geo, i) => {
     const holder = new THREE.Group(); holder.rotation.set(0, i === 2 ? Math.PI / 4 : 0, 0); alignment.add(holder);
-    const g = withEdges(geo); holder.add(new THREE.Mesh(g, crystal({ color: ['#789DD0', '#8495C6', '#9697CE', '#869ECF'][i], body: .48 + i * .05, edge: .012, opacity: 1.35 })));
+    const g = withEdges(geo), normals = g.attributes.normal;
+    const seeds = new Float32Array(normals.count);
+    for (let j = 0; j < normals.count; j++) seeds[j] = normals.getX(j) * 11 + normals.getY(j) * 23 + normals.getZ(j) * 17;
+    g.setAttribute('seed', new THREE.BufferAttribute(seeds, 1));
+    g.setAttribute('cut', new THREE.BufferAttribute(new Float32Array(normals.count), 1));
+    for (const side of [THREE.BackSide, THREE.FrontSide]) {
+      const material = crystalMaterial({ radius: [4.05, 3.2, 2.4, 1.7][i], tint: i % 2 ? '#ADB5E8' : '#A2C4E9', opacity: i === 0 ? 1.04 : .86, side, energy });
+      const surface = new THREE.Mesh(g, material);
+      surface.renderOrder = side === THREE.BackSide ? 10 + i : 45 - i;
+      surface.onBeforeRender = (_renderer, _scene, camera) => {
+        camera.getWorldPosition(material.uniforms.localCamera.value);
+        surface.worldToLocal(material.uniforms.localCamera.value);
+      };
+      holder.add(surface);
+    }
     const edges = new THREE.EdgesGeometry(geo, 1).attributes.position, paths = [];
     for (let j = 0; j < edges.count; j += 2) paths.push([[edges.getX(j), edges.getY(j), edges.getZ(j)], [edges.getX(j + 1), edges.getY(j + 1), edges.getZ(j + 1)]]);
     threads(paths, { parent: holder, color: i % 2 ? '#91A8D0' : '#A69CBF', opacity: .45 + i * .018, width: .21, flow: .09 });
     sparks(holder, corners(geo).map(v => v.toArray()), { size: .3, opacity: .6, color: i % 2 ? '#9FBBDD' : '#AEAAD0' }); geo.dispose();
   });
   const heartGlow = sprite(core, '#7C94C7', 5.4, .3);
-  sprite(core, '#B2C6E7', 1.25, .62);
+  const heartPoint = sprite(core, '#B2C6E7', 1.25, .62);
+  heartGlow.renderOrder = heartPoint.renderOrder = 50;
   sparks(core, [[0, 0, 0]], { size: 2, opacity: .65, color: '#A4BEDF' });
 
   const dust = [];

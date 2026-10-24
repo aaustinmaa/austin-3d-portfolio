@@ -12,3 +12,5 @@ Each file is standalone: open it directly in a browser. It loads three.js r128 f
 - `oracle-a.html`: interactive study of the actual production Oracle model, using the local Vite/three.js runtime. Open it through `npm run dev` at `/reference/oracle-a.html`. The reference thumbnail crops the left panel using CSS; the 3D object is built from geometry and procedural materials. Drag to orbit, scroll to zoom, and inspect rest, speaking, restoration, valley distance and reduced motion.
 
 The study imports the same `createOracle` used in the valley and is not a production build entry.
+
+The core crystal material (`src/oracle-crystal.js`) follows the optical shader from the `codex/oracle-jewel` worktree: view-dependent reflection, chromatic refraction and internal veins, applied to option A’s existing convex geometry. The armillary form and selected proportions stay independent of that material.
