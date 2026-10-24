@@ -567,7 +567,7 @@ function updateSplashes(dt){
   for (let i = splashes.length-1; i >= 0; i--){ const s = splashes[i]; s.age += dt;
     const pos = s.pts.geometry.attributes.position.array, al = s.pts.geometry.attributes.alpha.array, ln = s.streaks.geometry.attributes.position.array; let live = 0;
     s.drops.forEach((d, k) => {
-      if (d.on && s.age > d.wait){ d.v.y -= 9.8*1.3*dt; d.v.multiplyScalar(1 - dt*.4); d.p.addScaledVector(d.v, dt); if (d.p.y < WATER_Y) d.on = false; }
+      if (d.on && s.age > d.wait){ d.v.y -= 9.8*1.3*dt; d.v.multiplyScalar(Math.exp(-dt*.4)); d.p.addScaledVector(d.v, dt); if (d.p.y < WATER_Y) d.on = false; }
       const shown = d.on && s.age > d.wait; if (shown) live++;
       pos.set([d.p.x, d.p.y, d.p.z], k*3); al[k] = shown ? Math.min(1, (s.age - d.wait)*12) : 0;
       const tail = shown ? .045 : 0; ln.set([d.p.x, d.p.y, d.p.z, d.p.x - d.v.x*tail, d.p.y - d.v.y*tail, d.p.z - d.v.z*tail], k*6); });
@@ -971,7 +971,7 @@ function updateWorld(dt){
   if (!reduceMotion){ const wp = wispG.attributes.position.array; for (let i=0;i<WISP;i++){ const v = wispV[i]; wp[i*3] += Math.sin(T*v[1] + v[0])*dt*.4; wp[i*3+1] += Math.cos(T*v[1]*.7 + v[0])*dt*.25; wp[i*3+2] += Math.cos(T*v[1] + v[0]*2)*dt*.4; } wispG.attributes.position.needsUpdate = true; }
   mists.forEach(m => { m.a += m.sp*dt; m.s.position.x = Math.sin(m.a)*m.d; m.s.position.z = Math.cos(m.a)*m.d; });
   for (let i = bursts.length-1; i >= 0; i--){ const b = bursts[i]; b.life -= dt; const p = b.pts.geometry.attributes.position.array;
-    b.v.forEach((v,k) => { v.multiplyScalar(1 - dt*1.6); p[k*3] += v.x*dt; p[k*3+1] += v.y*dt; p[k*3+2] += v.z*dt; }); b.pts.geometry.attributes.position.needsUpdate = true;
+    b.v.forEach((v,k) => { v.multiplyScalar(Math.exp(-dt*1.6)); p[k*3] += v.x*dt; p[k*3+1] += v.y*dt; p[k*3+2] += v.z*dt; }); b.pts.geometry.attributes.position.needsUpdate = true;
     b.pts.material.opacity = Math.max(0, b.life/1.4); b.ring.scale.setScalar((1 + (1.4-b.life)*4)*b.power); b.ring.material.opacity = Math.max(0, b.life/1.4)*.9;
     if (b.life <= 0){ scene.remove(b.pts); scene.remove(b.ring); b.pts.geometry.dispose(); bursts.splice(i,1); } }
   braziers.forEach(b => { if (!b.lit && !P.flight && Math.hypot(P.pos.x-b.pos.x, P.pos.z-b.pos.z) < 2.8 && Math.abs(P.pos.y - b.top) < 2){ b.lit = true; litCount++; updateTracker();
@@ -1080,9 +1080,12 @@ function simulate(dt){
   sky.update(dt, T, camera, { showAll:gaze, hover:hoverStar, focus:openRelic });
   updateLabels(); updateCross(); updateStamina();
 }
+/* everything advances by real elapsed seconds, never per frame: a slow frame is simulated in steps of at most 50 ms so the world
+   keeps real time below 20 fps, and a long gap (a hidden tab) is capped at a quarter second instead of fast-forwarding */
 function frame(now){
-  const dt = Math.min(.05, (now-last)/1000); last = now;
-  simulate(dt); reflectLake(); renderer.render(scene, camera); requestAnimationFrame(frame);
+  let left = Math.min(.25, (now-last)/1000); last = now;
+  while (left > 1e-4){ const dt = Math.min(.05, left); simulate(dt); left -= dt; }
+  reflectLake(); renderer.render(scene, camera); requestAnimationFrame(frame);
 }
 RELICS.forEach(r => { if (r.state === 'orbit') orbitPos(r, r.pos); });
 requestAnimationFrame(frame);

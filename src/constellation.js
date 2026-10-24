@@ -138,7 +138,7 @@ export function createConstellation(scene, { skills, relics, labelsEl, reduceMot
   }
   function pulse(s){ s.pulse = 1; }
 
-  const pv = new V3(), placed = []; let next = 0;
+  const pv = new V3(), placed = []; let next = 0, budget = 0;
   const fits = (x, y, w, h) => placed.every(b => x >= b.x + b.w || b.x >= x + w || y >= b.y + b.h || b.y >= y + h);
   /* label spots around a star: below, right, left, above */
   const SPOTS = [(x, y, w) => [x - w/2, y + 7], (x, y, w, h) => [x + 8, y - h/2], (x, y, w, h) => [x - 8 - w, y - h/2], (x, y, w, h) => [x - w/2, y - 7 - h]];
@@ -163,7 +163,8 @@ export function createConstellation(scene, { skills, relics, labelsEl, reduceMot
     if (dirtyE){ lg.attributes.aProg.needsUpdate = true; lg.attributes.aHi.needsUpdate = true; }
 
     /* labels: every lit star is named all the time. The bright figure's names always show; quieter names only where they fit. */
-    if (blocked) for (let k = 0; k < 4; k++){ const s = stars[next++ % N]; s.behind = blocked(camera.position, s.dir); }
+    /* check which stars sit behind the walls at a steady rate in real time (about 240 a second), whatever the frame rate */
+    if (blocked) for (budget = Math.min(budget + dt*240, N); budget >= 1; budget--){ const s = stars[next++ % N]; s.behind = blocked(camera.position, s.dir); }
     const w = innerWidth, h = innerHeight; placed.length = 0;
     const shown = [];
     stars.forEach(s => { const lit = s.lit > .5, show = (lit || hover === s) && !s.behind;
