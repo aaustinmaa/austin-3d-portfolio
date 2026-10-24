@@ -230,7 +230,7 @@ export function createPaperBird(scene, { perch, star, hint, reduceMotion }){
   /* how long each stage of k takes: the crane lifting and laying out its bird base goes briskly, the petals opening into
      the square base and the base tipping and parting its layers take their time, and the last opening out is quick
      (the other way round when it folds back up) */
-  const SWAP = .3, KS = [0, SWAP, .51, .7, 1], SECS = [.45, .6, .2, .15], REFOLD = SECS.reduce((a, b) => a + b);
+  const SWAP = .3, KS = [0, SWAP, .51, .7, 1], SECS = [.43, .45, .1, .18], REFOLD = SECS.reduce((a, b) => a + b);
   const rate = (k, up) => { let i = 0; while (i < 3 && (up ? k >= KS[i+1] : k > KS[i+1])) i++; return (KS[i+1] - KS[i])/SECS[i]; };
   const kAt = t => { for (let i=0;i<4;i++){ if (t < SECS[i]) return KS[i] + (KS[i+1] - KS[i])*t/SECS[i]; t -= SECS[i]; } return 1; };
   const refoldK = t => kAt(Math.max(0, REFOLD - t));
