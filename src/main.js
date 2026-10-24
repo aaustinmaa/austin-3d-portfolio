@@ -541,33 +541,40 @@ const dropMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, u
   /* a drop of clear water, a small solid lens: a faint teal body, a small highlight on top from the star overhead, and a brighter
      crescent at the bottom where the light focuses through it */
   fragmentShader:`varying float vA; void main(){ vec2 q = gl_PointCoord - .5; float r = length(q)*2.; if (r > 1.) discard;
-    float body = sqrt(1. - r*r)*.55*smoothstep(1., .8, r);
+    float body = sqrt(1. - r*r)*.38*smoothstep(1., .8, r);
     vec2 h = q - vec2(0., -.2), b = q - vec2(0., .22); float spec = exp(-dot(h, h)*130.), focus = exp(-dot(b, b)*38.)*smoothstep(1., .75, r);
-    gl_FragColor = vec4(mix(mix(vec3(.5,.8,.88), vec3(.78,.95,1.), focus), vec3(1.), spec), (body + focus*.35 + spec*.8)*vA); }` });
+    gl_FragColor = vec4(mix(mix(vec3(.3,.54,.62), vec3(.58,.82,.9), focus), vec3(.95,.99,1.), spec), (body + focus*.3 + spec*.75)*vA); }` });
 /* motion trails behind the drops: brightest at the drop, fading out behind it */
 const streakMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false,
   vertexShader:'attribute float lineA; varying float vA; void main(){ vA = lineA; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
-  fragmentShader:'varying float vA; void main(){ gl_FragColor = vec4(vec3(.62,.86,.93), vA); }' });
-/* small ripples where single drops land: a pool of flat rings on the water, each spreading a pair of fine rings and fading */
-const dropRings = [], dropRingGeo = new THREE.CircleGeometry(1, 40).rotateX(-Math.PI/2);
-for (let i = 0; i < 48; i++){
-  const u = { a:{value:0}, k:{value:0} };
-  const m = new THREE.Mesh(dropRingGeo, new THREE.ShaderMaterial({ transparent:true, depthWrite:false, uniforms:u,
-    vertexShader:'varying vec2 vP; void main(){ vP = position.xz; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
-    fragmentShader:`uniform float a; uniform float k; varying vec2 vP;
-      void main(){ float r = length(vP), ring = exp(-pow((r - .82)/.07, 2.)) + .55*exp(-pow((r - .55 + k*.1)/.06, 2.))*(1. - k);
-        gl_FragColor = vec4(vec3(.72,.9,.98), ring*a); }` }));
-  m.visible = false; m.renderOrder = 2; scene.add(m); dropRings.push({ m, u, age:9, life:1, size:.3 });
-}
+  fragmentShader:'varying float vA; void main(){ gl_FragColor = vec4(vec3(.48,.7,.78), vA); }' });
+/* small ripples where single drops land: one instanced mesh of flat rings on the water (one draw call), each spreading a pair of
+   fine rings and fading slowly, the way the big ripples do */
+const DROP_RINGS = 128, dropRingData = [], dropRingK = new Float32Array(DROP_RINGS), dropRingA = new Float32Array(DROP_RINGS);
+const dropRingGeo = new THREE.CircleGeometry(1, 40).rotateX(-Math.PI/2);
+dropRingGeo.setAttribute('ringK', new THREE.InstancedBufferAttribute(dropRingK, 1)); dropRingGeo.setAttribute('ringA', new THREE.InstancedBufferAttribute(dropRingA, 1));
+const dropRingMesh = new THREE.InstancedMesh(dropRingGeo, new THREE.ShaderMaterial({ transparent:true, depthWrite:false,
+  vertexShader:`attribute float ringK; attribute float ringA; varying vec2 vP; varying float vK; varying float vA;
+    void main(){ vP = position.xz; vK = ringK; vA = ringA; gl_Position = projectionMatrix*modelViewMatrix*instanceMatrix*vec4(position,1.); }`,
+  fragmentShader:`varying vec2 vP; varying float vK; varying float vA;
+    void main(){ float r = length(vP), ring = exp(-pow((r - .82)/.06, 2.));
+      gl_FragColor = vec4(vec3(.72,.9,.98), ring*vA); }` }), DROP_RINGS);
+dropRingMesh.frustumCulled = false; dropRingMesh.renderOrder = 2; scene.add(dropRingMesh);
+const ringM = new THREE.Matrix4();
+for (let i = 0; i < DROP_RINGS; i++){ dropRingData.push({ x:0, z:0, age:9, life:1, size:.3, on:false }); dropRingMesh.setMatrixAt(i, ringM.makeScale(0, 0, 0)); }
 let dropRingNext = 0;
 function dropRipple(x, z, s){
-  const o = dropRings[dropRingNext]; dropRingNext = (dropRingNext + 1) % dropRings.length;
-  o.m.position.set(x, WATER_Y + .012, z); o.age = 0; o.life = .6 + s*2.5; o.size = .16 + s*3.2; o.m.visible = true;
+  const o = dropRingData[dropRingNext]; dropRingNext = (dropRingNext + 1) % DROP_RINGS;
+  Object.assign(o, { x, z, age:0, life:2 + s*6, size:.5 + s*6, on:true });
 }
 function updateDropRings(dt){
-  dropRings.forEach(o => { if (!o.m.visible) return; o.age += dt; const k = o.age/o.life;
-    if (k >= 1){ o.m.visible = false; return; }
-    o.m.scale.setScalar(.04 + o.size*Math.sqrt(k)); o.u.k.value = k; o.u.a.value = .24*(1 - k)*(1 - k)*Math.min(1, o.age*20); });
+  let any = false;
+  dropRingData.forEach((o, i) => { if (!o.on) return; any = true; o.age += dt; const k = o.age/o.life;
+    if (k >= 1){ o.on = false; dropRingA[i] = 0; dropRingMesh.setMatrixAt(i, ringM.makeScale(0, 0, 0)); return; }
+    const sc = .04 + o.size*Math.sqrt(k); dropRingMesh.setMatrixAt(i, ringM.makeScale(sc, 1, sc).setPosition(o.x, WATER_Y + .012, o.z));
+    dropRingK[i] = k; dropRingA[i] = .26*(1 - k)*(1 - k)*Math.min(1, o.age*20); });
+  if (any || dropRingMesh.userData.dirty){ dropRingMesh.instanceMatrix.needsUpdate = true; dropRingGeo.attributes.ringK.needsUpdate = true; dropRingGeo.attributes.ringA.needsUpdate = true; }
+  dropRingMesh.userData.dirty = any;
 }
 function splashLake(at, power=1){
   lakeMat.uniforms.ripples.value[rippleNext].set(at.x, at.z, T, Math.min(2, .5 + power*.55)); rippleNext = (rippleNext + 1) % 4;
@@ -575,16 +582,20 @@ function splashLake(at, power=1){
   /* an orderly splash: the crown is two rings of evenly spaced drops leaving together at nearly the same speed and angle (the
      outer ring lower and wider), and the jet is a single file of drops rising straight up from the middle one after another,
      smaller toward the top */
-  const r0 = .08 + power*.2, ring = Math.round(10 + 10*power), crown = ring*2, jet = Math.round(4 + 4*power), n = crown + jet, a0 = rand()*6.283;
+  const r0 = .08 + power*.2, ring = Math.round(10 + 10*power), crown = ring*2, jet = Math.round(4 + 4*power), loose = Math.round(6 + 8*power), n = crown + jet + loose, a0 = rand()*6.283;
   const pos = new Float32Array(n*3), size = new Float32Array(n), alpha = new Float32Array(n), line = new Float32Array(n*6), drops = [];
   for (let i=0;i<n;i++){ let p, v, wait;
     if (i < crown){ const outer = i >= ring, k = i % ring, a = a0 + (k + (outer ? .5 : 0))/ring*6.283 + (rand() - .5)*.08, rr = r0*(outer ? 1.15 : .85);
-      const out = (outer ? 1.5 : 1.)*(.6 + power*.4)*(.94 + rand()*.12), up = (outer ? 2.3 : 3.2)*(.6 + power*.35)*(.94 + rand()*.12);
+      const out = (outer ? 1.5 : 1.)*(.6 + power*.4)*(.78 + rand()*.44), up = (outer ? 2.3 : 3.2)*(.6 + power*.35)*(.92 + rand()*.16);
       p = new V3(at.x + Math.cos(a)*rr, WATER_Y + .02, at.z + Math.sin(a)*rr); v = new V3(Math.cos(a)*out, up, Math.sin(a)*out); wait = outer ? .03 : 0;
       size[i] = (.06 + .04*power)*(outer ? .85 : 1)*(.9 + rand()*.2); }
-    else { const j = i - crown, f = j/Math.max(1, jet - 1);
+    else if (i < crown + jet){ const j = i - crown, f = j/Math.max(1, jet - 1);
       p = new V3(at.x + (rand() - .5)*.03, WATER_Y + .02, at.z + (rand() - .5)*.03); v = new V3((rand() - .5)*.12, (2.6 + 2.6*f)*(.7 + power*.3), (rand() - .5)*.12); wait = .14 + (1 - f)*.16;
       size[i] = (.12 + .06*power)*(1 - f*.55); }
+    else { /* loose drops thrown off around the jet as it rises, at random */
+      const a = rand()*6.283, rr = rand()*r0*.4, out = (.25 + rand()*.9)*(.6 + power*.3);
+      p = new V3(at.x + Math.cos(a)*rr, WATER_Y + .02, at.z + Math.sin(a)*rr); v = new V3(Math.cos(a)*out, (1.8 + rand()*2.8)*(.7 + power*.3), Math.sin(a)*out); wait = .14 + rand()*.25;
+      size[i] = (.04 + rand()*rand()*.09)*(.7 + power*.3); }
     drops.push({ p, v, wait, on:true, s:size[i] }); }
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('size', new THREE.BufferAttribute(size, 1)); g.setAttribute('alpha', new THREE.BufferAttribute(alpha, 1));
   const pts = new THREE.Points(g, dropMat); pts.frustumCulled = false; scene.add(pts);
@@ -613,7 +624,7 @@ function updateSplashes(dt){
         if (d.p.y < WATER_Y){ d.on = false; if (overWater(d.p.x, d.p.z)) dropRipple(d.p.x, d.p.z, d.s); } }
       const shown = d.on && s.age > d.wait; if (shown) live++;
       pos.set([d.p.x, d.p.y, d.p.z], k*3); al[k] = shown ? Math.min(1, (s.age - d.wait)*12) : 0;
-      const tail = shown ? .05 : 0; ln.set([d.p.x, d.p.y, d.p.z, d.p.x - d.v.x*tail, d.p.y - d.v.y*tail, d.p.z - d.v.z*tail], k*6); la[k*2] = al[k]*.55; la[k*2 + 1] = 0; });
+      const tail = shown ? .05 : 0; ln.set([d.p.x, d.p.y, d.p.z, d.p.x - d.v.x*tail, d.p.y - d.v.y*tail, d.p.z - d.v.z*tail], k*6); la[k*2] = al[k]*.46; la[k*2 + 1] = 0; });
     s.pts.geometry.attributes.position.needsUpdate = true; s.pts.geometry.attributes.alpha.needsUpdate = true; s.streaks.geometry.attributes.position.needsUpdate = true; s.streaks.geometry.attributes.lineA.needsUpdate = true;
     const f = Math.min(1, s.age/1.4); s.foam.scale.setScalar(s.r0 + (.9 + s.power*.5)*Math.sqrt(f)); s.fu.a.value = .45*(1 - f)*(1 - f);
     const mp = s.mistPts.geometry.attributes.position.array, ml = Math.min(1, s.age/1.3);
