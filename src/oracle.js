@@ -54,6 +54,6 @@ export function createOracle(scene, { y, main, reduceMotion }) {
     get position() { return group.position; },
     receive(relic) { design.receive(relic); flash = 1; ripple(relic.color, 60); },
     speakPulse() { ripple('#9FE8FF', 34); },
-    bloom() { finale = .001; flash = 1.2; design.bloom(); ripple('#F4D58D', 90); },
+    bloom() { finale = .001; flash = 1.2; design.bloom(); ripple('#F1ECE2', 90); },
   };
 }

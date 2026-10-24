@@ -3,7 +3,7 @@ import { glowTex, hazeTex, rayTex } from './textures.js';
 import { withEdges, rhombicTriacontahedron } from './polyhedra.js';
 import { crystalMaterial } from './oracle-crystal.js';
 
-// Fixed analytic lights shared by the glass, the gold and the glints. They live
+// Fixed analytic lights shared by the glass, the metal and the glints. They live
 // in world space, so every highlight stays on its own surface as the hoops turn.
 const LIGHTS = 'const vec3 KEY=vec3(-.5514,.7018,.4511),FILL=vec3(.654,.1811,.7345),UNDER=vec3(-.4015,-.6324,-.6625);';
 const NOISE = `float hash1(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
@@ -17,11 +17,11 @@ const SURFACE = `${LIGHTS}${NOISE}
     c+=vec3(.58,.52,1.)*exp(-pow((d.y-d.x*.68+.39)/.03,2.))*.7;
     return c+vec3(1.,.87,.62)*pow(max(dot(d,KEY),0.),40.)*2.2+vec3(.7,.84,1.)*pow(max(dot(d,FILL),0.),70.)*1.5
       +vec3(.46,.56,.96)*pow(max(dot(d,UNDER),0.),24.)*.9;}
-  // Polished gold: a dark warm body mirroring the sky, broken into leaf-like
-  // patches so its light gathers unevenly along an edge.
-  vec3 gold(vec3 n,vec3 v,float leaf){vec3 r=reflect(-v,n);
+  // Polished platinum: a dark neutral body mirroring the sky, broken into
+  // leaf-like patches so its light gathers unevenly along an edge.
+  vec3 metal(vec3 n,vec3 v,float leaf){vec3 r=reflect(-v,n);
     float hot=pow(max(dot(r,KEY),0.),60.)*2.6+pow(max(dot(r,FILL),0.),110.)*1.5+pow(max(dot(r,UNDER),0.),36.)*.9;
-    return vec3(.3,.22,.13)*(.7+.6*leaf)+vec3(1.,.82,.56)*sky(r)*(.5+.75*leaf)+vec3(1.,.92,.74)*hot*(.25+1.6*leaf);}
+    return vec3(.25,.25,.28)*(.7+.6*leaf)+vec3(.96,.97,1.)*sky(r)*(.5+.75*leaf)+vec3(1.,.99,.97)*hot*(.25+1.6*leaf);}
   // Sparse flakes, each tilted at random, flash when they mirror a light.
   float glitter(vec2 p,vec3 n,vec3 v,float density){vec2 c=floor(p),f=fract(p)-.5;float h=hash1(c);
     vec3 m=normalize(n+(vec3(hash1(c+3.1),hash1(c+5.7),hash1(c+9.2))-.5)*.9),r=reflect(-v,m);
@@ -36,9 +36,9 @@ const STAR = `uniform vec3 col;varying float vI;varying float vA;varying vec3 vC
     vec2 d=mat2(.7071,-.7071,.7071,.7071)*p;
     float diag=(exp(-abs(d.x)*90.)*exp(-abs(d.y)*13.)+exp(-abs(d.y)*90.)*exp(-abs(d.x)*13.))*.45;
     float core=exp(-dot(p,p)*900.);
-    gl_FragColor=vec4(mix(vCol,vec3(1.,.97,.9),min(1.,core+ray*.3)),(ray+diag+core*1.5)*min(vI,1.6));}`;
+    gl_FragColor=vec4(mix(vCol,vec3(1.),min(1.,core+ray*.3)),(ray+diag+core*1.5)*min(vI,1.6));}`;
 
-// Option A: crystal armillary hoops edged in gold, fine filaments and a nested
+// Option A: crystal armillary hoops edged in platinum, fine filaments and a nested
 // luminous jewel. All curves and glass surfaces exist in world space.
 export function buildOracleDesign({ main, reduceMotion }) {
   const solid = mesh => { mesh.userData.solid = true; return mesh; };
@@ -47,7 +47,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
   const center = { value: new THREE.Vector3() };
   // Tighten the armillary silhouette without scaling the central polyhedra.
   const armillary = new THREE.Group(); armillary.scale.setScalar(.88 * .88); group.add(armillary);
-  const gold = C('#CDB58E');
+  const platinum = C('#DCDEEA');
   const px = Math.min(devicePixelRatio || 1, 1.75);
   // A private seed, so the valley's shared decoration never shifts.
   let seed = 23;
@@ -77,7 +77,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
   }));
   mist.frustumCulled = false; group.add(mist);
 
-  // Glass and gold hide part of what lies behind them, so draw order matters.
+  // Glass and metal hide part of what lies behind them, so draw order matters.
   // Each such surface draws twice: its half beyond the Oracle's centre (seen
   // from the camera) before the core, its near half after. Nested shells then
   // sort by radius: outermost first behind the core, last in front of it.
@@ -91,8 +91,8 @@ export function buildOracleDesign({ main, reduceMotion }) {
   const tilted = (path, tilt) => { const e = new THREE.Euler(...tilt), p = new THREE.Vector3(); return path.map(q => p.set(...q).applyEuler(e).toArray()); };
 
   // World-space ribbons are expanded perpendicular to their projected tangent.
-  // A bloom thread lights up only where the gold beneath it mirrors a light.
-  function threads(paths, { parent = group, color = gold, opacity = .72, width = .3, flow = .12, bloom = false, order = 50 } = {}) {
+  // A bloom thread lights up only where the metal beneath it mirrors a light.
+  function threads(paths, { parent = group, color = platinum, opacity = .72, width = .3, flow = .12, bloom = false, leaf = 70, order = 50 } = {}) {
     const pos = [], tangent = [], uv = [], seeds = [], index = [];
     paths.forEach((path, n) => {
       const offset = pos.length / 3;
@@ -112,7 +112,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
     geo.setAttribute('seed', new THREE.Float32BufferAttribute(seeds, 1)); geo.setIndex(index);
     const mat = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending, fog: false, extensions: { derivatives: true }, defines: bloom ? { BLOOM: '' } : {},
-      uniforms: { t: clock, energy, power, center, col: { value: C(color) }, opacity: { value: opacity }, width: { value: width }, flow: { value: flow } },
+      uniforms: { t: clock, energy, power, center, col: { value: C(color) }, opacity: { value: opacity }, width: { value: width }, flow: { value: flow }, leafScale: { value: leaf } },
       vertexShader: `attribute vec3 tangent;attribute float seed;uniform float width;uniform vec3 center;varying vec2 vUv;varying float vSeed;varying float vSpec;${LIGHTS}
         float kk(vec3 L,vec3 T,vec3 V){float h=dot(T,normalize(L+V));return pow(max(0.,1.-h*h),20.);}
         void main(){vUv=uv;vSeed=seed;vSpec=1.;
@@ -123,12 +123,12 @@ export function buildOracleDesign({ main, reduceMotion }) {
           #endif
           vec4 mv=modelViewMatrix*vec4(position,1.);vec2 d=(modelViewMatrix*vec4(tangent,0.)).xy;
           d/=max(length(d),.001);mv.xy+=vec2(-d.y,d.x)*(uv.y-.5)*width;gl_Position=projectionMatrix*mv;}`,
-      fragmentShader: `uniform float t;uniform float energy;uniform float power;uniform vec3 col;uniform float opacity;uniform float flow;varying vec2 vUv;varying float vSeed;varying float vSpec;${NOISE}
+      fragmentShader: `uniform float t;uniform float energy;uniform float power;uniform vec3 col;uniform float opacity;uniform float flow;uniform float leafScale;varying vec2 vUv;varying float vSeed;varying float vSpec;${NOISE}
         void main(){float p=abs(vUv.y-.5)*2.;
           #ifdef BLOOM
-          float leaf=smoothstep(.25,.8,noise2(vec2(vUv.x*70.+vSeed*13.,vSeed)));
+          float leaf=smoothstep(.25,.8,noise2(vec2(vUv.x*leafScale+vSeed*13.,vSeed)));
           float a=exp(-p*p*5.)*pow(vSpec,1.6)*(.3+leaf)*opacity*(1.+energy*.2+power*.1);
-          gl_FragColor=vec4(mix(col,vec3(1.,.95,.84),min(1.,vSpec*.5)),a);
+          gl_FragColor=vec4(mix(col,vec3(1.,.99,.97),min(1.,vSpec*.5)),a);
           #else
           float sigma=max(.055,fwidth(vUv.y)*.65);float thread=exp(-pow((vUv.y-.5)/sigma,2.))+.075*exp(-p*p*3.5);
           float glint=pow(.5+.5*cos(vUv.x*6.283185-t*.22+vSeed),28.);
@@ -142,9 +142,9 @@ export function buildOracleDesign({ main, reduceMotion }) {
     const a = a0 + (a1 - a0) * i / n; return [Math.cos(a) * r, Math.sin(a) * r, z];
   });
 
-  // Star glints along gold edges. Each point is a tiny facet with its own
+  // Star glints along metal edges. Each point is a tiny facet with its own
   // tilt, so it flashes only while that facet mirrors a light at the viewer.
-  function glints(parent, paths, { size = 1, gain = 1, density = .5, color = '#FFD9A6' } = {}) {
+  function glints(parent, paths, { size = 1, gain = 1, density = .5, color = '#F0F1FA' } = {}) {
     const pos = [], tangent = [], seeds = [];
     for (const path of paths) path.forEach((p, i) => {
       const a = path[Math.max(0, i - 1)], b = path[Math.min(path.length - 1, i + 1)];
@@ -218,9 +218,9 @@ export function buildOracleDesign({ main, reduceMotion }) {
   const engraving = new THREE.CanvasTexture(canvas); engraving.wrapS = THREE.RepeatWrapping; engraving.anisotropy = 4;
 
   // Dark nebula crystal with violet clouds and fine white fractures. A gilded
-  // lip wraps both edges, a pinstripe and gold inscriptions run inside it, and
+  // lip wraps both edges, a pinstripe and metal inscriptions run inside it, and
   // star medallions mark the chapter jewels. All of it shares one surface, so
-  // its gold light belongs to the glass rather than floating over it.
+  // its light belongs to the glass rather than floating over it.
   function ribbonMaterial(hemi, u) {
     return new THREE.ShaderMaterial({ ...PREMUL, extensions: { derivatives: true },
       uniforms: { map: { value: engraving }, t: clock, energy, power, center, hemi: { value: hemi }, ...u },
@@ -252,12 +252,12 @@ export function buildOracleDesign({ main, reduceMotion }) {
           float glyph=texture2D(map,vec2(vUv.x*2.,vUv.y)).a*faceK*mix(.55,1.,outer);
           float g=clamp(max(max(lip,stripe),max(glyph*.9,max(ma,mb))),0.,1.);
           float leaf=smoothstep(.2,.85,noise2(vec2(vUv.x*circ*1.4+offset*9.,edge*4.)));
-          vec3 gc=gold(n,v,leaf)*(1.+energy*.2+restored*.12)+vec3(1.,.93,.8)*glitter(band/.09+offset*13.,n,v,.18)*3.;
+          vec3 gc=metal(n,v,leaf)*(1.+energy*.2+restored*.12)+vec3(1.,.99,.97)*glitter(band/.09+offset*13.,n,v,.18)*3.;
           col=mix(col,gc,g);alpha=mix(alpha,1.,g);
           float fleck=glitter(band/.06+31.,n,v,.03)*faceK*(1.-g);
           vec3 glow=slotColA*ma*(slotLit.x*1.1+slotFlash.x*1.6)+slotColB*mb*(slotLit.y*1.1+slotFlash.y*1.6)
             +(slotColA*discA*slotFlash.x+slotColB*discB*slotFlash.y)*outer*.35;
-          gl_FragColor=vec4(col*alpha+vec3(1.,.9,.72)*fleck*2.5+glow,alpha);}`
+          gl_FragColor=vec4(col*alpha+vec3(.96,.97,1.)*fleck*2.5+glow,alpha);}`
     });
   }
   // Clear glass beads: a bright rim, mirrored lights and, for a chapter jewel,
@@ -291,7 +291,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
     geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
     geo.setAttribute('slot', new THREE.Float32BufferAttribute(slot, 1)); return geo;
   }
-  // Fine gold wire: tubes along circles and arcs, baked into one geometry.
+  // Fine platinum wire: tubes along circles and arcs, baked into one geometry.
   function wireGeometry(list, tube) {
     const pos = [], nor = [], along = [], index = [], M = 8, e = new THREE.Euler(), p = new THREE.Vector3(), d = new THREE.Vector3();
     for (const { r, a0 = 0, a1 = TAU, tilt = [0, 0, 0] } of list) {
@@ -318,10 +318,10 @@ export function buildOracleDesign({ main, reduceMotion }) {
     fragmentShader: `uniform vec3 center;uniform float hemi,energy,power;varying vec3 vW;varying vec3 vN;varying float vAlong;${SURFACE}
       void main(){if(hidden(vW,center,hemi))discard;vec3 n=normalize(vN),v=normalize(cameraPosition-vW);
         float leaf=smoothstep(.2,.85,noise2(vec2(vAlong*1.6,3.)));
-        vec3 c=gold(n,v,leaf)*(1.+energy*.15+power*.08)+vec3(1.,.93,.8)*glitter(vec2(vAlong/.08,.5),n,v,.22)*2.5;
+        vec3 c=metal(n,v,leaf)*(1.+energy*.15+power*.08)+vec3(1.,.99,.97)*glitter(vec2(vAlong/.08,.5),n,v,.22)*2.5;
         gl_FragColor=vec4(c,1.);}`
   });
-  // Star medallions that always face the viewer: dark glass behind a gold
+  // Star medallions that always face the viewer: dark glass behind a platinum
   // double ring and an eight-point star.
   const medallionMaterial = hemi => new THREE.ShaderMaterial({ ...PREMUL, extensions: { derivatives: true },
     uniforms: { center, energy, hemi: { value: hemi }, size: { value: .72 } },
@@ -334,9 +334,9 @@ export function buildOracleDesign({ main, reduceMotion }) {
         float g=clamp(ring+star,0.,1.);
         vec3 v=normalize(cameraPosition-vW),right=vec3(viewMatrix[0][0],viewMatrix[1][0],viewMatrix[2][0]),up=vec3(viewMatrix[0][1],viewMatrix[1][1],viewMatrix[2][1]);
         vec3 n=normalize(v+(right*vP.x+up*vP.y)*.6);
-        vec3 col=mix(vec3(.02,.035,.09)+sky(reflect(-v,n))*.15,gold(n,v,smoothstep(.2,.8,noise2(vec2(a*3.,r*5.)+vW.xz)))*1.2,g);
+        vec3 col=mix(vec3(.02,.035,.09)+sky(reflect(-v,n))*.15,metal(n,v,smoothstep(.2,.8,noise2(vec2(a*3.,r*5.)+vW.xz)))*1.2,g);
         float alpha=mix(.55,1.,g)*smoothstep(1.,.97,r);
-        gl_FragColor=vec4(col*alpha*(1.+energy*.15)+vec3(1.,.93,.82)*exp(-r*r*60.)*1.2,alpha);}`
+        gl_FragColor=vec4(col*alpha*(1.+energy*.15)+vec3(.97,.98,1.)*exp(-r*r*60.)*1.2,alpha);}`
   });
 
   // Four nested hoops of one globe. Their radial spacing exceeds a band's depth
@@ -355,7 +355,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
       slotColA: { value: C('#FFFFFF') }, slotColB: { value: C('#FFFFFF') } };
     layered(pivot, band.geo, hemi => ribbonMaterial(hemi, u), i);
     const edges = [circle(edgeRadius, 192, 0, TAU, edgeZ), circle(edgeRadius, 192, 0, TAU, -edgeZ)];
-    threads(edges, { parent: pivot, color: '#FFE2B8', width: 1.1, opacity: .55, bloom: true, order: 70 });
+    threads(edges, { parent: pivot, color: '#EEF0FA', width: 1.1, opacity: .55, bloom: true, order: 70 });
     glints(pivot, edges.map(e => e.filter((_, k) => k % 2)), { size: 1.25, gain: 1.2, density: .55 });
     return { pivot, gimbal, axis: new THREE.Vector3(...spec.axis).normalize(), speed: spec.speed, u, radius: spec.r, depth, slots: [] };
   });
@@ -369,7 +369,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
   for (const [r, a0, a1, tilt] of arcs) wires.push({ r, a0, a1, tilt });
   layered(frame, wireGeometry(wires, .028), wireMaterial, 4);
   const wirePaths = wires.map(({ r, a0 = 0, a1 = TAU, tilt }) => tilted(circle(r, Math.round((a1 - a0) / TAU * 192), a0, a1), tilt));
-  threads(wirePaths, { parent: frame, color: '#FFE2B8', width: .8, opacity: .35, bloom: true, order: 70 });
+  threads(wirePaths, { parent: frame, color: '#EEF0FA', width: .8, opacity: .35, bloom: true, order: 70 });
   glints(frame, wirePaths, { size: 1.1, gain: 1.1, density: .5 });
   const graduations = [], spurs = [];
   for (let i = 0; i < 144; i++) {
@@ -421,7 +421,14 @@ export function buildOracleDesign({ main, reduceMotion }) {
     const edges = new THREE.EdgesGeometry(geo, 1).attributes.position, paths = [];
     for (let j = 0; j < edges.count; j += 2) paths.push([[edges.getX(j), edges.getY(j), edges.getZ(j)], [edges.getX(j + 1), edges.getY(j + 1), edges.getZ(j + 1)]]);
     // Between the back and front faces, so the near crystal softens its outlines.
-    threads(paths, { parent: holder, color: i % 2 ? '#91A8D0' : '#A69CBF', opacity: .45 + i * .018, width: .17, flow: .09, order: 38 }); geo.dispose();
+    threads(paths, { parent: holder, color: i % 2 ? '#91A8D0' : '#A69CBF', opacity: .45 + i * .018, width: .17, flow: .09, order: 38 });
+    // The two outer crystals share the armillary's light: an ice-white bloom
+    // and star glints wherever one of their edges mirrors a light.
+    if (i < 2) {
+      threads(paths, { parent: holder, color: '#E4ECFF', width: .75, opacity: i ? .32 : .45, bloom: true, leaf: 5, order: 70 });
+      glints(holder, paths.map(([a, b]) => [.2, .5, .8].map(k => a.map((x, c) => x + (b[c] - x) * k))), { size: .95, gain: i ? .8 : 1.1, density: .45, color: '#EAF0FF' });
+    }
+    geo.dispose();
   });
   const heartGlow = sprite(core, '#8BA3D6', 8.5, .34);
   const heartPoint = sprite(core, '#D8E4FA', 2.7, .78);
@@ -437,7 +444,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
   }
   threads([circle(4.6, 128)], { parent: halo, color: '#ABA6D6', width: .1, opacity: .22, flow: 0 });
 
-  // Chapter jewels: a pearl set mid-band over a gold star medallion on the
+  // Chapter jewels: a pearl set mid-band over a platinum star medallion on the
   // outer face. Restoring a relic wakes its colour in both, with a flare.
   const slots = main.map((relic, i) => {
     const ring = rings[i % rings.length], k = ring.slots.length, a = (k ? .78 : .28) * TAU + i * .4;
@@ -454,7 +461,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
     geo.setAttribute('position', new THREE.Float32BufferAttribute(list.flatMap(l => l.p), 3));
     geo.setAttribute('slot', new THREE.Float32BufferAttribute(list.map(l => l.s), 1));
     const flare = new THREE.Points(geo, new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
-      uniforms: { center, px: { value: px }, col: { value: gold }, ...ring.u },
+      uniforms: { center, px: { value: px }, col: { value: platinum }, ...ring.u },
       vertexShader: `attribute float slot;uniform vec3 center;uniform float px;uniform vec2 slotLit,slotFlash;uniform vec3 slotColA,slotColB;varying float vI;varying float vA;varying vec3 vCol;
         void main(){bool a=slot<.5;vI=(a?slotLit.x:slotLit.y)*.5+(a?slotFlash.x:slotFlash.y)*1.4;vCol=a?slotColA:slotColB;vA=.2;
           vec4 w=modelMatrix*vec4(position,1.);if(dot(w.xyz-center,w.xyz-cameraPosition)>0.)vI*=.4;
