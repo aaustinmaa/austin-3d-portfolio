@@ -1,8 +1,10 @@
 # Austin's 3D Portfolio
 
-A dark valley under a sleeping star. Austin's projects and experience drift overhead as sealed relics. Visitors shoot them down with a bow, or ask the Oracle (the star) to bring one down. The star is a heart of light inside a rhombic triacontahedron of clear glass, nested in six convex shells that start as fine line drawings tumbling around three symmetry axes. Each relic opened sends a beam back to it: one shell fills with glass in that relic's colour and turns into line with the axes, so the finished star settles into one symmetric jewel. The star also grows a ray, the valley brightens a step, and the skills the project used wake as stars in a constellation overhead. Projects that share a skill are joined by a line, so with all six open the sky becomes one chart of Austin's stack. The résumé, GitHub and LinkedIn links stay in the top bar the whole time.
+A dark valley under a celestial Oracle. Its design follows option A in `reference/oracle-concepts.png`: three translucent ice-blue armillary ribbons with fine champagne-gold borders and engraved diagrams surround a luminous, nested geometric jewel. A delicate outer celestial frame, axial pearls, star-shaped medallions and sparse blue-violet dust give it depth. The rings and the shared core turn slowly; speech adds restrained light, and each main relic restores one of the six chapter jewels. The completed design stays composed rather than gaining more shells. Visitors shoot down Austin's projects as sealed relics, or ask the Oracle to summon one. Opening each relic returns light, brightens the valley and wakes the skills it used as stars in a constellation overhead. Projects sharing a skill are joined by a line. The résumé, GitHub and LinkedIn links stay in the top bar throughout.
 
-Built with [three.js](https://threejs.org/) and [Vite](https://vitejs.dev/). No other runtime dependencies.
+Built with [three.js](https://threejs.org/) and [Vite](https://vitejs.dev/). No other runtime dependencies. The Oracle uses actual 3D geometry and procedural materials. With `prefers-reduced-motion`, rotation, floating, moving highlights and expanding ripples stop; relic restoration still works.
+
+For a close comparison with the selected concept, run the dev server and open `/reference/oracle-a.html`. Drag to orbit, scroll to zoom, and use the controls to inspect speech, partial restoration, completion and reduced motion. This development study is separate from the production entry page.
 
 The wanderer wears a pale, thin woven robe and a sewn hood with a pointed back and a short neck drape. Cloth panels run from a small pointed front opening back to the rear seam. The upper arch projects a little forward over the forehead, while the lower corners flow into a neck drape tucked against the robe. Inside sits a shallow head with a flat face, rounded temples and a tapered chin, with two glowing eyes in shadow. Slim sleeves rest close to the body, with rounded caps keeping the shoulder seams attached as the arms reach the bow and string. The right hand grips the lantern's loop handle; a hip hook supports it when that hand draws the bow. Walking and flying use a steady forward lean without periodic body, head, arm or lantern sway. Subtle movement at the hem, cuffs and rear hood tip uses CPU vertex deformation in the existing three.js r128 runtime, including gentle inertia when starting, stopping and turning. The face opening follows the head while the lower neck drape stays anchored to the shoulders, including when aiming. Cloth motion respects `prefers-reduced-motion`.
 
@@ -39,7 +41,8 @@ Light the four braziers on the spiral stairs to wake a hidden seventh relic. The
 ```
 index.html          Page markup: top bar, relic tracker, card, chat dock
 src/main.js           The world: scene, valley, lighting, relic logic, player, arrows, camera, UI wiring
-src/oracle.js         The star (the Oracle): glass core, six glass shells, the rays it regains, returning light
+src/oracle.js         The Oracle interaction boundary: returning light, speech pulses, relic restoration
+src/oracle-design.js  Option A: crystal ribbons, gold filaments, engraved scales, star jewels and geometric core
 src/polyhedra.js      Polyhedra drawn as light: clear glass and glowing-edge shaders, the star's convex solids
 src/constellation.js  The skill constellation: star layout, figures, labels, wake-up animation
 src/relics.js         The seven relic models (faceted, with soft auras) and how each one unfolds when opened
