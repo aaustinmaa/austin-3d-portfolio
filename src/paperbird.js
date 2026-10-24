@@ -125,9 +125,10 @@ function letterTexture(hint){
   /* the crane's creases, a shade darker where they fold toward you */
   g.lineWidth = 1.5; const line = (a, b, al) => { g.strokeStyle = `rgba(60,58,98,${al})`; g.beginPath(); g.moveTo(X(PTS[a][0]), Y(PTS[a][1])); g.lineTo(X(PTS[b][0]), Y(PTS[b][1])); g.stroke(); };
   for (let j=0;j<4;j++){ line(0, A(j), .16); line(0, M(j), .12); line(P(j), P(j+1), .12); line(A(j), P(j), .1); line(A(j), P(j+1), .1); }
-  /* the greeting, and in a small faint hand at the foot of the page, the hint that it can be written on */
-  g.fillStyle = 'rgba(38,42,78,.75)'; g.font = 'italic 500 44px "Cormorant Garamond", Georgia, serif'; g.fillText('To Austin,', 42, 104);
-  if (hint){ g.fillStyle = 'rgba(38,42,78,.42)'; g.font = 'italic 500 22px "Cormorant Garamond", Georgia, serif'; g.textAlign = 'right'; g.fillText(hint, w-44, h-26); g.textAlign = 'left'; } };
+  /* the heading says what the paper is for, in a hand sized to fit the page */
+  const title = hint || 'To Austin,'; let fs = 44; g.fillStyle = 'rgba(38,42,78,.75)';
+  do { g.font = `italic 500 ${fs}px "Cormorant Garamond", Georgia, serif`; } while (g.measureText(title).width > w - 84 && --fs > 24);
+  g.fillText(title, 42, 104); };
   draw(); const t = new THREE.CanvasTexture(c);
   /* draw the page again once the handwriting face has loaded */
   if (document.fonts) document.fonts.load('italic 500 44px "Cormorant Garamond"').then(() => { draw(); t.needsUpdate = true; }).catch(() => {});
@@ -245,14 +246,14 @@ export function createPaperBird(scene, { perch, star, hint, reduceMotion }){
   function update(dt, T, camera){
     pulse = Math.max(0, pulse - dt); camPos.setFromMatrixPosition(camera.matrixWorld);
     if (away >= 0){ /* a sent note: fold back into a crane where it is, fly off to the star, then a new crane settles on the lantern */
-      away += reduceMotion ? 5.3 : dt; const fold = 1 - span(away, 0, 1.3), fly = span(away, 1.3, 3.9), back = span(away, 4.4, 5.3), s = star();
-      if (away < 4.2){ at.lerpVectors(close, s, fly); at.y += Math.sin(Math.PI*fly)*2; group.position.copy(at); group.scale.setScalar(Math.max(.001, 1 - fly*.9)); light(camera);
-        const fy = faceYaw(); group.rotation.set(-.3*fly, fy + wrapA(Math.atan2(s.x - at.x, s.z - at.z) - fy)*span(away, 1.3, 2.1), 0); pose(fold, 0); }
+      away += reduceMotion ? 4.6 : dt; const fold = 1 - span(away, 0, .8), fly = span(away, .8, 3.3), back = span(away, 3.8, 4.6), s = star();
+      if (away < 3.6){ at.lerpVectors(close, s, fly); at.y += Math.sin(Math.PI*fly)*2; group.position.copy(at); group.scale.setScalar(Math.max(.001, 1 - fly*.9)); light(camera);
+        const fy = faceYaw(); group.rotation.set(-.3*fly, fy + wrapA(Math.atan2(s.x - at.x, s.z - at.z) - fy)*span(away, .8, 1.5), 0); pose(fold, 0); }
       else { group.position.copy(rest); group.rotation.set(0, REST_YAW, 0); group.scale.setScalar(Math.max(.001, back)); light(camera); pose(0, 0); }
-      glow.position.copy(group.position); glow.scale.setScalar(1.2); glow.material.opacity = away < 4.2 ? .4*(1 - fly) : .14*back;
+      glow.position.copy(group.position); glow.scale.setScalar(1.2); glow.material.opacity = away < 3.6 ? .4*(1 - fly) : .14*back;
       if (back >= 1){ away = -1; k = 0; z = 0; writing = false; group.scale.setScalar(1); }
       return; }
-    const step = reduceMotion ? 1 : dt/2.6, wantK = near || writing ? 1 : 0, wantZ = writing && k > .99 ? 1 : 0;
+    const step = reduceMotion ? 1 : dt/1.5, wantK = near || writing ? 1 : 0, wantZ = writing && k > .99 ? 1 : 0;
     if (z > 0 || wantZ > 0) z += Math.sign(wantZ - z)*Math.min(Math.abs(wantZ - z), reduceMotion ? 1 : dt/1.2);
     else { if (k === 0 && wantK > 0) chooseSide(); k += Math.sign(wantK - k)*Math.min(Math.abs(wantK - k), step); }
     /* the crane rises off its lantern and turns its folds toward you; once open, the sheet can come close */
