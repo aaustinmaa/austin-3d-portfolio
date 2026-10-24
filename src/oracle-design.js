@@ -401,9 +401,9 @@ export function buildOracleDesign({ main, reduceMotion }) {
   layered(frame, medallions, medallionMaterial, 4.6);
   frame.children.forEach(m => { if (m.geometry === medallions) m.frustumCulled = false; });
 
-  // The jewel spans about a third of the globe, so the armillary reads first
+  // The jewel spans about two fifths of the globe, so the armillary reads first
   // and the core stays a small, intense heart. Each solid nests in the last.
-  const core = new THREE.Group(); core.scale.setScalar(.78); core.rotation.set(.03, 0, .1); group.add(core);
+  const core = new THREE.Group(); core.scale.setScalar(.78 * 1.2); core.rotation.set(.03, 0, .1); group.add(core);
   const alignment = new THREE.Group(); alignment.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, (1 + Math.sqrt(5)) / 2).normalize(), new THREE.Vector3(0, 0, 1)); core.add(alignment);
   // Each crystal is the hoops' nebula glass, mapped flat across every facet.
   // Light from the heart grows toward the centre, so the inner crystals glow
@@ -418,7 +418,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
         vec3 up=abs(l.y)<.9?vec3(0.,1.,0.):vec3(1.,0.,0.),t1=normalize(cross(l,up)),t2=cross(l,t1);
         vec2 f=vec2(dot(vP,t1),dot(vP,t2)),q=f*.45+shell*7.3+l.xy*5.;
         vec4 glass=nebula(n,v,q,t);vec3 col=glass.rgb;float alpha=glass.a;
-        float d=min(min(vE.x,vE.y),vE.z),lip=lipped*smoothstep(fwidth(d)+1e-4,0.,d-.03);
+        float d=min(min(vE.x,vE.y),vE.z),lip=lipped*smoothstep(fwidth(d)+1e-4,0.,d-.025);
         vec3 mc=metal(n,v,smoothstep(.2,.85,noise2(q*2.3)))*(1.+energy*.2+power*.08)+vec3(1.,.99,.97)*glitter(f/.09+shell*13.,n,v,.18)*3.*wake(power);
         col=mix(col,mc,lip);alpha=mix(alpha,1.,lip);
         float fleck=glitter(f/.06+31.+shell,n,v,.03)*(1.-lip),heat=exp(-length(vP)*.55);
@@ -467,7 +467,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
 
   // A small celestial frame around the jewel: from the front its three circles
   // read as a ring and a cross, matching the art's diagram around the core.
-  const halo = new THREE.Group(); group.add(halo);
+  const halo = new THREE.Group(); halo.scale.setScalar(1.2); group.add(halo);
   for (const tilt of [[0, 0, 0], [Math.PI / 2, 0, 0], [0, Math.PI / 2, 0]]) {
     const p = new THREE.Group(); p.rotation.set(...tilt); halo.add(p);
     threads([circle(4.15, 128)], { parent: p, color: '#ABA6D6', width: .13, opacity: .34, flow: .1 });
