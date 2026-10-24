@@ -5,11 +5,14 @@ import { withEdges, rhombicTriacontahedron } from './polyhedra.js';
 // Fixed analytic lights shared by the glass, the metal and the glints. They live
 // in world space, so every highlight stays on its own surface as the hoops turn.
 const LIGHTS = 'const vec3 KEY=vec3(-.5514,.7018,.4511),FILL=vec3(.654,.1811,.7345),UNDER=vec3(-.4015,-.6324,-.6625);';
+// The Oracle's light (bloom, glints, glitter) starts at just over half strength
+// in the dark valley and reaches full strength as the relics are restored.
+const WAKE = 'float wake(float p){return mix(.55,1.,clamp(p,0.,1.));}';
 const NOISE = `float hash1(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
   float noise2(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
     return mix(mix(hash1(i),hash1(i+vec2(1.,0.)),f.x),mix(hash1(i+vec2(0.,1.)),hash1(i+vec2(1.)),f.x),f.y);}
   float fbm2(vec2 p){return noise2(p)*.58+noise2(p*2.03+7.)*.28+noise2(p*4.13-3.)*.14;}`;
-const SURFACE = `${LIGHTS}${NOISE}
+const SURFACE = `${LIGHTS}${NOISE}${WAKE}
   vec3 sky(vec3 d){float cloud=noise2(d.xy*3.1+d.z*1.7)*.6+noise2(d.yz*6.3-d.x)*.4;
     vec3 c=mix(vec3(.02,.03,.08),vec3(.16,.23,.46),cloud*cloud);
     c+=vec3(.62,.76,1.)*exp(-pow((d.y+d.x*.46-.16)/.1,2.))*(.35+cloud);
@@ -131,11 +134,11 @@ export function buildOracleDesign({ main, reduceMotion }) {
           #endif
           vec4 mv=modelViewMatrix*vec4(position,1.);vec2 d=(modelViewMatrix*vec4(tangent,0.)).xy;
           d/=max(length(d),.001);mv.xy+=vec2(-d.y,d.x)*(uv.y-.5)*width;gl_Position=projectionMatrix*mv;}`,
-      fragmentShader: `uniform float t;uniform float energy;uniform float power;uniform vec3 col;uniform float opacity;uniform float flow;uniform float leafScale;varying vec2 vUv;varying float vSeed;varying float vSpec;${NOISE}
+      fragmentShader: `uniform float t;uniform float energy;uniform float power;uniform vec3 col;uniform float opacity;uniform float flow;uniform float leafScale;varying vec2 vUv;varying float vSeed;varying float vSpec;${NOISE}${WAKE}
         void main(){float p=abs(vUv.y-.5)*2.;
           #ifdef BLOOM
           float leaf=smoothstep(.25,.8,noise2(vec2(vUv.x*leafScale+vSeed*13.,vSeed)));
-          float a=exp(-p*p*5.)*pow(vSpec,1.6)*(.3+leaf)*opacity*(1.+energy*.2+power*.1);
+          float a=exp(-p*p*5.)*pow(vSpec,1.6)*(.3+leaf)*opacity*(1.+energy*.2+power*.1)*wake(power);
           gl_FragColor=vec4(mix(col,vec3(1.,.99,.97),min(1.,vSpec*.5)),a);
           #else
           float sigma=max(.055,fwidth(vUv.y)*.65);float thread=exp(-pow((vUv.y-.5)/sigma,2.))+.075*exp(-p*p*3.5);
@@ -165,12 +168,12 @@ export function buildOracleDesign({ main, reduceMotion }) {
     const mat = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
       uniforms: { t: clock, energy, power, center, px: { value: px }, size: { value: size }, gain: { value: gain }, density: { value: density }, col: { value: C(color) } },
       vertexShader: `attribute vec3 tangent;attribute float seed;uniform vec3 center;uniform vec3 col;uniform float px,size,gain,density,t,energy,power;
-        varying float vI;varying float vA;varying vec3 vCol;${LIGHTS}
+        varying float vI;varying float vA;varying vec3 vCol;${LIGHTS}${WAKE}
         float kk(vec3 L,vec3 T,vec3 V){float h=dot(T,normalize(L+V));return pow(max(0.,1.-h*h),260.);}
         void main(){vec4 w=modelMatrix*vec4(position,1.);vec3 T=normalize(mat3(modelMatrix)*tangent),V=normalize(cameraPosition-w.xyz);
           vec3 j=(fract(vec3(seed*1.271,seed*3.711,seed*5.923))-.5)*.8;
           float s=kk(normalize(KEY+j),T,V)+kk(normalize(FILL+j.yzx),T,V)*.75+kk(normalize(UNDER+j.zxy),T,V)*.5;
-          vI=s*step(1.-density,fract(seed*.7713))*gain*(.8+.2*sin(t*2.7+seed))*(1.+energy*.3+power*.25);
+          vI=s*step(1.-density,fract(seed*.7713))*gain*(.8+.2*sin(t*2.7+seed))*(1.+energy*.3+power*.25)*wake(power);
           if(dot(w.xyz-center,w.xyz-cameraPosition)>0.)vI*=.35;
           vA=fract(seed*.0917)*.6-.3;vCol=col;vec4 mv=viewMatrix*w;gl_Position=projectionMatrix*mv;
           gl_PointSize=vI<.04?0.:clamp(size*px*900./max(1.,-mv.z)*min(1.5,.4+vI),1.,96.*px);}`,
@@ -254,12 +257,12 @@ export function buildOracleDesign({ main, reduceMotion }) {
           float glyph=texture2D(map,vec2(vUv.x*2.,vUv.y)).a*faceK*mix(.55,1.,outer);
           float g=clamp(max(max(lip,stripe),max(glyph*.9,max(ma,mb))),0.,1.);
           float leaf=smoothstep(.2,.85,noise2(vec2(vUv.x*circ*1.4+offset*9.,edge*4.)));
-          vec3 gc=metal(n,v,leaf)*(1.+energy*.2+restored*.12)+vec3(1.,.99,.97)*glitter(band/.09+offset*13.,n,v,.18)*3.;
+          vec3 gc=metal(n,v,leaf)*(1.+energy*.2+restored*.12)+vec3(1.,.99,.97)*glitter(band/.09+offset*13.,n,v,.18)*3.*wake(power);
           col=mix(col,gc,g);alpha=mix(alpha,1.,g);
           float fleck=glitter(band/.06+31.,n,v,.03)*faceK*(1.-g);
           vec3 glow=slotColA*ma*(slotLit.x*1.1+slotFlash.x*1.6)+slotColB*mb*(slotLit.y*1.1+slotFlash.y*1.6)
             +(slotColA*discA*slotFlash.x+slotColB*discB*slotFlash.y)*outer*.35;
-          gl_FragColor=vec4(col*alpha+vec3(.96,.97,1.)*fleck*2.5+glow,alpha);}`
+          gl_FragColor=vec4(col*alpha+vec3(.96,.97,1.)*fleck*2.5*wake(power)+glow,alpha);}`
     });
   }
   // Clear glass beads: a bright rim, mirrored lights and, for a chapter jewel,
@@ -320,7 +323,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
     fragmentShader: `uniform vec3 center;uniform float hemi,energy,power;varying vec3 vW;varying vec3 vN;varying float vAlong;${SURFACE}
       void main(){if(hidden(vW,center,hemi))discard;vec3 n=normalize(vN),v=normalize(cameraPosition-vW);
         float leaf=smoothstep(.2,.85,noise2(vec2(vAlong*1.6,3.)));
-        vec3 c=metal(n,v,leaf)*(1.+energy*.15+power*.08)+vec3(1.,.99,.97)*glitter(vec2(vAlong/.08,.5),n,v,.22)*2.5;
+        vec3 c=metal(n,v,leaf)*(1.+energy*.15+power*.08)+vec3(1.,.99,.97)*glitter(vec2(vAlong/.08,.5),n,v,.22)*2.5*wake(power);
         gl_FragColor=vec4(c,1.);}`
   });
   // Star medallions that always face the viewer: dark glass behind a platinum
@@ -416,11 +419,11 @@ export function buildOracleDesign({ main, reduceMotion }) {
         vec2 f=vec2(dot(vP,t1),dot(vP,t2)),q=f*.45+shell*7.3+l.xy*5.;
         vec4 glass=nebula(n,v,q,t);vec3 col=glass.rgb;float alpha=glass.a;
         float d=min(min(vE.x,vE.y),vE.z),lip=lipped*smoothstep(fwidth(d)+1e-4,0.,d-.03);
-        vec3 mc=metal(n,v,smoothstep(.2,.85,noise2(q*2.3)))*(1.+energy*.2+power*.08)+vec3(1.,.99,.97)*glitter(f/.09+shell*13.,n,v,.18)*3.;
+        vec3 mc=metal(n,v,smoothstep(.2,.85,noise2(q*2.3)))*(1.+energy*.2+power*.08)+vec3(1.,.99,.97)*glitter(f/.09+shell*13.,n,v,.18)*3.*wake(power);
         col=mix(col,mc,lip);alpha=mix(alpha,1.,lip);
         float fleck=glitter(f/.06+31.+shell,n,v,.03)*(1.-lip),heat=exp(-length(vP)*.55);
         if(!gl_FrontFacing)alpha*=.6;
-        gl_FragColor=vec4(col*alpha+vec3(.6,.73,1.)*heat*(1.1+energy*.3+power*.1)*(1.-lip)+vec3(.96,.97,1.)*fleck*2.5,alpha);}`
+        gl_FragColor=vec4(col*alpha+vec3(.6,.73,1.)*heat*(1.1+energy*.3+power*.1)*(1.-lip)+vec3(.96,.97,1.)*fleck*2.5*wake(power),alpha);}`
   });
   // Distance from each point to its solid's true edges, so a lip keeps one
   // width on every facet however that facet is split into triangles.
@@ -516,7 +519,8 @@ export function buildOracleDesign({ main, reduceMotion }) {
       s.ring.u.slotLit.value.setComponent(s.k, s.lit); s.ring.u.slotFlash.value.setComponent(s.k, s.flash);
     });
     rings.forEach(r => { r.u.restored.value = r.slots.reduce((sum, s) => sum + s.lit, 0) / (r.slots.length || 1) + finale * .5; });
-    heartGlow.material.opacity = .32 + speak * .05 + flash * .05;
+    const wake = .55 + .45 * Math.min(1, p);
+    heartGlow.material.opacity = .32 * (.7 + .3 * wake) + speak * .05 + flash * .05; heartRays.material.opacity = .2 * wake;
     haze.material.opacity = .28 + p * .025; aura.material.opacity = .15 + p * .02 + speak * .02;
   }
   return { group, update, receive(relic) { const s = slots.find(x => x.relic === relic); if (s) { s.target = 1; s.flash = 1; } }, bloom() { slots.forEach(s => s.flash = 1); } };
