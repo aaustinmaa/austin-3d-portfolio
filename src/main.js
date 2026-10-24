@@ -880,7 +880,7 @@ lookBtn.addEventListener('click', () => setGaze(!gaze));
 /* ---------- camera ---------- */
 let intro = reduceMotion ? null : { t:0, dur:6.5, from:new V3(5, 5, 36), look:new V3(0, ORACLE_Y-4, 0) };
 let craneApproach = null;
-const glideEase = t => t*t*t*(t*(t*6 - 15) + 10);
+const glideEase = t => t*t*(3 - 2*t);
 function skipIntro(){ if (intro && intro.t < intro.dur - 1.1) intro.t = intro.dur - 1.1; }
 const camPos = new V3(), camLook = new V3(), wantPos = new V3(), wantLook = new V3();
 function followPose(){
@@ -911,7 +911,7 @@ function updateCamera(dt){
     camLook.copy(camPos).addScaledVector(ride.direction,30);
     if (t >= 1) craneApproach = null;
   }
-  else if (intro){ intro.t += dt; const e = ease(Math.min(1, Math.max(0, (intro.t-1.6)/(intro.dur-1.6))));
+  else if (intro){ intro.t += dt; const e = sstep(0,1,(intro.t-1.6)/(intro.dur-1.6));
     camPos.lerpVectors(intro.from, wantPos, e); camLook.lerpVectors(intro.look, wantLook, e); if (intro.t >= intro.dur){ intro = null; welcome(); } }
   else { craneApproach = null; const k = 1 - Math.exp(-dt*(mode === 'aim' ? 14 : 7)); camPos.lerp(wantPos, k); camLook.lerp(wantLook, 1 - Math.exp(-dt*(mode === 'aim' ? 20 : 10))); }
   camera.position.copy(camPos); camera.lookAt(camLook); skyGroup.position.copy(camera.position);
@@ -1102,7 +1102,7 @@ function goToCrane(){
   const travel = !byBird && P.pos.distanceTo(to) > .35;
   camS.yaw = yaw; camS.pitch = pitch;
   if (travel && !reduceMotion){
-    flyTo(to); P.flight.dur = Math.min(4.8,Math.max(2.4,P.pos.distanceTo(to)/10)); P.flight.arc = 0; P.flight.ease = 'glide'; P.onGround = false;
+    flyTo(to); P.flight.dur = Math.min(4,Math.max(1.8,P.pos.distanceTo(to)/12)); P.flight.arc = 0; P.flight.ease = 'glide'; P.onGround = false;
     craneApproach = { flight:P.flight, fromCamera:camPos.clone(), fromPlayer:P.pos.clone(), direction:camLook.clone().sub(camPos).normalize(), fromDist:camS.dist, toDist:Math.min(camS.dist,5.8) };
   }
   else {
@@ -1204,7 +1204,7 @@ function frame(now){
 RELICS.forEach(r => { if (r.state === 'orbit') orbitPos(r, r.pos); });
 requestAnimationFrame(frame);
 setTimeout(() => oracleSay(LINES.intro), reduceMotion ? 200 : 2000);
-if (!intro) setTimeout(welcome, 600);
+if (!intro) welcome();
 
 /* dev-only handle for poking at the scene from the browser console; stripped from production builds */
 if (import.meta.env.DEV) window.__valley = { P, camS, RELICS, sky, oracle, world, colliders, bird, braziers, openLetter, closeLetter, summon, setGaze, scene, camera, renderer, keys, fireArrow, arrows,
