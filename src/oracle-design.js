@@ -16,11 +16,12 @@ const SURFACE = `${LIGHTS}${NOISE}
     c+=vec3(.58,.52,1.)*exp(-pow((d.y-d.x*.68+.39)/.03,2.))*.7;
     return c+vec3(1.,.87,.62)*pow(max(dot(d,KEY),0.),40.)*2.2+vec3(.7,.84,1.)*pow(max(dot(d,FILL),0.),70.)*1.5
       +vec3(.46,.56,.96)*pow(max(dot(d,UNDER),0.),24.)*.9;}
-  // Polished platinum: a dark neutral body mirroring the sky, broken into
-  // leaf-like patches so its light gathers unevenly along an edge.
+  // Polished yellow gold: a warm body mirroring the sky, broken into
+  // leaf-like patches so its light gathers unevenly along an edge. The bloom,
+  // glints and glitter drawn over it stay white.
   vec3 metal(vec3 n,vec3 v,float leaf){vec3 r=reflect(-v,n);
     float hot=pow(max(dot(r,KEY),0.),60.)*2.6+pow(max(dot(r,FILL),0.),110.)*1.5+pow(max(dot(r,UNDER),0.),36.)*.9;
-    return vec3(.25,.25,.28)*(.7+.6*leaf)+vec3(.96,.97,1.)*sky(r)*(.5+.75*leaf)+vec3(1.,.99,.97)*hot*(.25+1.6*leaf);}
+    return vec3(.36,.27,.1)*(.7+.6*leaf)+vec3(1.,.82,.42)*sky(r)*(.6+.8*leaf)+vec3(1.,.88,.55)*hot*(.3+1.6*leaf);}
   // Sparse flakes, each tilted at random, flash when they mirror a light.
   float glitter(vec2 p,vec3 n,vec3 v,float density){vec2 c=floor(p),f=fract(p)-.5;float h=hash1(c);
     vec3 m=normalize(n+(vec3(hash1(c+3.1),hash1(c+5.7),hash1(c+9.2))-.5)*.9),r=reflect(-v,m);
@@ -34,7 +35,7 @@ const SURFACE = `${LIGHTS}${NOISE}
     float crack=exp(-abs(fbm2(q*1.6+4.)-.5)*55.)*smoothstep(.4,.75,noise2(q*.7-2.));
     vec3 col=mix(vec3(.04,.07,.18),vec3(.2,.33,.64),smoothstep(.25,.85,neb));
     col=mix(col,vec3(.38,.23,.62),vio*.75)*.8+env*(.35+fres*1.5)+vec3(.78,.88,1.)*crack*.55;
-    return vec4(col,min(.95,.7+fres*.25+crack*.1));}
+    return vec4(col,min(.95,.85+fres*.1+crack*.05));}
   bool hidden(vec3 w,vec3 center,float hemi){return dot(w-center,w-cameraPosition)*hemi>0.;}`;
 // A glint drawn as a thin four-point star with fainter diagonals, not a disc.
 const STAR = `uniform vec3 col;varying float vI;varying float vA;varying vec3 vCol;
