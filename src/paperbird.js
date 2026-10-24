@@ -229,7 +229,7 @@ export function createPaperBird(scene, { perch, star, hint, reduceMotion }){
 
   /* the crane becomes folded paper over k 0 to FOLDED, unhurried; the folded paper then opens out quickly (and the same
      the other way: the paper folds up quickly, then takes its time becoming a crane) */
-  const SWAP = .3, FOLDED = .51, CRANE_SECS = 1.1, PAPER_SECS = .45, REFOLD = CRANE_SECS + PAPER_SECS;
+  const SWAP = .3, FOLDED = .51, CRANE_SECS = 1.1, PAPER_SECS = .35, REFOLD = CRANE_SECS + PAPER_SECS;
   const rate = k => k < FOLDED ? FOLDED/CRANE_SECS : (1 - FOLDED)/PAPER_SECS;
   const refoldK = t => t < PAPER_SECS ? 1 - (1 - FOLDED)*t/PAPER_SECS : Math.max(0, FOLDED*(1 - (t - PAPER_SECS)/CRANE_SECS));
   function pose(k, light){
