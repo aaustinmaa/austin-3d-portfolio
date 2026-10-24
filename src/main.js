@@ -149,7 +149,7 @@ const pickables = [];
 }
 
 /* ---------- lake ---------- */
-/* the lake: still, clear water. Its flat surface is a true mirror of the valley (see reflectLake below), with the light column,
+/* the lake: still, clear water. Its flat surface is a true mirror of the valley (see reflectLake below), with
    the star overhead and the path lanterns drawn out into soft paths of light the way calm water does. Through the water the
    shallows are clear, deeper water turns blue-violet, and the spring in the middle where the relic sleeps glows cyan */
 const LAKE_EDGE = LAKE_R + 3.4;
@@ -167,9 +167,7 @@ const lakeMat = new THREE.ShaderMaterial({ transparent:true,
       float fres = .45 + .55*pow(1. - abs(V.y), 3.);
       /* the mirror: the valley drawn upside down under the water */
       vec3 col = texture2DProj(mirror, vM).rgb*vec3(1.3,1.38,1.55);
-      /* soft paths of light under the light column, the star overhead and the lanterns */
-      float rl = length(R.xz), s = -dot(vW.xz, R.xz)/max(rl*rl, 1e-4), hc = vW.y + R.y*s, dc = abs(vW.x*R.z - vW.z*R.x)/max(rl, 1e-4);
-      col += vec3(.5,.88,1.)*exp(-dc*dc*3.)*step(0., s)*step(hc, star.y)*(.14 + energy*.3 + glow*.06);
+      /* soft paths of light under the star overhead and the lanterns */
       col += mix(vec3(.55,.9,1.), vec3(.8,.78,1.), glow)*streak(R, normalize(star - vW), 900., 50.)*(.3 + glow*.25 + energy*.3);
       for (int i = 0; i < 3; i++) col += vec3(1.,.76,.5)*streak(R, normalize(lamps[i] - vW), 2400., 60.)*.25;
       /* through the water: clear over the shallows, deep blue-violet further out, the spring glowing in the middle */
@@ -395,40 +393,41 @@ const oracleState = { energy:0, target:0, eye:0, eyeTarget:0 };
 const beamVert = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }';
 const beamFrag = `uniform float t; uniform float fade; uniform float rep; uniform vec3 col; varying vec2 vUv;
   void main(){ float f = smoothstep(0.,.1,vUv.y)*smoothstep(1.,.8,vUv.y); float s = .55 + .45*sin(vUv.y*rep - t*4.); float a = f*s*fade; gl_FragColor = vec4(col*a, a); }`;
-/* the star's shaft of light, straight down into the middle of the lake: bright enough to find from the shore and follow up to
-   the star. A white-cyan core in a soft sheath (both brightest where they face you, so the edges melt), slow pulses of light
-   rising toward the star, motes drifting up along it, and a pool of light where it meets the water */
-const SHAFT_H = ORACLE_Y - 3 - WATER_Y, shaftU = { t:{value:0}, power:{value:.7} };
-const shaftMat = (colour, width, strength) => new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide, fog:false,
+/* the star's light, let down over the middle of the lake like a blessing: a broad, soft cone of pale light, narrow under the
+   star and wide where it reaches the water, made of faint rays, with gentle bands and motes of light drifting down through it
+   and a wide glow where it settles on the lake. Faint enough to see the valley through, broad enough to find from the shore */
+const SHAFT_H = ORACLE_Y - 3 - WATER_Y, shaftU = { t:{value:0}, power:{value:.8} };
+const shaftMat = (colour, strength, seed) => new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide, fog:false,
   uniforms:{ ...shaftU, col:{value:C(colour)} },
   vertexShader:`varying vec2 vUv; varying float vF; void main(){ vUv = uv; vec4 mv = modelViewMatrix*vec4(position,1.);
     vF = abs(dot(normalize(normalMatrix*normal), normalize(-mv.xyz))); gl_Position = projectionMatrix*mv; }`,
   fragmentShader:`uniform float t; uniform float power; uniform vec3 col; varying vec2 vUv; varying float vF;
-    void main(){ float ends = smoothstep(0., .02, vUv.y)*smoothstep(1., .93, vUv.y);
-      float pulse = pow(.5 + .5*sin(vUv.y*16. - t*1.3), 6.)*.7, base = 1. + .8*exp(-vUv.y*14.);
-      float a = pow(vF, ${width.toFixed(1)})*ends*base*(.8 + pulse)*power*${strength.toFixed(2)};
+    void main(){ float u = vUv.x*6.2832;
+      float rays = .55 + .22*sin(u*7. + t*.04 + ${seed.toFixed(1)}) + .15*sin(u*13. - t*.03 + ${(seed*2.3).toFixed(1)}) + .08*sin(u*29. + t*.02);
+      float ends = smoothstep(0., .06, vUv.y)*smoothstep(1., .82, vUv.y), fall = .82 + .18*sin(vUv.y*7. + t*.35);
+      float a = pow(vF, 1.3)*rays*ends*fall*(.75 + .25*vUv.y)*power*${strength.toFixed(2)};
       gl_FragColor = vec4(col*a, a); }` });
-{ [[.16, .26, '#E4FCFF', 2., .85], [1.1, 2.2, '#7FE3F5', 2.5, .5]].forEach(([top, bottom, colour, width, strength]) => {
-    const m = new THREE.Mesh(new THREE.CylinderGeometry(top, bottom, SHAFT_H, 24, 1, true), shaftMat(colour, width, strength)); m.position.y = WATER_Y + SHAFT_H/2; scene.add(m); });
-  /* motes rising slowly along the shaft */
-  const N = 60, g = new THREE.BufferGeometry(), sq = seq(53), seed = new Float32Array(N*3);
-  for (let i = 0; i < N; i++) seed.set([sq(), .15 + sq()*.75, sq()*6.283], i*3);
+{ [[1.2, 3.8, '#D8F7FF', .8, 0], [2.2, 6.8, '#9FE2F5', .42, 3.1]].forEach(([top, bottom, colour, strength, seed]) => {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(top, bottom, SHAFT_H, 48, 1, true), shaftMat(colour, strength, seed)); m.position.y = WATER_Y + SHAFT_H/2; scene.add(m); });
+  /* motes of light drifting slowly down through it */
+  const N = 90, g = new THREE.BufferGeometry(), sq = seq(53), seed = new Float32Array(N*3);
+  for (let i = 0; i < N; i++) seed.set([sq(), Math.sqrt(sq())*.85, sq()*6.283], i*3);
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N*3), 3)); g.setAttribute('seed', new THREE.BufferAttribute(seed, 3));
   const motes = new THREE.Points(g, new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, fog:false,
     uniforms:{ ...shaftU, scale:wispScale },
     vertexShader:`attribute vec3 seed; uniform float t; uniform float power; uniform float scale; varying float vA;
-      void main(){ float k = fract(seed.x + t*.012), a = seed.z + t*.15;
-        vec3 p = vec3(cos(a)*seed.y, ${WATER_Y.toFixed(2)} + k*${SHAFT_H.toFixed(1)}, sin(a)*seed.y);
-        vA = smoothstep(0., .05, k)*smoothstep(1., .85, k)*power; vec4 mv = modelViewMatrix*vec4(p, 1.);
-        gl_PointSize = .3*scale/-mv.z; gl_Position = projectionMatrix*mv; }`,
-    fragmentShader:`varying float vA; void main(){ vec2 q = gl_PointCoord - .5; float a = exp(-dot(q,q)*30.)*vA; gl_FragColor = vec4(vec3(.7,.95,1.)*a, a); }` }));
+      void main(){ float k = fract(seed.x - t*.008), a = seed.z + t*.05 + sin(t*.3 + seed.z*5.)*.2, rr = mix(6.2, 1.1, k)*seed.y;
+        vec3 p = vec3(cos(a)*rr, ${WATER_Y.toFixed(2)} + k*${SHAFT_H.toFixed(1)}, sin(a)*rr);
+        vA = smoothstep(0., .08, k)*smoothstep(1., .8, k)*(.55 + .45*sin(t*.8 + seed.z*9.))*power; vec4 mv = modelViewMatrix*vec4(p, 1.);
+        gl_PointSize = .5*scale/-mv.z; gl_Position = projectionMatrix*mv; }`,
+    fragmentShader:`varying float vA; void main(){ vec2 q = gl_PointCoord - .5; float d = dot(q,q), a = (exp(-d*30.) + exp(-d*8.)*.25)*vA*.8; gl_FragColor = vec4(vec3(.8,.96,1.)*a, a); }` }));
   motes.frustumCulled = false; scene.add(motes);
-  /* where it meets the water, just under the mirror's clip so the pool is not reflected twice */
-  const pool = new THREE.Mesh(new THREE.CircleGeometry(3.4, 48).rotateX(-Math.PI/2), new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, fog:false,
+  /* where it settles on the water, just under the mirror's clip so the glow is not reflected twice */
+  const pool = new THREE.Mesh(new THREE.CircleGeometry(8, 64).rotateX(-Math.PI/2), new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, fog:false,
     uniforms:shaftU,
     vertexShader:'varying vec2 vP; void main(){ vP = position.xz; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
     fragmentShader:`uniform float t; uniform float power; varying vec2 vP;
-      void main(){ float r2 = dot(vP, vP), a = (exp(-r2*1.6)*.9 + exp(-r2*.28)*.3)*(.85 + .15*sin(t*.9))*power; gl_FragColor = vec4(vec3(.55,.92,1.)*a, a); }` }));
+      void main(){ float r2 = dot(vP, vP), a = (exp(-r2/14.)*.22 + exp(-r2/3.)*.16)*(.9 + .1*sin(t*.5))*power*(1. - smoothstep(40., 64., r2)); gl_FragColor = vec4(vec3(.6,.92,1.)*a, a); }` }));
   pool.position.y = WATER_Y + .015; pool.renderOrder = 2; scene.add(pool); }
 const beamMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide, fog:false,
   uniforms:{ t:{value:0}, fade:{value:0}, rep:{value:30}, col:{value:C('#BFF6FF')} }, vertexShader:beamVert, fragmentShader:beamFrag });
@@ -770,7 +769,7 @@ function updateWorld(dt){
   moon.intensity = lerp(.06, .2, L) + D*.04;
   scene.fog.color.copy(fogCol[0]).lerp(fogCol[1], L).lerp(fogCol[2], D*.4); scene.fog.near = lerp(14, 26, L); scene.fog.far = lerp(95, 150, L);
   skyMat.uniforms.glow.value = L; skyMat.uniforms.dawn.value = D;
-  shaftU.t.value = reduceMotion ? 0 : T; shaftU.power.value = .7 + L*.3 + ey*.5; lakeMat.uniforms.t.value = reduceMotion ? 0 : T; lakeMat.uniforms.energy.value = ey; lakeMat.uniforms.glow.value = L; fallMat.uniforms.t.value = T; beamMat.uniforms.t.value = T;
+  shaftU.t.value = reduceMotion ? 0 : T; shaftU.power.value = .8 + L*.35 + ey*.4; lakeMat.uniforms.t.value = reduceMotion ? 0 : T; lakeMat.uniforms.energy.value = ey; lakeMat.uniforms.glow.value = L; fallMat.uniforms.t.value = T; beamMat.uniforms.t.value = T;
   if (beamState.life > 0){ beamState.life -= dt; const from = oracle.position.clone(), to = beamState.relic.pos.clone(); const dir = to.clone().sub(from), len = dir.length(); dir.normalize();
     beam.scale.set(1,len,1); beam.position.copy(from).addScaledVector(dir, len/2); beam.quaternion.setFromUnitVectors(UP, dir.clone().negate());
     beamMat.uniforms.rep.value = len/1.5; beamMat.uniforms.fade.value = Math.min(1, beamState.life/.8)*Math.min(1,(3.2-beamState.life)/.25)*1.3;
