@@ -88,43 +88,21 @@ export function buildOracleDesign({ main, reduceMotion }) {
     parent.add(new THREE.Points(geo, mat)); return mat;
   }
 
-  function crystal({ color = ice, body = .1, edge = .1 } = {}) {
+  function crystal({ color = ice, body = .1, edge = .1, opacity = 1 } = {}) {
     const mat = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending, fog: false, extensions: { derivatives: true },
-      uniforms: { t: clock, energy, power, col: { value: C(color) }, body: { value: body }, edgeK: { value: edge } },
+      uniforms: { t: clock, energy, power, col: { value: C(color) }, body: { value: body }, edgeK: { value: edge }, opacity: { value: opacity } },
       vertexShader: `attribute vec3 edge;varying vec3 vEdge;varying vec3 vN;varying vec3 vV;varying vec3 vObject;
         void main(){vEdge=edge;vObject=position;vec4 mv=modelViewMatrix*vec4(position,1.);vN=normalize(normalMatrix*normal);vV=-mv.xyz;gl_Position=projectionMatrix*mv;}`,
-      fragmentShader: `uniform vec3 col;uniform float body;uniform float edgeK;uniform float energy;uniform float power;varying vec3 vEdge;varying vec3 vN;varying vec3 vV;varying vec3 vObject;
+      fragmentShader: `uniform vec3 col;uniform float body;uniform float edgeK;uniform float opacity;uniform float energy;uniform float power;varying vec3 vEdge;varying vec3 vN;varying vec3 vV;varying vec3 vObject;
         void main(){vec3 n=normalize(vN),v=normalize(vV);float facing=abs(dot(n,v)),rim=pow(1.-facing,2.5);vec3 r=reflect(-v,n);
           float shine=pow(max(dot(r,normalize(vec3(-.5,.8,.65))),0.),28.)+pow(max(dot(r,normalize(vec3(.7,-.3,.8))),0.),55.)*.5;
           float d=min(min(vEdge.x,vEdge.y),vEdge.z),w=max(fwidth(d),.0001);float border=exp(-d/(w*3.));
           vec3 c=mix(col,vec3(.47,.4,.7),(.5+.5*sin(dot(normalize(vObject),vec3(2.,3.,1.))))*.22);
-          float a=((.1+rim*.48+shine*.42)*body+border*edgeK)*(gl_FrontFacing?1.:.16)*(1.+energy*.12);
+          float a=((.1+rim*.48+shine*.42)*body+border*edgeK)*(gl_FrontFacing?1.:.16)*(1.+energy*.12)*opacity;
           gl_FragColor=vec4(mix(c,vec3(.67,.72,.95),clamp(shine*.4,0.,1.)),a);}`
     });
     return mat;
-  }
-
-  // A dense blue center supplies real depth, so rear rings and rear filaments
-  // disappear behind it instead of accumulating into a transparent wire ball.
-  function solidCrystal() {
-    return new THREE.ShaderMaterial({ depthWrite: true, side: THREE.FrontSide, fog: false,
-      uniforms: { energy, power },
-      vertexShader: `varying vec3 vN;varying vec3 vV;varying vec2 vCenter;
-        void main(){vec4 mv=modelViewMatrix*vec4(position,1.);vN=normalize(normalMatrix*normal);vV=-mv.xyz;
-          vCenter=mv.xy-(modelViewMatrix*vec4(0.,0.,0.,1.)).xy;gl_Position=projectionMatrix*mv;}`,
-      fragmentShader: `uniform float energy;uniform float power;varying vec3 vN;varying vec3 vV;varying vec2 vCenter;
-        void main(){vec3 n=normalize(vN),v=normalize(vV),r=reflect(-v,n);
-          float key=max(dot(n,normalize(vec3(-.5,.8,.65))),0.);
-          float fill=max(dot(n,normalize(vec3(.65,-.2,.5))),0.);
-          float rim=pow(1.-max(dot(n,v),0.),3.);
-          float spec=pow(max(dot(r,normalize(vec3(-.5,.8,.65))),0.),42.);
-          float heart=exp(-dot(vCenter,vCenter)*.3);
-          vec3 col=mix(vec3(.035,.065,.14),vec3(.19,.32,.49),key*.8+fill*.22);
-          col+=vec3(.055,.075,.14)*rim+vec3(.28,.4,.57)*spec*.55;
-          col+=vec3(.15,.27,.43)*heart*(.6+energy*.25+power*.12);
-          gl_FragColor=vec4(col,1.);}`
-    });
   }
 
   // The art's inscriptions are tiny abstract diagrams, degree ticks and stars.
@@ -221,11 +199,10 @@ export function buildOracleDesign({ main, reduceMotion }) {
 
   const core = new THREE.Group(); core.scale.setScalar(1.3 * 1.3); core.rotation.set(.03, 0, .1); group.add(core);
   const alignment = new THREE.Group(); alignment.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, (1 + Math.sqrt(5)) / 2).normalize(), new THREE.Vector3(0, 0, 1)); core.add(alignment);
-  alignment.add(new THREE.Mesh(rhombicTriacontahedron(2.75), solidCrystal()));
   const coreShapes = [new THREE.IcosahedronGeometry(4.05, 0), new THREE.DodecahedronGeometry(3.2, 0), new THREE.OctahedronGeometry(2.4, 0), rhombicTriacontahedron(1.7)];
   coreShapes.forEach((geo, i) => {
     const holder = new THREE.Group(); holder.rotation.set(0, i === 2 ? Math.PI / 4 : 0, 0); alignment.add(holder);
-    const g = withEdges(geo); holder.add(new THREE.Mesh(g, crystal({ color: ['#789DD0', '#8495C6', '#9697CE', '#869ECF'][i], body: .48 + i * .05, edge: .012 })));
+    const g = withEdges(geo); holder.add(new THREE.Mesh(g, crystal({ color: ['#789DD0', '#8495C6', '#9697CE', '#869ECF'][i], body: .48 + i * .05, edge: .012, opacity: 1.35 })));
     const edges = new THREE.EdgesGeometry(geo, 1).attributes.position, paths = [];
     for (let j = 0; j < edges.count; j += 2) paths.push([[edges.getX(j), edges.getY(j), edges.getZ(j)], [edges.getX(j + 1), edges.getY(j + 1), edges.getZ(j + 1)]]);
     threads(paths, { parent: holder, color: i % 2 ? '#91A8D0' : '#A69CBF', opacity: .45 + i * .018, width: .21, flow: .09 });
