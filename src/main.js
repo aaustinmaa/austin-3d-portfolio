@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { BufferGeometryUtils } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js';
 import './styles.css';
 import { rand, hash, vnoise, fbm, sstep, lerp, ease, C, mixHex, randUnit } from './noise.js';
 import { radialTex, glowTex, softTex, runeTex } from './textures.js';
 import { ABOUT, RELICS, INTENTS, FALLBACK, SKILLS, LINES, FINALE, starLine } from './content.js';
-import { colliders, addFrustum, addBox, floorAt, ceilingAt, pushOut, solidAt } from './colliders.js';
+import { colliders, addFrustum, addBox, addPrism, floorAt, ceilingAt, pushOut, solidAt } from './colliders.js';
 import { createOracle } from './oracle.js';
 import { createConstellation } from './constellation.js';
 import { buildForm } from './relics.js';
@@ -259,33 +260,82 @@ const bandMat = new THREE.MeshBasicMaterial({ color:0x78E6F0, transparent:true, 
 
 /* ---------- spiral stair, landings, braziers ---------- */
 const pathLights = [];
-const islandUnder = (t,c,n) => c.copy(mixHex('#151A28','#2A3044', sstep(0,1,t))).offsetHSL(0,0,(n-.5)*.05);
-function makeIsland(cx, top, cz, r){
-  const grp = new THREE.Group(); grp.position.set(cx, top, cz);
-  const topM = new THREE.Mesh(new THREE.CylinderGeometry(r, r*.95, .55, 20).translate(0,-.275,0), new THREE.MeshStandardMaterial({ color:0x323848, roughness:1, flatShading:true }));
-  const under = new THREE.Mesh(rockify(new THREE.ConeGeometry(r*.95, r*1.9, 11, 4).rotateX(Math.PI).translate(0,-.55-r*.95,0), .32, cx+cz, islandUnder, .35), rockMat);
-  [topM, under].forEach(o => { o.castShadow = o.receiveShadow = true; grp.add(o); }); scene.add(grp);
-  addFrustum(cx, cz, top-.55, top, r*.95, r); addFrustum(cx, cz, top-.55-r*1.9, top-.55, 0, r*.9, { stand:false, ceil:true });
-  return { grp, topM };
+/* a stone cut to a given top outline (convex, in plan around its centre) and reaching down to the given points below it: a flat top with one
+   clean edge over a few broad faces. It is the convex hull of the outline and those points.
+   `top` is the face you walk on, `under` everything below it, `rim` the top's corners in order around it. */
+function floatingStone(sd, outline, below, thick, depth, topCol){
+  const pts = outline.map(v => v.clone()).concat(below);
+  /* the top is one even stone colour; each facet below takes its own shade, darkening toward the point */
+  const g = new ConvexGeometry(pts), P = g.attributes.position, N = g.attributes.normal, top = { p:[], c:[] }, under = { p:[], c:[] }, c = new THREE.Color();
+  for (let i=0;i<P.count;i+=3){ const up = N.getY(i) > .99, o = up ? top : under, shade = (hash(P.getX(i) + P.getZ(i+1), P.getY(i+2) + sd) - .5)*.08;
+    for (let k=i;k<i+3;k++){ const x = P.getX(k), y = P.getY(k), z = P.getZ(k);
+      if (up) c.copy(topCol).offsetHSL(0,0,(fbm(x*.7 + sd, z*.7 - sd) - .5)*.05); else c.copy(mixHex('#151926','#30364C', sstep(-depth, 0, y))).offsetHSL(0,0,shade);
+      o.p.push(x,y,z); o.c.push(c.r,c.g,c.b); } }
+  const geo = o => { const b = new THREE.BufferGeometry(); b.setAttribute('position', new THREE.Float32BufferAttribute(o.p,3)); b.setAttribute('color', new THREE.Float32BufferAttribute(o.c,3)); b.computeVertexNormals(); return b; };
+  return { top:geo(top), under:geo(under), rim:outline, thick, depth };
 }
+/* the convex hull, in plan, of some points, as corners in order around it */
+function planHull(ps){
+  const cr = (o,a,b) => (a.x - o.x)*(b.z - o.z) - (a.z - o.z)*(b.x - o.x), chain = qs => qs.reduce((h,q) => { while (h.length > 1 && cr(h[h.length-2], h[h.length-1], q) <= 0) h.pop(); h.push(q); return h; }, []);
+  const sorted = ps.slice().sort((a,b) => a.x - b.x || a.z - b.z); return chain(sorted).slice(0,-1).concat(chain(sorted.slice().reverse()).slice(0,-1));
+}
+/* every stone's top centre, so a click anywhere on a stone can set you down on it */
+const stones = [];
+const stoneAt = pt => stones.filter(s => pt.y > s.y - s.depth - .3 && pt.y < s.y + .1).reduce((b,s) => !b || Math.hypot(s.x - pt.x, s.z - pt.z) < Math.hypot(b.x - pt.x, b.z - pt.z) ? s : b, null);
+/* a stone placed with its top centre at (x, y, z): a prism over the top's outline carries you, a cone stands in for the rock underneath */
+function placeStone(s, x, y, z){ const rim = s.rim;
+  addPrism(y - s.thick, y, rim.map(v => [x + v.x, z + v.z]));
+  const inR = Math.min(...rim.map((a,k) => { const b = rim[(k+1)%rim.length]; return Math.abs(a.x*b.z - a.z*b.x)/Math.hypot(b.x - a.x, b.z - a.z); }));
+  addFrustum(x, z, y - s.depth, y - s.thick, 0, inR*.85, { stand:false, ceil:true });
+  stones.push({ x, y, z, depth:s.depth, reach:Math.max(...rim.map(v => Math.hypot(v.x, v.z))) }); }
 const braziers = [];
 {
-  const n = SP.N+1; const topG = new THREE.CylinderGeometry(1.45,1.32,.42,9); topG.translate(0,-.21,0);
-  const botG = rockify(new THREE.ConeGeometry(1.3,1.6,8,2).rotateX(Math.PI).translate(0,-1.2,0), .3, 2.2, (t,c,nn)=>c.copy(mixHex('#141826','#2A3044',t)).offsetHSL(0,0,(nn-.5)*.05));
-  const stoneTop = new THREE.InstancedMesh(topG, new THREE.MeshStandardMaterial({ roughness:.95, flatShading:true }), n), stoneBot = new THREE.InstancedMesh(botG, rockMat, n);
-  let k = 0;
-  for (let i=0;i<=SP.N;i++){ if (BRAZIER_AT.includes(i)) continue; const p = spiralPt(i);
-    M4.compose(new V3(p.x,p.y,p.z), Q.setFromAxisAngle(UP, rand()*6.28), new V3(1,1,1)); stoneTop.setMatrixAt(k,M4); stoneBot.setMatrixAt(k,M4);
-    stoneTop.setColorAt(k, mixHex('#3D4458','#4A5168', rand())); k++;
-    addFrustum(p.x, p.z, p.y-.42, p.y, 1.3, 1.45); addFrustum(p.x, p.z, p.y-2, p.y-.42, 0, 1.25, { stand:false, ceil:true });
-    if (i % 4 === 2) pathLights.push(p); }
-  stoneTop.count = stoneBot.count = k;
-  [stoneTop, stoneBot].forEach(o => { o.castShadow = o.receiveShadow = true; o.frustumCulled = false; scene.add(o); }); pickables.push(stoneTop);
+  /* the stair is a winding run of rock cracked into stones, with a slanted, upright cut between each step and the next. Each stone has its own
+     width and sits a little in or out, so two neighbours meet along whatever stretch of the cut they both reach, long or short. Below the lower
+     top they share that stretch as one face, down to a keel point, so they sit solid against each other; under that each runs on to its own
+     point. Knocked-off corners and uneven bulges on the sides keep every outline its own, and each landing reaches far out. */
+  const N = SP.N + 1, isLand = i => BRAZIER_AT.includes(i);
+  /* how far each stone reaches along its back and front cuts, inward and outward of the path */
+  const reach = [...Array(N)].map((_, i) => { const w = 1.9 + hash(i, 3.7)*1.1, o = (hash(i, 5.9) - .5)*.9, jit = k => (hash(i, 10 + k) - .5)*.5;
+    return { bIn:w/2 - o + jit(0), bOut:isLand(i) ? 3.6 + hash(i, 7.3)*.6 : w/2 + o + jit(1), fIn:w/2 - o + jit(2), fOut:isLand(i) ? 3.6 + hash(i, 8.6)*.6 : w/2 + o + jit(3) }; });
+  const cuts = [];   // cuts[j] runs between step j - 1 and step j
+  for (let j=0; j<=N; j++){ const land = isLand(j - 1) ? 1 : isLand(j) ? -1 : 0;
+    const a = SP.a0 + (j - .5)*SP.ang + (hash(j, 2.9) - .5)*.04 + land*.05, r = SP.R + (hash(j, 4.3) - .5)*.3, h = SP.base + (j - 1)*SP.rise;
+    const d = new V3(Math.sin(a), 0, Math.cos(a)).applyAxisAngle(UP, (hash(j, 6.1) - .5)*(land ? .2 : .6)), c = new V3(Math.sin(a)*r, 0, Math.cos(a)*r), at = (t, y) => c.clone().addScaledVector(d, t).setY(y);
+    const before = reach[j - 1], after = reach[j], sIn = Math.min(before ? before.fIn : 9, after ? after.bIn : 9), sOut = Math.min(before ? before.fOut : 9, after ? after.bOut : 9);
+    /* the shared face: straight down from the lower top's corners, in to a point on each side, and down to the keel */
+    const face = [at(-sIn, h), at(sOut, h), at(-sIn*(.7 + hash(j, 1.3)*.2), h - .35 - hash(j, 2.1)*.55), at(sOut*(.7 + hash(j, 4.1)*.2), h - .35 - hash(j, 5.3)*.55),
+      at((hash(j, 6.7) - .5)*.6*Math.min(sIn, sOut), h - 1.2 - hash(j, 7.9)*.7)];
+    cuts.push({ n:new V3(d.z, 0, -d.x), c, at, h, face }); }
+  const outlineOf = i => { const A = cuts[i], B = cuts[i+1], e = reach[i], land = isLand(i);
+    const corner = [A.at(-e.bIn, 0), A.at(e.bOut, 0), B.at(e.fOut, 0), B.at(-e.fIn, 0)];
+    /* a corner knocked off here and there, cutting back along both of its edges */
+    const pts = corner.flatMap((q, k) => { if (hash(i, 20 + k) > .45) return [q]; const s = .2 + hash(i, 24 + k)*.35;
+      return [corner[(k+3)%4], corner[(k+1)%4]].map(o => q.clone().lerp(o, Math.min(.4, s/q.distanceTo(o)))); });
+    /* an uneven corner pushed out of the outer side and of the inner side, wherever it stays clear of both cuts */
+    const outer = hash(i, 8.3) < (land ? 1 : .7) ? (land ? .4 + hash(i, 1.9)*.6 : .15 + hash(i, 1.9)*.4) : 0, inner = hash(i, 2.3) < .55 ? .1 + hash(i, 3.3)*.3 : 0;
+    [[1, 2, outer, 1], [3, 0, inner, -1]].forEach(([u, w, amt, dir]) => { if (!amt) return;
+      const m = corner[u].clone().lerp(corner[w], .25 + hash(i + u, 8.8)*.5); m.addScaledVector(m.clone().normalize(), amt*dir);
+      if (m.clone().sub(A.c).dot(A.n) > .25 && B.c.clone().sub(m).dot(B.n) > .25) pts.push(m); });
+    return planHull(pts); };
+  const tops = [], unders = [], landings = {};
+  for (let i=0; i<N; i++){ const land = isLand(i), p = spiralPt(i), sd = i*13.7 + (land ? 0 : rand()*5), col = land ? C('#323848') : mixHex('#3D4458','#4A5168', rand());
+    const A = cuts[i], B = cuts[i+1], e = reach[i], ring = outlineOf(i), cx = ring.reduce((t,v) => t + v.x, 0)/ring.length, cz = ring.reduce((t,v) => t + v.z, 0)/ring.length;
+    const outline = ring.map(v => new V3(v.x - cx, 0, v.z - cz)), depth = land ? 5.8 + hash(i, 3.1)*.6 : p.y - Math.min(A.face[4].y, B.face[4].y) + .35 + hash(i, 3.1)*.5;
+    /* its two cut faces (and a landing's far reach) below the top, and its own point under the keel */
+    const far = land ? [A.at(e.bOut, A.h), A.at(e.bOut*(.7 + hash(i, 9.7)*.15), A.h - .5 - hash(i, 8.1)*.5), B.at(e.fOut, B.h), B.at(e.fOut*(.7 + hash(i, 9.9)*.15), B.h - .5 - hash(i, 8.4)*.5)] : [];
+    const k = outline[Math.floor(hash(i, 4.9)*outline.length)], tip = new V3(k.x*(.15 + hash(i, 6.6)*.3), -depth, k.z*(.15 + hash(i, 6.6)*.3));
+    const below = A.face.concat(B.face, far).map(v => new V3(v.x - cx, v.y - p.y, v.z - cz)).filter(v => v.y < -.01).concat([tip]);
+    const s = floatingStone(sd, outline, below, land ? .55 : .42, depth, col);
+    M4.makeTranslation(cx, p.y, cz); tops.push(s.top.applyMatrix4(M4)); unders.push(s.under.applyMatrix4(M4));
+    placeStone(s, cx, p.y, cz);
+    if (land) landings[i] = { p, x:cx, z:cz, rim:outline }; else if (i % 4 === 2) pathLights.push({ x:cx, y:p.y, z:cz }); }
+  const stoneTop = new THREE.Mesh(merge(tops), rockMat), stoneBot = new THREE.Mesh(merge(unders), rockMat);
+  [stoneTop, stoneBot].forEach(o => { o.castShadow = o.receiveShadow = true; o.userData.stone = true; scene.add(o); pickables.push(o); });
   const plG = new THREE.BufferGeometry(); plG.setAttribute('position', new THREE.Float32BufferAttribute(pathLights.flatMap(p => [p.x, p.y+.18, p.z]), 3));
   scene.add(new THREE.Points(plG, new THREE.PointsMaterial({ size:.9, map:glowTex, color:0x78E6F0, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending })));
   const bowlMat = new THREE.MeshStandardMaterial({ color:0x4A4F62, roughness:.7, metalness:.3, flatShading:true });
-  BRAZIER_AT.forEach(idx => { const p = spiralPt(idx), out = new V3(Math.sin(p.a),0,Math.cos(p.a)), c = new V3(p.x,0,p.z).addScaledVector(out, 2), r = 3;
-    const isl = makeIsland(c.x, p.y, c.z, r); pickables.push(isl.topM);
+  BRAZIER_AT.forEach(idx => { const { p, x, z, rim } = landings[idx], out = new V3(Math.sin(p.a),0,Math.cos(p.a)), c = new V3(p.x,0,p.z).addScaledVector(out, 2);
     const b = new THREE.Group(); b.position.set(c.x + out.x*.8, p.y, c.z + out.z*.8);
     const stem = new THREE.Mesh(new THREE.CylinderGeometry(.12,.3,.8,6).translate(0,.4,0), bowlMat), bowl = new THREE.Mesh(new THREE.CylinderGeometry(.55,.25,.4,10).translate(0,1,0), bowlMat);
     stem.castShadow = bowl.castShadow = true;
@@ -294,7 +344,9 @@ const braziers = [];
     const light = new THREE.PointLight(0xFFA050, 0, 9, 2); light.position.y = 1.5;
     b.add(stem, bowl, fire, flame, light); scene.add(b); braziers.push({ pos:b.position.clone(), top:p.y, fire, flame, light, lit:false });
     addFrustum(b.position.x, b.position.z, p.y, p.y+1.2, .3, .55, { stand:false });
-    pines.push({ x:c.x - out.x*1.6 + out.z*1.4, y:p.y-.05, z:c.z - out.z*1.6 - out.x*1.4, s:.8, valley:true }); });
+    /* a pine to one side, partway toward the corner of the landing nearest that side so it always stands on the rock */
+    const side = new V3(out.z*1.4 - out.x*1.6, 0, -out.x*1.4 - out.z*1.6), k = rim.reduce((b,v) => v.dot(side) > b.dot(side) ? v : b);
+    pines.push({ x:x + k.x*.6, y:p.y-.05, z:z + k.z*.6, s:.8, valley:true }); });
 }
 
 /* ---------- lanterns along the path: a lit way in, from where you arrive down to the lake ---------- */
@@ -489,18 +541,56 @@ const SPEED = 7, GRAV = 26, JUMP = 9.6, STEP_UP = .6, ASCEND = 7.5, CEILING = 47
 function jumpPress(){ if (P.flight) return; skipIntro(); if (P.onGround){ P.vel.y = JUMP; P.onGround = false; P.jumpT = T; } else P.jumpT = T - 1; }
 function supportAt(x,z,y){ return floorAt(x, z, y, STEP_UP, groundH(x,z)); }
 function flyTo(dest){ const from = P.pos.clone(), dist = from.distanceTo(dest); P.flight = { from, to:dest.clone(), t:0, dur:Math.min(3.6, Math.max(1.2, dist/12)), arc:2 + dist*.12 }; P.target = null; P.vel.set(0,0,0); }
+/* Catch a descent over open water and ease onto dry ground instead of snapping to the bank. */
+function glideToShore(){
+  const r = Math.hypot(P.pos.x, P.pos.z), angle = r > .1 ? Math.atan2(P.pos.x, P.pos.z) : camS.yaw;
+  const radius = LAKE_BLOCK + .6;
+  for (let i=0;i<24;i++){
+    // Try the nearest bank first, then nearby directions if a rock or stair blocks the landing.
+    const a = angle + (i%2 ? 1 : -1)*Math.ceil(i/2)*Math.PI/12;
+    const to = new V3(Math.sin(a)*radius, 0, Math.cos(a)*radius); to.y = groundH(to.x,to.z);
+    const check = { x:to.x, z:to.z };
+    if (to.y < WATER_Y + .15 || pushOut(check, to.y + STEP_UP, to.y + HEAD, BODY_R)) continue;
+    const from = P.pos.clone(), dist = from.distanceTo(to);
+    P.flight = { from, to, t:0, dur:Math.max(.6, dist/7), arc:.35 };
+    P.target = null; P.vel.set(0,0,0); P.onGround = false; P.flying = false; P.soared = true; P.speed = 0;
+    return;
+  }
+}
 
 /* ---------- arrows: guided arrows fly to their relic; drawn arrows stick in whatever they meet ---------- */
 const arrows = [];
+const ARROW_TRAIL_POINTS = 14;
+// Match the original trail at a fixed 200 FPS reference: 14 samples span 13 frame intervals.
+// Keep this reference fixed so slower frames or a different display cannot stretch the tail.
+const ARROW_TRAIL_SECONDS = (ARROW_TRAIL_POINTS - 1)/200;
 const arrowShaft = new THREE.CylinderGeometry(.018,.018,1,5).rotateX(Math.PI/2);
 const fletchGeo = new THREE.ConeGeometry(.05,.14,3).rotateX(-Math.PI/2).translate(0,0,-.46);
 function bowWorld(){ return hero.localToWorld(H.bow.position.clone()); }
 function fireArrow(from, dir, speed, target){
   const g = new THREE.Group(); const sh = new THREE.Mesh(arrowShaft, new THREE.MeshBasicMaterial({ color:0xE8F8FF })); g.add(sh); g.add(new THREE.Mesh(fletchGeo, new THREE.MeshBasicMaterial({ color:0x78E6F0 })));
   const tipS = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0x9FF2FF, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending })); tipS.position.z = .5; tipS.scale.set(.9,.9,1); g.add(tipS);
-  const TL = 14, tg = new THREE.BufferGeometry(), tp = new Float32Array(TL*3); for (let i=0;i<TL;i++) tp.set([from.x,from.y,from.z], i*3); tg.setAttribute('position', new THREE.BufferAttribute(tp,3));
+  const tg = new THREE.BufferGeometry(), tp = new Float32Array(ARROW_TRAIL_POINTS*3); for (let i=0;i<ARROW_TRAIL_POINTS;i++) tp.set([from.x,from.y,from.z], i*3); tg.setAttribute('position', new THREE.BufferAttribute(tp,3));
   const trail = new THREE.Line(tg, new THREE.LineBasicMaterial({ color:0x9FF2FF, transparent:true, opacity:.7, blending:THREE.AdditiveBlending, depthWrite:false })); trail.frustumCulled = false; scene.add(trail);
-  g.position.copy(from); scene.add(g); arrows.push({ g, tipS, trail, pos:from.clone(), vel:dir.clone().normalize().multiplyScalar(speed), target, life: target ? 4 : 3.2, stuck:false, age:0 });
+  g.position.copy(from); scene.add(g); arrows.push({ g, tipS, trail, trailHistory:[{ time:0, pos:from.clone() }], pos:from.clone(), vel:dir.clone().normalize().multiplyScalar(speed), target, life: target ? 4 : 3.2, stuck:false, age:0 });
+}
+/* Resample a fixed duration of the actual path, independent of frame rate. */
+function updateArrowTrail(a){
+  const history = a.trailHistory, cutoff = a.age - ARROW_TRAIL_SECONDS;
+  history.push({ time:a.age, pos:a.pos.clone() });
+  // Keep one sample before the cutoff so the tail can be interpolated exactly.
+  while (history.length > 2 && history[1].time <= cutoff) history.shift();
+  const attr = a.trail.geometry.attributes.position, tp = attr.array;
+  let segment = history.length - 2;
+  for (let i=0;i<ARROW_TRAIL_POINTS;i++){
+    const time = Math.max(history[0].time, a.age - i/(ARROW_TRAIL_POINTS-1)*ARROW_TRAIL_SECONDS);
+    while (segment > 0 && history[segment].time > time) segment--;
+    const lo = history[segment], hi = history[segment+1];
+    const span = hi.time - lo.time, t = span > 0 ? (time - lo.time)/span : 0;
+    const j = i*3;
+    tp[j] = lerp(lo.pos.x, hi.pos.x, t); tp[j+1] = lerp(lo.pos.y, hi.pos.y, t); tp[j+2] = lerp(lo.pos.z, hi.pos.z, t);
+  }
+  attr.needsUpdate = true;
 }
 const aPrev = new V3(), aSeg = new V3(), aTip = new V3(), aDir = new V3();
 /* first point along the segment where the arrow's tip enters something solid or the ground; null if it flies clear */
@@ -522,7 +612,7 @@ function updateArrows(dt){
       if (!a.target && a.life > 0){ const hit = arrowImpact(from, a.pos);
         if (hit){ a.pos.copy(hit); a.stuck = true; a.life = Math.min(a.life + 4, 7); a.tipS.material.opacity = .5; burst(aTip.clone(), C('#9FF2FF'), 14, .25); } }
       a.g.position.copy(a.pos); a.g.quaternion.setFromUnitVectors(ZAX, a.vel.clone().normalize());
-      const tp = a.trail.geometry.attributes.position.array; tp.copyWithin(3, 0, tp.length-3); tp[0]=a.pos.x; tp[1]=a.pos.y; tp[2]=a.pos.z; a.trail.geometry.attributes.position.needsUpdate = true;
+      updateArrowTrail(a);
     } else a.tipS.material.opacity = Math.max(0, Math.min(.5, a.life*.3));
     a.trail.material.opacity = a.stuck ? Math.max(0, a.trail.material.opacity - dt*2) : Math.max(0, Math.min(.7, a.life*.5));
     if (a.life <= 0){ scene.remove(a.g); scene.remove(a.trail); a.g.children.forEach(c => c.material && c.material.dispose()); a.trail.geometry.dispose(); arrows.splice(i,1); }
@@ -633,6 +723,10 @@ function clickAt(cx, cy){
   const h = hits.find(x => !x.object.userData.relic); if (!h) return;
   if (h.object.userData.star){ touchStar(h.object.userData.star); return; }
   if (h.object.userData.perch){ flyTo(h.object.userData.perch); return; }
+  /* a stone: land on its top (where you clicked, if you clicked the top), flying across unless you already stand on it */
+  const st = h.object.userData.stone && stoneAt(h.point);
+  if (st){ const p = Math.abs(h.point.y - st.y) < .02 ? h.point.clone() : new V3(st.x, st.y, st.z);
+    if (Math.abs(P.pos.y - st.y) < .05 && Math.hypot(P.pos.x - st.x, P.pos.z - st.z) < st.reach) P.target = p; else flyTo(p); return; }
   const p = h.point.clone(); if (Math.abs(p.y - P.pos.y) > 2.4) flyTo(p); else P.target = p;
 }
 /* which star the pointer is over, if any (checked once per frame) */
@@ -717,17 +811,26 @@ function updatePlayer(dt){
   let mx = 0, mz = 0;
   const fwd = (keys.KeyW||keys.ArrowUp?1:0) - (keys.KeyS||keys.ArrowDown?1:0), side = (keys.KeyD||keys.ArrowRight?1:0) - (keys.KeyA||keys.ArrowLeft?1:0);
   if (fwd || side){ const fx = -Math.sin(camS.yaw), fz = -Math.cos(camS.yaw), rx = Math.cos(camS.yaw), rz = -Math.sin(camS.yaw); mx = fx*fwd + rx*side; mz = fz*fwd + rz*side; P.target = null; }
-  else if (P.target){ mx = P.target.x - P.pos.x; mz = P.target.z - P.pos.z; if (Math.hypot(mx,mz) < .25){ P.target = null; mx = mz = 0; } }
+  else if (P.target){ mx = P.target.x - P.pos.x; mz = P.target.z - P.pos.z; if (Math.hypot(mx,mz) < .25){ P.target = null; mx = mz = 0; P.vel.x = P.vel.z = 0; } }
   const ml = Math.hypot(mx,mz); if (ml > 0){ mx/=ml; mz/=ml; }
   const spd = SPEED * (mode === 'aim' ? (P.drawing ? .35 : .6) : 1) * (P.flying ? 1.2 : 1);
   const k = 1 - Math.exp(-dt*(P.onGround ? 14 : P.soared ? 6 : 4)); P.vel.x = lerp(P.vel.x, mx*spd, k); P.vel.z = lerp(P.vel.z, mz*spd, k);
   let nx = P.pos.x + P.vel.x*dt, nz = P.pos.z + P.vel.z*dt; const nr = Math.hypot(nx,nz);
   const lim = P.onGround ? WORLD_R : AIR_R; if (nr > lim){ nx *= lim/nr; nz *= lim/nr; }
-  const s0 = supportAt(nx, nz, P.pos.y); if (!s0.onPlatform && P.pos.y < 2 && nr < LAKE_BLOCK){ const s = LAKE_BLOCK/Math.max(nr,.001); nx *= s; nz *= s; P.target = null; }
+  const s0 = supportAt(nx, nz, P.pos.y);
+  // Stop a step into the water at the bank; never project a fall from the lake's interior onto this circle.
+  if (!s0.onPlatform && P.pos.y < 2 && nr < LAKE_BLOCK && Math.hypot(P.pos.x,P.pos.z) >= LAKE_BLOCK - 1e-4){
+    const s = LAKE_BLOCK/nr; nx *= s; nz *= s; P.target = null;
+  }
   /* walls: anything taller than a step between the feet and the head pushes the body back out */
   pushP.x = nx; pushP.z = nz; if (pushOut(pushP, P.pos.y + STEP_UP, P.pos.y + HEAD, BODY_R)){ nx = pushP.x; nz = pushP.z; }
   const moved = Math.hypot(nx - P.pos.x, nz - P.pos.z);
   if (P.target && moved < spd*dt*.25){ if ((P.stall += dt) > .5){ P.target = null; P.stall = 0; } } else P.stall = 0;
+  /* stepping stones: walking off one over open air toward another just ahead hops across and lands a little way onto it */
+  if (P.onGround && ml > 0 && supportAt(nx, nz, P.pos.y).h < P.pos.y - .9)
+    for (let d=.3; d<2.9; d+=.2){ const a = supportAt(nx + mx*d, nz + mz*d, P.pos.y + .5);
+      if (a.onPlatform && a.h > P.pos.y - .9){ const to = new V3(nx + mx*(d + .5), a.h, nz + mz*(d + .5)); if (supportAt(to.x, to.z, a.h).h !== a.h) to.set(nx + mx*d, a.h, nz + mz*d);
+        P.flight = { from:P.pos.clone(), to, t:0, dur:.3 + d*.1, arc:.45 + Math.max(0, a.h - P.pos.y)*.5 }; P.vel.set(0,0,0); return; } }
   const dive = keys.ShiftLeft || keys.ShiftRight;
   P.flying = !!keys.Space && !P.onGround && (T - P.jumpT > .2) && P.energy > .005;
   if (P.flying){ P.soared = true; P.vel.y = lerp(P.vel.y, ASCEND, 1 - Math.exp(-dt*5)); P.energy = Math.max(0, P.energy - dt/FLY_SECONDS); }
@@ -739,6 +842,9 @@ function updatePlayer(dt){
   /* ceilings: platform undersides stop the head */
   if (P.vel.y > 0){ const ceil = ceilingAt(nx, nz, P.pos.y + HEAD); if (ny + HEAD > ceil){ ny = Math.max(P.pos.y, ceil - HEAD); P.vel.y = 0; } }
   const sup = supportAt(nx, nz, P.pos.y);
+  if (!sup.onPlatform && !P.flying && P.vel.y <= 0 && ny < 2 && Math.hypot(nx,nz) < LAKE_BLOCK - 1e-4){
+    glideToShore(); if (P.flight) return;
+  }
   if (ny > CEILING){ ny = CEILING; P.vel.y = Math.min(P.vel.y, 0); }
   if (ny <= sup.h){ ny = sup.h; P.vel.y = 0; P.onGround = true; } else P.onGround = ny - sup.h < .05;
   if (P.onGround){ P.soared = false; P.energy = Math.min(1, P.energy + dt/1.4); }
