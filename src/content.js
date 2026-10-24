@@ -114,7 +114,7 @@ export const LINES = {
 // `endpoint` is where notes are posted as JSON ({ name, message }); leave it empty until a form service is chosen.
 export const NOTE = {
   endpoint: '',
-  crane: 'Write on the paper',
+  crane: 'Leave a note to Austin',
   to: 'To Austin,',
   placeholder: 'Write anything: hello, a question, an idea, a wish for the valley…',
   from: 'your name or email (optional)',
