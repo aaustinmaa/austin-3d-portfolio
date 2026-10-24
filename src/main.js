@@ -875,10 +875,10 @@ function updatePlayer(dt){
     if (t >= 1){ P.flight = null; P.vel.set(0,0,0); P.onGround = true;
       if (overWater(P.pos.x, P.pos.z) && P.pos.y < WATER_Y + .1) dipIn(2.2); }
     P.speed = 0; return; }
-  /* in the water: sink in, linger a moment with a slight bob, then push off back to the bank */
-  if (P.dip){ const d = P.dip; d.t += dt; const sink = Math.min(1, d.t/.32), out = 1 - Math.pow(1 - sink, 3);
-    P.pos.y = WATER_Y - .42*out + (d.t > .32 ? Math.sin((d.t - .32)*7.)*.03 : 0); P.vel.set(0,0,0); P.onGround = true; P.speed = 0;
-    if (d.t > .85){ P.dip = null; splashLake(P.pos, .9); glideToShore(1.5); }
+  /* touching the water: a brief, shallow dip, then straight back out to the bank */
+  if (P.dip){ const d = P.dip; d.t += dt;
+    P.pos.y = WATER_Y - .14*Math.sin(Math.PI*Math.min(1, d.t/.3)); P.vel.set(0,0,0); P.onGround = true; P.speed = 0;
+    if (d.t > .24){ P.dip = null; glideToShore(1.5); }
     return; }
   let mx = 0, mz = 0;
   const fwd = (keys.KeyW||keys.ArrowUp?1:0) - (keys.KeyS||keys.ArrowDown?1:0), side = (keys.KeyD||keys.ArrowRight?1:0) - (keys.KeyA||keys.ArrowLeft?1:0);
