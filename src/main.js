@@ -4,12 +4,13 @@ import { ConvexGeometry } from 'three/examples/jsm/geometries/ConvexGeometry.js'
 import './styles.css';
 import { rand, hash, vnoise, fbm, sstep, lerp, ease, C, mixHex, randUnit } from './noise.js';
 import { radialTex, glowTex, softTex, runeTex } from './textures.js';
-import { ABOUT, RELICS, INTENTS, FALLBACK, SKILLS, LINES, FINALE, starLine } from './content.js';
+import { ABOUT, RELICS, INTENTS, FALLBACK, SKILLS, LINES, FINALE, NOTE, starLine } from './content.js';
 import { colliders, addFrustum, addBox, addPrism, floorAt, ceilingAt, pushOut, solidAt } from './colliders.js';
 import { createOracle } from './oracle.js';
 import { createConstellation } from './constellation.js';
 import { buildForm } from './relics.js';
 import { buildHero, animateHero } from './hero.js';
+import { createPaperBird } from './paperbird.js';
 
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const V3 = THREE.Vector3, UP = new V3(0,1,0), ZAX = new V3(0,0,1);
@@ -366,6 +367,11 @@ const braziers = [];
     addFrustum(o.x, o.z, o.y - .3, o.y + .16, .26, .2, { stand:false }); addFrustum(o.x, o.z, o.y + .16, o.y + 1.85, .08, .08, { stand:false }); });
 }
 
+/* ---------- the paper crane: a way to leave Austin a note, on the last lantern on the right, where the path turns up to the stair ---------- */
+const CRANE_LANTERN = { x:Math.sin(11.4*.35)*.8 + 1.75, z:11.4 };
+const bird = createPaperBird(scene, { perch:new V3(CRANE_LANTERN.x, groundH(CRANE_LANTERN.x, CRANE_LANTERN.z) + 1.83, CRANE_LANTERN.z), star:() => oracle.position, reduceMotion });
+pickables.push(...bird.pick);
+
 /* ---------- vegetation ---------- */
 /* a pine: five drooping, ragged tiers over a short trunk, coloured darker inside and frosted at the tips */
 function pineGeo(){
@@ -640,7 +646,7 @@ function returnLight(r){
   oracle.sendLight(r.pos.clone(), r.color, () => {
     r.lightGiven = true; const fresh = sky.lightRelic(r.id);
     if (r.secret){ oracle.ripple(r.color, 50); if (fresh.length) showToast(LINES.hiddenStars(fresh.length)); }
-    else { oracle.receive(r); const n = MAIN.filter(x => x.lightGiven).length; world.target = n/MAIN.length; showToast(LINES.lightBack(n, fresh.length)); if (n === MAIN.length) finale(); }
+    else { oracle.receive(r); bird.pulse(); const n = MAIN.filter(x => x.lightGiven).length; world.target = n/MAIN.length; showToast(LINES.lightBack(n, fresh.length)); if (n === MAIN.length) finale(); }
     updateTracker();
   });
 }
@@ -676,14 +682,15 @@ function updateRelics(dt){
 /* ---------- input ---------- */
 const keys = {};
 let mode = 'auto';
-const isTyping = e => e.target && e.target.tagName === 'INPUT';
+const isTyping = e => e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA');
 addEventListener('keydown', e => {
   if (isTyping(e)) return; keys[e.code] = true;
   if (e.code === 'Space'){ e.preventDefault(); if (!e.repeat) jumpPress(); }
   if (/^(Arrow|Key[WASD])/.test(e.code)){ e.preventDefault(); skipIntro(); if (gaze) setGaze(false); }
   if (e.code === 'KeyF') setMode(mode === 'aim' ? 'auto' : 'aim');
   if (e.code === 'KeyC' && !e.repeat) setGaze(!gaze);
-  if (e.code === 'Escape'){ indexEl.hidden = true; if (gaze) setGaze(false); if (openRelic) sendBack(openRelic); if (P.drawing){ P.drawing = false; } }
+  if (e.code === 'KeyN' && !e.repeat) openLetter();
+  if (e.code === 'Escape'){ indexEl.hidden = true; if (writing) closeLetter(); if (gaze) setGaze(false); if (openRelic) sendBack(openRelic); if (P.drawing){ P.drawing = false; } }
   const d = /^Digit([1-7])$/.exec(e.code); if (d){ const r = RELICS.find(x => x.key === +d[1]); if (r) summon(r); }
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
@@ -723,6 +730,7 @@ function clickAt(cx, cy){
   const h = hits.find(x => !x.object.userData.relic); if (!h) return;
   if (h.object.userData.star){ touchStar(h.object.userData.star); return; }
   if (h.object.userData.perch){ flyTo(h.object.userData.perch); return; }
+  if (h.object.userData.bird){ if (byBird) openLetter(); else goToCrane(); return; }
   /* a stone: land on its top (where you clicked, if you clicked the top), flying across unless you already stand on it */
   const st = h.object.userData.stone && stoneAt(h.point);
   if (st){ const p = Math.abs(h.point.y - st.y) < .02 ? h.point.clone() : new V3(st.x, st.y, st.z);
@@ -734,7 +742,7 @@ let hoverStar = null;
 function updateHover(){
   if (!pointer || !pointer.dirty || drag) return; pointer.dirty = false;
   ndc.set(pointer.x/innerWidth*2-1, -(pointer.y/innerHeight)*2+1); ray.setFromCamera(ndc, camera);
-  const h = ray.intersectObjects(sky.hits, false)[0]; hoverStar = h ? h.object.userData.star : null; canvas.classList.toggle('pointing', !!hoverStar && mode !== 'aim');
+  const h = ray.intersectObjects(sky.hits.concat(bird.pick), false)[0]; hoverStar = h && h.object.userData.star || null; canvas.classList.toggle('pointing', !!h && mode !== 'aim');
 }
 /* a star touched (or a skill named in the chat): the Oracle says which relics use it */
 function touchStar(s, asked){
@@ -951,6 +959,48 @@ function showAbout(){ if (openRelic) sendBack(openRelic); renderCard(ABOUT, fals
 document.getElementById('brand').addEventListener('click', () => cardFor === ABOUT && !card.hidden ? hideCard() : showAbout());
 let welcomed = false;
 function welcome(){ if (welcomed) return; welcomed = true; if (!cardFor && !openRelic) renderCard(ABOUT, false); }
+/* ---------- the note: the crane flies toward you and opens into a large sheet of paper to write on ---------- */
+const letter = document.getElementById('letter'), letterForm = document.getElementById('letterForm'), letterMsg = document.getElementById('letterMsg');
+const letterFrom = document.getElementById('letterFrom'), letterStatus = document.getElementById('letterStatus'), letterSend = document.getElementById('letterSend');
+document.getElementById('letterTo').textContent = NOTE.to; letterMsg.placeholder = NOTE.placeholder; letterFrom.placeholder = NOTE.from; letterFrom.setAttribute('aria-label', NOTE.from); letterSend.textContent = NOTE.send;
+const craneLabel = document.createElement('div'); craneLabel.className = 'plabel'; craneLabel.innerHTML = `<kbd>N</kbd><b>${NOTE.crane}</b>`; document.getElementById('labels').appendChild(craneLabel);
+let writing = false, cardBeforeNote = null;
+function openLetter(){ if (writing || bird.busy) return; writing = true; cardBeforeNote = card.hidden ? null : cardFor; hideCard(); if (gaze) setGaze(false); P.drawing = false; P.target = null;
+  const f = camera.getWorldDirection(new V3()); bird.setWriting(true, camera.position.clone().addScaledVector(f, 2.4).add(new V3(0, -.12, 0)));
+  letterStatus.textContent = ''; document.body.classList.add('writing'); }
+function closeLetter(){ if (!writing) return; writing = false; letter.hidden = true; document.body.classList.remove('writing'); bird.setWriting(false); canvas.focus({ preventScroll:true });
+  if (cardBeforeNote === ABOUT && card.hidden) renderCard(ABOUT, false); cardBeforeNote = null; }
+/* walk over to the crane (fly up if it is far above or below) */
+function goToCrane(){ const to = new V3(CRANE_LANTERN.x - 1.2, 0, CRANE_LANTERN.z + 1.0); to.y = groundH(to.x, to.z); if (Math.abs(to.y - P.pos.y) > 2.4) flyTo(to); else P.target = to; }
+document.getElementById('letterClose').addEventListener('click', closeLetter);
+letter.addEventListener('click', e => { if (e.target === letter) closeLetter(); });
+letter.addEventListener('keydown', e => { if (e.key === 'Escape'){ e.stopPropagation(); closeLetter(); } });
+letterForm.addEventListener('submit', async e => { e.preventDefault(); if (letterForm.company.value) return;
+  const message = letterMsg.value.trim(), name = letterFrom.value.trim();
+  if (!message){ letterStatus.textContent = NOTE.empty; return; }
+  if (!NOTE.endpoint){ letterStatus.textContent = NOTE.offline; return; }
+  letterSend.disabled = true; letterSend.textContent = NOTE.sending; letterStatus.textContent = '';
+  try { const res = await fetch(NOTE.endpoint, { method:'POST', headers:{ 'Content-Type':'application/json', Accept:'application/json' }, body:JSON.stringify({ name, message }) });
+    if (!res.ok) throw new Error(res.status);
+    letterMsg.value = ''; writing = false; letter.hidden = true; document.body.classList.remove('writing'); bird.send(); showToast(NOTE.sent);
+    if (cardBeforeNote === ABOUT && card.hidden) renderCard(ABOUT, false); cardBeforeNote = null; }
+  catch { letterStatus.textContent = NOTE.failed; }
+  letterSend.disabled = false; letterSend.textContent = NOTE.send; });
+/* walking up to the crane unfolds it above its lantern and opens the name card; the writing sheet appears once the paper
+   has come close; a hint floats over the unfolded paper */
+let byBird = false;
+function updateBird(dt){
+  bird.update(dt, T, camera);
+  const d = Math.hypot(P.pos.x - CRANE_LANTERN.x, P.pos.z - CRANE_LANTERN.z), level = Math.abs(P.pos.y - groundH(CRANE_LANTERN.x, CRANE_LANTERN.z)) < 3;
+  if (!byBird && welcomed && d < 3 && level && !P.flight){ byBird = true; bird.setNear(true); if (!openRelic && !writing && (card.hidden || cardFor === ABOUT)) renderCard(ABOUT, false); }
+  else if (byBird && (d > 5.5 || !level)){ byBird = false; bird.setNear(false); }
+  if (writing && letter.hidden && bird.ready){ letter.hidden = false; letterMsg.focus({ preventScroll:true }); }
+  const show = bird.unfolded && !writing && mode !== 'aim' && !gaze;
+  if (show){ pv.copy(bird.sheetPosition); pv.y += 1.0; pv.project(camera); }
+  if (!show || pv.z > 1 || Math.abs(pv.x) > 1.05 || Math.abs(pv.y) > 1.05){ craneLabel.style.visibility = 'hidden'; return; }
+  craneLabel.style.visibility = 'visible'; craneLabel.style.opacity = 1;
+  craneLabel.style.transform = `translate(${((pv.x*.5+.5)*innerWidth).toFixed(1)}px,${((-pv.y*.5+.5)*innerHeight).toFixed(1)}px) translate(-50%,-100%)`;
+}
 const cross = document.getElementById('cross'), crossRing = document.getElementById('crossRing');
 const stamEl = document.getElementById('stamina'), stamFg = document.getElementById('stamFg');
 function updateStamina(){
@@ -999,7 +1049,7 @@ document.querySelectorAll('[data-placeholder]').forEach(a => a.addEventListener(
 let last = performance.now();
 function simulate(dt){
   T += dt;
-  updatePlayer(dt); updateHero(dt); updateRelics(dt); updateArrows(dt); updateCamera(dt); updateWorld(dt); updateHover();
+  updatePlayer(dt); updateHero(dt); updateRelics(dt); updateArrows(dt); updateCamera(dt); updateWorld(dt); updateBird(dt); updateHover();
   sky.update(dt, T, camera, { showAll:gaze, hover:hoverStar, focus:openRelic });
   updateLabels(); updateCross(); updateStamina();
 }
@@ -1013,5 +1063,5 @@ setTimeout(() => oracleSay(LINES.intro), reduceMotion ? 200 : 2000);
 if (!intro) setTimeout(welcome, 600);
 
 /* dev-only handle for poking at the scene from the browser console; stripped from production builds */
-if (import.meta.env.DEV) window.__valley = { P, camS, RELICS, sky, oracle, world, colliders, summon, setGaze, scene, camera, renderer, keys, fireArrow, arrows,
+if (import.meta.env.DEV) window.__valley = { P, camS, RELICS, sky, oracle, world, colliders, bird, openLetter, closeLetter, summon, setGaze, scene, camera, renderer, keys, fireArrow, arrows,
   step(n=60, dt=1/60){ for (let i=0;i<n;i++) simulate(dt); reflectLake(); renderer.render(scene, camera); } };

@@ -29,6 +29,7 @@ Requires Node 18 or newer.
 | F | Toggle "draw the bow": hold to draw, drag to aim, release to shoot |
 | 1–7 | Summon a relic directly |
 | C | Look up at the skill constellation (also the ✦ button in the relic tracker) |
+| N | Write Austin a note on the paper crane's sheet (or click the unfolded paper by the stair) |
 | Click a star | The Oracle names the relics that use that skill |
 | Esc | Send the open relic back to the sky |
 
@@ -44,6 +45,7 @@ src/polyhedra.js      Polyhedra drawn as light: clear glass and glowing-edge sha
 src/constellation.js  The skill constellation: star layout, figures, labels, wake-up animation
 src/relics.js         The seven relic models (faceted, with soft auras) and how each one unfolds when opened
 src/hero.js           The wanderer (a small doll in a thin robe and draped hood), its bow and lantern, and their animation
+src/paperbird.js      The paper crane by the stair: Austin's name card, unfolding into paper visitors can write a note on
 src/colliders.js      Solid shapes for standing, walls, ceilings and arrow hits
 src/content.js        Everything visitors read: relic text, skills, the Oracle's lines and answers
 src/noise.js          Seeded random and value noise (the valley is identical on every visit)
@@ -51,7 +53,7 @@ src/textures.js       Canvas-drawn textures: glows, rays, runes, sigils, dials, 
 src/styles.css      UI styles and design tokens
 ```
 
-To change wording, edit `src/content.js` only. The constellation comes from `SKILLS` there: each skill lists the relics whose text names it, and star positions live in `AT` at the top of `src/constellation.js` (a skill without a position is placed automatically in its group).
+To change wording, edit `src/content.js` only. Visitor notes are posted as JSON (`{ name, message }`) to `NOTE.endpoint` there; until it is set, the paper says notes are not connected yet. The constellation comes from `SKILLS` there: each skill lists the relics whose text names it, and star positions live in `AT` at the top of `src/constellation.js` (a skill without a position is placed automatically in its group).
 
 ## Status
 

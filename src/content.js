@@ -110,6 +110,20 @@ export const LINES = {
   hiddenStars: stars => `The hidden relic's stars wake · ${stars} new`,
   finale: "Every relic is open and my light is whole again. Thank you for walking the whole valley. If you'd like to talk with Austin, his résumé, GitHub and LinkedIn are right here.",
 };
+// The note: the paper crane unfolds into a sheet of paper, and visitors can write Austin a note on it.
+// `endpoint` is where notes are posted as JSON ({ name, message }); leave it empty until a form service is chosen.
+export const NOTE = {
+  endpoint: '',
+  crane: 'Write on the paper',
+  to: 'To Austin,',
+  placeholder: 'Write anything: hello, a question, an idea, a wish for the valley…',
+  from: 'your name or email (optional)',
+  send: 'Fold & send', sending: 'Folding…',
+  sent: 'Your note is folded and on its way to Austin.',
+  failed: "That didn't go through. Please try again in a moment.",
+  empty: 'Write a few words first.',
+  offline: "Notes aren't connected yet. For now, the résumé and LinkedIn links above are the best way to reach Austin.",
+};
 export const FINALE = { id:'finale', kicker:'All six relics opened', color:'#F4D58D', title:'The valley is lit', meta:'Thanks for exploring',
   body:"You've opened every relic: Austin's internship at Aquanow, the apps he has built, and the skills that tie them together. The quickest way to reach him is below.",
   tags:[] };
