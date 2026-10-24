@@ -40,7 +40,9 @@ export function crystalMaterial({ radius, tint = '#9FBFE8', opacity = 1, side = 
         float silk = exp(-pow((d.y - d.x * .68 + .39) / .027, 2.));
         c += vec3(.68,.82,1.) * ribbon * (.48 + 1.3 * cloud);
         c += vec3(.61,.54,1.) * silk * 1.1;
-        c += vec3(1.,.86,.59) * pow(max(dot(d, normalize(vec3(-.55,.7,.45))), 0.), 48.) * 2.4;
+        float gilded = exp(-pow((d.y + d.x * .46 - .16) / .035, 2.));
+        c += vec3(1.,.69,.3) * gilded * .28;
+        c += vec3(1.,.86,.59) * pow(max(dot(d, normalize(vec3(-.55,.7,.45))), 0.), 48.) * 2.8;
         c += vec3(.69,.85,1.) * pow(max(dot(d, normalize(vec3(.65,.18,.73))), 0.), 80.) * 2.;
         c += vec3(.42,.52,.91) * pow(max(dot(d, normalize(vec3(-.4,-.63,-.66))), 0.), 28.) * .8;
         return c;

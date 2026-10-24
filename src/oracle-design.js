@@ -10,7 +10,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
   const group = new THREE.Group(), clock = { value: 0 }, energy = { value: 0 }, power = { value: 0 };
   // Tighten the armillary silhouette without scaling the central polyhedra.
   const armillary = new THREE.Group(); armillary.scale.setScalar(.88 * .88); group.add(armillary);
-  const gold = C('#CDB58E'), ice = C('#9CAFD9');
+  const gold = C('#D5B476'), ice = C('#9CAFD9');
   const px = Math.min(devicePixelRatio || 1, 1.75);
   const sprite = (parent, color, size, opacity, map = glowTex) => {
     const s = new THREE.Sprite(new THREE.SpriteMaterial({ map, color, opacity, transparent: true,
@@ -39,7 +39,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
 
   // World-space ribbons are expanded perpendicular to their projected tangent.
   // The narrow bright thread and wide faint skirt provide their own soft bloom.
-  function threads(paths, { parent = group, color = gold, opacity = .72, width = .3, flow = .12 } = {}) {
+  function threads(paths, { parent = group, color = gold, opacity = .72, width = .3, flow = .12, order = 0, highlight = '#C2CFED', blending = THREE.AdditiveBlending } = {}) {
     const pos = [], tangent = [], uv = [], seeds = [], index = [];
     paths.forEach((path, n) => {
       const offset = pos.length / 3;
@@ -58,23 +58,23 @@ export function buildOracleDesign({ main, reduceMotion }) {
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     geo.setAttribute('seed', new THREE.Float32BufferAttribute(seeds, 1)); geo.setIndex(index);
     const mat = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide,
-      blending: THREE.AdditiveBlending, fog: false, extensions: { derivatives: true },
-      uniforms: { t: clock, energy, power, col: { value: C(color) }, opacity: { value: opacity }, width: { value: width }, flow: { value: flow } },
+      blending, fog: false, extensions: { derivatives: true },
+      uniforms: { t: clock, energy, power, col: { value: C(color) }, highlight: { value: C(highlight) }, opacity: { value: opacity }, width: { value: width }, flow: { value: flow } },
       vertexShader: `attribute vec3 tangent; attribute float seed; uniform float width; varying vec2 vUv; varying float vSeed;
         void main(){vUv=uv;vSeed=seed;vec4 mv=modelViewMatrix*vec4(position,1.);vec2 d=(modelViewMatrix*vec4(tangent,0.)).xy;
           d/=max(length(d),.001);mv.xy+=vec2(-d.y,d.x)*(uv.y-.5)*width;gl_Position=projectionMatrix*mv;}`,
-      fragmentShader: `uniform float t;uniform float energy;uniform float power;uniform vec3 col;uniform float opacity;uniform float flow;varying vec2 vUv;varying float vSeed;
+      fragmentShader: `uniform float t;uniform float energy;uniform float power;uniform vec3 col;uniform vec3 highlight;uniform float opacity;uniform float flow;varying vec2 vUv;varying float vSeed;
         void main(){float p=abs(vUv.y-.5)*2.;float sigma=max(.055,fwidth(vUv.y)*.65);float thread=exp(-pow((vUv.y-.5)/sigma,2.))+.075*exp(-p*p*3.5);
           float glint=pow(.5+.5*cos(vUv.x*6.283185-t*.22+vSeed),28.);
           float a=thread*opacity*(1.12+glint*flow+energy*.16+power*.05);
-          gl_FragColor=vec4(mix(col,vec3(.76,.81,.93),glint*.22),a);}`
+          gl_FragColor=vec4(mix(col,highlight,glint*.22),a);}`
     });
-    const mesh = new THREE.Mesh(geo, mat); parent.add(mesh); return mat;
+    const mesh = new THREE.Mesh(geo, mat); mesh.renderOrder = order; parent.add(mesh); return mat;
   }
   const circle = (r, n = 192, a0 = 0, a1 = TAU) => Array.from({ length: n + 1 }, (_, i) => {
     const a = a0 + (a1 - a0) * i / n; return [Math.cos(a) * r, Math.sin(a) * r, 0];
   });
-  function sparks(parent, points, { size = .65, opacity = .8, color = gold } = {}) {
+  function sparks(parent, points, { size = .65, opacity = .8, color = gold, order = 0 } = {}) {
     const geo = new THREE.BufferGeometry().setFromPoints(points.map(p => new THREE.Vector3(...p)));
     geo.setAttribute('seed', new THREE.Float32BufferAttribute(points.map((_, i) => i * 1.791), 1));
     const mat = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
@@ -86,7 +86,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
         void main(){vec2 p=gl_PointCoord-.5;float d=dot(p,p);float ray=(exp(-abs(p.x)*95.)*exp(-abs(p.y)*6.)+exp(-abs(p.y)*95.)*exp(-abs(p.x)*6.))*.65;
           float a=(exp(-d*90.)+exp(-d*13.)*.2+ray)*opacity*vLight;gl_FragColor=vec4(mix(col,vec3(.78,.79,1.),exp(-d*100.)*.35),a);}`
     });
-    parent.add(new THREE.Points(geo, mat)); return mat;
+    const mesh = new THREE.Points(geo, mat); mesh.renderOrder = order; parent.add(mesh); return mat;
   }
 
   function crystal({ color = ice, body = .1, edge = .1 } = {}) {
@@ -220,8 +220,9 @@ export function buildOracleDesign({ main, reduceMotion }) {
     }
     const edges = new THREE.EdgesGeometry(geo, 1).attributes.position, paths = [];
     for (let j = 0; j < edges.count; j += 2) paths.push([[edges.getX(j), edges.getY(j), edges.getZ(j)], [edges.getX(j + 1), edges.getY(j + 1), edges.getZ(j + 1)]]);
-    threads(paths, { parent: holder, color: i % 2 ? '#91A8D0' : '#A69CBF', opacity: .45 + i * .018, width: .21, flow: .09 });
-    sparks(holder, corners(geo).map(v => v.toArray()), { size: .3, opacity: .6, color: i % 2 ? '#9FBBDD' : '#AEAAD0' }); geo.dispose();
+    // Fine gold rims stay legible over the reflective transparent faces.
+    threads(paths, { parent: holder, color: '#E6B965', highlight: '#FFF0BE', opacity: .86 + i * .015, width: .21, flow: .2, order: 55, blending: THREE.NormalBlending });
+    sparks(holder, corners(geo).map(v => v.toArray()), { size: .32, opacity: .7, color: '#FFE0A2', order: 56 }); geo.dispose();
   });
   const heartGlow = sprite(core, '#7C94C7', 5.4, .3);
   const heartPoint = sprite(core, '#B2C6E7', 1.25, .62);
