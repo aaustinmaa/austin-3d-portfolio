@@ -70,9 +70,9 @@ export function crystalMaterial({ radius, tint = '#9FBFE8', opacity = 1, side = 
         c += mix(vec3(.32,.46,.98), vec3(1.1,1.45,1.8), cloud) * fog * .12;
         c += vec3(.9,1.22,1.6) * (web*.45 + fracture*.08 + lamina*.04 + silk*.03);
         c += vec3(.94,.92,.78) * (cutLight + source * (1. + energy * .3));
-        float a = (.045 + fresnel * .29 + length(reflected) * .24 + vCut * .15 + source * .18 + web * .05 + fog * .02) * opacity;
+        float a = (.09 + fresnel * .29 + length(reflected) * .24 + vCut * .15 + source * .18 + web * .05 + fog * .07) * opacity;
         a *= gl_FrontFacing ? 1. : .55;
-        gl_FragColor = vec4(c, min(.74, a));
+        gl_FragColor = vec4(c, min(.84, a));
       }`
   });
 }
