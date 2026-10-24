@@ -230,7 +230,7 @@ export function createPaperBird(scene, { perch, star, hint, reduceMotion }){
   /* how long each stage of k takes: the crane lifting and laying out its bird base goes briskly, the petals opening into
      the square base and the base tipping and parting its layers take their time, and the last opening out is quick
      (the other way round when it folds back up) */
-  const SWAP = .3, KS = [0, SWAP, .51, .7, 1], SECS = [.5, .45, .05, .18], REFOLD = SECS.reduce((a, b) => a + b);
+  const SWAP = .3, KS = [0, SWAP, .51, .7, 1], SECS = [.4, .45, .05, .18], REFOLD = SECS.reduce((a, b) => a + b);
   const rate = (k, up) => { let i = 0; while (i < 3 && (up ? k >= KS[i+1] : k > KS[i+1])) i++; return (KS[i+1] - KS[i])/SECS[i]; };
   const kAt = t => { for (let i=0;i<4;i++){ if (t < SECS[i]) return KS[i] + (KS[i+1] - KS[i])*t/SECS[i]; t -= SECS[i]; } return 1; };
   const refoldK = t => kAt(Math.max(0, REFOLD - t));
@@ -263,7 +263,7 @@ export function createPaperBird(scene, { perch, star, hint, reduceMotion }){
     if (z > 0 || wantZ > 0) z += Math.sign(wantZ - z)*Math.min(Math.abs(wantZ - z), reduceMotion ? 1 : dt/1.2);
     else { if (k === 0 && wantK > 0) chooseSide(); k += Math.sign(wantK - k)*Math.min(Math.abs(wantK - k), step); }
     /* the crane rises off its lantern and turns its folds toward you; once open, the sheet can come close */
-    const lift = span(k, 0, .3), zz = smooth(z), idle = k === 0 && !reduceMotion;
+    const lift = span(k, 0, KS[2]), zz = smooth(z), idle = k === 0 && !reduceMotion;
     group.position.lerpVectors(rest, above, lift).lerp(close, zz);
     if (idle) group.position.y += Math.sin(T*1.6)*.015;
     else if (!reduceMotion) group.position.y += Math.sin(T*1.1)*.03*span(k,.7,1)*(1 - zz);
