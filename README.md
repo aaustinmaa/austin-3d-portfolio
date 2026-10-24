@@ -37,7 +37,7 @@ Requires Node 18 or newer.
 
 Light the four braziers on the spiral stairs to wake a hidden seventh relic. The wish pillars' caps, boulders, stair stones and the brazier landings can all be stood on; click a pillar to fly up onto it. The short introduction opens on arrival and again whenever you click Austin's name in the top bar.
 
-Each brazier has a hollow metal bowl, glowing coals, curling flame tongues and sparse rising embers. Ignition eases in, with a restrained warm halo and local light. With reduced motion, the fire and light stay steady and embers stop drifting.
+Each brazier has a hollow metal bowl, glowing coals, curling flame tongues and sparse rising embers. Ice-blue cores fade through cyan into blue-violet tips, with matching coals, embers and local light. Ignition eases in beneath a restrained cool halo. With reduced motion, the fire and light stay steady and embers stop drifting.
 
 ## Project layout
 

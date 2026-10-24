@@ -69,8 +69,8 @@ const flameFragment = `
     float n = noise(vPos*vec3(11.,7.,11.) - vec3(0.,time*3.4 + seed,0.));
     float fine = noise(vPos*23. - vec3(0.,time*5.,0.));
     float heat = clamp(vHeight*.85 + n*.3,0.,1.);
-    vec3 color = mix(vec3(1.,.91,.58),vec3(1.,.48,.075),smoothstep(.05,.5,heat));
-    color = mix(color,vec3(.85,.12,.018),smoothstep(.55,1.,heat));
+    vec3 color = mix(vec3(.78,.96,1.),vec3(.26,.70,1.),smoothstep(.05,.5,heat));
+    color = mix(color,vec3(.40,.28,.85),smoothstep(.55,1.,heat));
     float alpha = mix(.92,.5,vHeight)*smoothstep(.08,.38,n + (1.-vHeight)*.3);
     alpha *= 1. - smoothstep(.88,1.,vHeight);
     gl_FragColor = vec4(color*(.88 + fine*.12),alpha*strength);
@@ -87,7 +87,7 @@ export function createBrazier(scene, position, { seed=0, reduceMotion=false, pix
   const root = new THREE.Group(); root.name = 'brazier'; root.position.copy(position); scene.add(root);
   const solid = (g,m) => { const o = new THREE.Mesh(g,m); o.castShadow = o.receiveShadow = true; root.add(o); return o; };
   solid(bodyGeo,metal); solid(trimGeo,trim);
-  const coals = new THREE.MeshStandardMaterial({ color:0x25212C, roughness:1, flatShading:true, emissive:0xFF4B08, emissiveIntensity:0 });
+  const coals = new THREE.MeshStandardMaterial({ color:0x25212C, roughness:1, flatShading:true, emissive:0x4868D6, emissiveIntensity:0 });
   const coalBed = new THREE.InstancedMesh(coalGeo,coals,11), c = new THREE.Object3D();
   for (let i=0;i<11;i++){
     const a = i*2.39996 + seed, r = i ? .09 + (i%3)*.085 : 0;
@@ -101,7 +101,7 @@ export function createBrazier(scene, position, { seed=0, reduceMotion=false, pix
     uniforms, vertexShader:flameVertex, fragmentShader:flameFragment, transparent:true, depthWrite:false,
   })); root.add(flame);
   // Keep the halo faint enough to leave the silhouette and the bowl readable up close.
-  const aura = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xFF8C38, transparent:true, opacity:0, depthWrite:false, blending:THREE.AdditiveBlending }));
+  const aura = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0x748CFF, transparent:true, opacity:0, depthWrite:false, blending:THREE.AdditiveBlending }));
   aura.position.y = 1.45; aura.scale.set(1.8,2.1,1); root.add(aura);
   const embers = new THREE.Points(emberGeo,new THREE.ShaderMaterial({
     uniforms:{ time:uniforms.time, strength:uniforms.strength, offset:{value:seed}, px:{value:pixelRatio} },
@@ -117,9 +117,9 @@ export function createBrazier(scene, position, { seed=0, reduceMotion=false, pix
       }`,
     fragmentShader:`uniform float strength; varying float vAlpha;
       void main(){ float d = length(gl_PointCoord-.5), a = (1.-smoothstep(.12,.5,d))*vAlpha*strength;
-        gl_FragColor = vec4(1.,.48,.12,a); }`,
+        gl_FragColor = vec4(.58,.82,1.,a); }`,
   })); root.add(embers);
-  const light = new THREE.PointLight(0xFFAA5C,0,7,2); light.position.y = 1.5; root.add(light);
+  const light = new THREE.PointLight(0x93B7FF,0,7,2); light.position.y = 1.5; root.add(light);
   const b = { root, pos:root.position.clone(), top:position.y, lit:false, ignition:0, flame, embers, light,
     update(dt,time){
       b.ignition = b.lit ? Math.min(1,b.ignition + dt*2.4) : 0;
@@ -128,9 +128,9 @@ export function createBrazier(scene, position, { seed=0, reduceMotion=false, pix
       uniforms.time.value = t; uniforms.strength.value = strength;
       flame.visible = aura.visible = strength>0; embers.visible = b.lit && !reduceMotion;
       const flicker = reduceMotion ? 1 : 1 + Math.sin(t*7.3 + seed)*.055 + Math.sin(t*13.1 + seed*2)*.035;
-      aura.material.opacity = strength*.21*flicker;
+      aura.material.opacity = strength*.18*flicker;
       coals.emissiveIntensity = strength*.95*flicker;
-      light.intensity = strength*1.35*flicker;
+      light.intensity = strength*1.15*flicker;
     },
   };
   b.update(0,0); return b;
