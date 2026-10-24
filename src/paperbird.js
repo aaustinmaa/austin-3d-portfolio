@@ -100,7 +100,7 @@ const petal = (() => {
     tip.set(0, -HK - Math.cos(rho), Math.sin(rho));
     d.subVectors(c, tip); const p = 2*r*d.dot(e1), qq = 2*r*d.z;
     let g = 2*Math.atan2(qq, p) - Math.PI; g = Math.max(0, Math.min(Math.PI, Math.abs(wrapA(g))));
-    if (rho > Math.PI - 1e-4) g = Math.PI;
+    if (rho > Math.PI - 1e-4) g = Math.PI; else if (rho < 1e-4) g = 0;   // flat: the tip sits on the leg crease, so any turn fits; the side lies flat
     out.copy(c).addScaledVector(e1, r*Math.cos(g)); out.z += r*Math.sin(g); return out; };
 })();
 
