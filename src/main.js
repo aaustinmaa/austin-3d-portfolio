@@ -870,15 +870,15 @@ function updateCamera(dt){
 /* ---------- simulation ---------- */
 const pushP = { x:0, z:0 };
 function updatePlayer(dt){
-  if (P.flight){ const f = P.flight; f.t += dt/f.dur; const t = Math.min(1,f.t), e = t<.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;
+  if (P.flight){ const f = P.flight; f.t += dt/f.dur; const t = Math.min(1,f.t), e = f.ease === 'out' ? 1 - (1-t)*(1-t) : t<.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;
     const prev = P.pos.clone(); P.pos.lerpVectors(f.from, f.to, e); P.pos.y += Math.sin(Math.PI*e)*f.arc; const d = P.pos.clone().sub(prev); if (d.x*d.x+d.z*d.z > 1e-6) P.facing = Math.atan2(d.x,d.z);
     if (t >= 1){ P.flight = null; P.vel.set(0,0,0); P.onGround = true;
       if (overWater(P.pos.x, P.pos.z) && P.pos.y < WATER_Y + .1) dipIn(2.2); }
     P.speed = 0; return; }
   /* touching the water: a brief, shallow dip, then straight back out to the bank */
   if (P.dip){ const d = P.dip; d.t += dt;
-    P.pos.y = WATER_Y - .14*Math.sin(Math.PI*Math.min(1, d.t/.3)); P.vel.set(0,0,0); P.onGround = true; P.speed = 0;
-    if (d.t > .24){ P.dip = null; glideToShore(1.5); }
+    P.pos.y = WATER_Y - .12*Math.sin(Math.PI*Math.min(1, d.t/.16)); P.vel.set(0,0,0); P.onGround = true; P.speed = 0;
+    if (d.t > .12){ P.dip = null; glideToShore(1.5); if (P.flight) P.flight.ease = 'out'; }
     return; }
   let mx = 0, mz = 0;
   const fwd = (keys.KeyW||keys.ArrowUp?1:0) - (keys.KeyS||keys.ArrowDown?1:0), side = (keys.KeyD||keys.ArrowRight?1:0) - (keys.KeyA||keys.ArrowLeft?1:0);
