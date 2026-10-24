@@ -529,9 +529,10 @@ function orbitPos(r, out){ const o = r.orbit, a = o.phase + T*o.speed; return ou
 /* bursts */
 const bursts = [];
 /* something falling into the lake: rings spread across the water and, unless motion is reduced, the water splashes up the way
-   it really does: a crown of droplets thrown up and out from a ring around the impact, a jet rising from the middle a moment
-   later as the water closes in, droplets of many sizes drawn as short streaks along their flight, and a ring of foam spreading
-   on the surface. The droplets are pale and translucent, not glowing, and vanish where they fall back in */
+   it really does: a thin sheet of water rising in a flared ring around the impact, its ragged rim breaking into drops before it
+   falls back; a crown of drops thrown up and out, a jet rising from the middle a moment later as the water closes in, drops of
+   many sizes drawn with short streaks along their flight, low mist over the water and a ring of foam spreading on the surface.
+   Everything is pale and translucent, not glowing, and drops vanish where they fall back in */
 const splashes = []; let rippleNext = 0;
 const overWater = (x, z) => Math.hypot(x, z) < LAKE_EDGE && groundH(x, z) < WATER_Y - .05;
 const dropMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, uniforms:{ scale:wispScale },
@@ -539,8 +540,9 @@ const dropMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, u
     void main(){ vA = alpha; vec4 mv = modelViewMatrix*vec4(position,1.); gl_PointSize = size*scale/-mv.z; gl_Position = projectionMatrix*mv; }`,
   fragmentShader:`varying float vA; void main(){ vec2 q = gl_PointCoord - .5; float r = length(q); if (r > .5) discard;
     float body = smoothstep(.5, .3, r), glint = smoothstep(.22, 0., length(q + vec2(.12, .12)));
-    gl_FragColor = vec4(mix(vec3(.62,.8,.95), vec3(1.), glint*.8), body*(.55 + glint*.4)*vA); }` });
-const streakMat = new THREE.LineBasicMaterial({ color:0xCFEAFF, transparent:true, opacity:.4, depthWrite:false });
+    gl_FragColor = vec4(mix(vec3(.66,.83,.96), vec3(1.), glint*.8), body*(.7 + glint*.3)*vA); }` });
+const streakMat = new THREE.LineBasicMaterial({ color:0xCFEAFF, transparent:true, opacity:.5, depthWrite:false });
+const sheetGeo = new THREE.CylinderGeometry(1.35, 1, 1, 56, 1, true).translate(0, .5, 0);
 function splashLake(at, power=1){
   lakeMat.uniforms.ripples.value[rippleNext].set(at.x, at.z, T, Math.min(2, .5 + power*.55)); rippleNext = (rippleNext + 1) % 4;
   if (reduceMotion) return;
@@ -549,11 +551,28 @@ function splashLake(at, power=1){
   for (let i=0;i<n;i++){ const isJet = i >= crown, a = rand()*6.283, rr = isJet ? rand()*r0*.25 : r0*(.8 + rand()*.4);
     const out = isJet ? (rand() - .5)*.5 : (.7 + rand()*1.5)*(.6 + power*.4), up = isJet ? (3.2 + rand()*2.2)*(.7 + power*.35) : (1.6 + rand()*2.4)*(.6 + power*.4);
     drops.push({ p:new V3(at.x + Math.cos(a)*rr, WATER_Y + .02, at.z + Math.sin(a)*rr), v:new V3(Math.cos(a)*out, up, Math.sin(a)*out), wait:isJet ? .12 + rand()*.12 : rand()*.05, on:true });
-    size[i] = (isJet ? .07 : .035) + rand()*rand()*.09*(.6 + power*.4); }
+    size[i] = (isJet ? .1 : .05) + rand()*rand()*.18*(.5 + power*.4); }
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('size', new THREE.BufferAttribute(size, 1)); g.setAttribute('alpha', new THREE.BufferAttribute(alpha, 1));
   const pts = new THREE.Points(g, dropMat); pts.frustumCulled = false; scene.add(pts);
   const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.BufferAttribute(line, 3));
   const streaks = new THREE.LineSegments(lg, streakMat); streaks.frustumCulled = false; scene.add(streaks);
+  /* the sheet: a flared ring of water rising from the impact, thin and clear, its rim torn ragged, then falling back */
+  const su = { a:{value:0}, seed:{value:rand()*50} };
+  const sheet = new THREE.Mesh(sheetGeo, new THREE.ShaderMaterial({ transparent:true, depthWrite:false, side:THREE.DoubleSide, uniforms:su,
+    vertexShader:'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
+    fragmentShader:`uniform float a; uniform float seed; varying vec2 vUv;
+      float h1(float x){ return fract(sin(x*127.1 + seed)*43758.5453); }
+      float n1(float x){ float i = floor(x), f = fract(x); return mix(h1(i), h1(i + 1.), f*f*(3. - 2.*f)); }
+      void main(){ float u = vUv.x*6.2832, rim = 1. - .45*n1(vUv.x*14.) - .25*n1(vUv.x*37. + 3.); if (vUv.y > rim) discard;
+        float lip = smoothstep(rim - .25, rim, vUv.y), base = smoothstep(0., .15, vUv.y);
+        gl_FragColor = vec4(mix(vec3(.6,.78,.92), vec3(.95,.99,1.), lip*.7), (.16 + .4*lip)*base*a); }` }));
+  sheet.position.set(at.x, WATER_Y, at.z); sheet.scale.set(r0, .01, r0); scene.add(sheet);
+  /* low mist over the water around the impact */
+  const M = Math.round(4 + 6*power), mp = new Float32Array(M*3), mist = [];
+  for (let i=0;i<M;i++){ const a = rand()*6.283, rr = r0*(.5 + rand()); mist.push({ p:new V3(at.x + Math.cos(a)*rr, WATER_Y + .1 + rand()*.2*power, at.z + Math.sin(a)*rr), v:new V3(Math.cos(a), .3 + rand()*.4, Math.sin(a)).multiplyScalar(.5 + power*.5) }); }
+  const mg = new THREE.BufferGeometry(); mg.setAttribute('position', new THREE.BufferAttribute(mp, 3));
+  const mistPts = new THREE.Points(mg, new THREE.PointsMaterial({ map:softTex, size:.5 + power*.35, color:0xD8EEFF, transparent:true, opacity:.22, depthWrite:false }));
+  mistPts.frustumCulled = false; scene.add(mistPts);
   /* the foam: a soft pale ring on the water spreading from the impact */
   const fu = { a:{value:.5} };
   const foam = new THREE.Mesh(new THREE.CircleGeometry(1, 48).rotateX(-Math.PI/2), new THREE.ShaderMaterial({ transparent:true, depthWrite:false, uniforms:fu,
@@ -561,7 +580,7 @@ function splashLake(at, power=1){
     fragmentShader:`uniform float a; varying vec2 vP;
       void main(){ float d = length(vP), ring = exp(-pow((d - .8)/.12, 2.)) + exp(-d*d*6.)*.35; gl_FragColor = vec4(vec3(.82,.92,1.), ring*a); }` }));
   foam.position.set(at.x, WATER_Y + .012, at.z); foam.renderOrder = 2; scene.add(foam);
-  splashes.push({ pts, streaks, drops, foam, fu, r0, age:0, power });
+  splashes.push({ pts, streaks, drops, foam, fu, sheet, su, mistPts, mist, r0, age:0, power });
 }
 function updateSplashes(dt){
   for (let i = splashes.length-1; i >= 0; i--){ const s = splashes[i]; s.age += dt;
@@ -573,7 +592,13 @@ function updateSplashes(dt){
       const tail = shown ? .045 : 0; ln.set([d.p.x, d.p.y, d.p.z, d.p.x - d.v.x*tail, d.p.y - d.v.y*tail, d.p.z - d.v.z*tail], k*6); });
     s.pts.geometry.attributes.position.needsUpdate = true; s.pts.geometry.attributes.alpha.needsUpdate = true; s.streaks.geometry.attributes.position.needsUpdate = true;
     const f = Math.min(1, s.age/1.4); s.foam.scale.setScalar(s.r0 + (.9 + s.power*.5)*Math.sqrt(f)); s.fu.a.value = .45*(1 - f)*(1 - f);
-    if (!live && s.age > 1.4){ [s.pts, s.streaks, s.foam].forEach(o => scene.remove(o)); s.pts.geometry.dispose(); s.streaks.geometry.dispose(); s.foam.geometry.dispose(); s.foam.material.dispose(); splashes.splice(i,1); } }
+    const sl = Math.min(1, s.age/(.45 + .2*s.power)), sr = s.r0 + (.35 + .45*s.power)*Math.sqrt(sl);
+    s.sheet.scale.set(sr, Math.max(.01, (.12 + .32*s.power)*Math.pow(Math.sin(Math.PI*sl), .7)), sr); s.su.a.value = Math.min(1, s.age*25)*(1 - sl)*(1 - sl);
+    const mp = s.mistPts.geometry.attributes.position.array, ml = Math.min(1, s.age/1.3);
+    s.mist.forEach((m, k) => { m.v.multiplyScalar(Math.exp(-dt*2.5)); m.p.addScaledVector(m.v, dt); mp.set([m.p.x, m.p.y, m.p.z], k*3); });
+    s.mistPts.geometry.attributes.position.needsUpdate = true; s.mistPts.material.opacity = .22*Math.min(1, s.age*10)*(1 - ml);
+    if (!live && s.age > 1.4){ [s.pts, s.streaks, s.foam, s.sheet, s.mistPts].forEach(o => scene.remove(o)); s.pts.geometry.dispose(); s.streaks.geometry.dispose(); s.foam.geometry.dispose(); s.foam.material.dispose();
+      s.sheet.material.dispose(); s.mistPts.geometry.dispose(); s.mistPts.material.dispose(); splashes.splice(i,1); } }
 }
 function burst(pos, color, n=70, power=1){
   const g = new THREE.BufferGeometry(), p = new Float32Array(n*3), v = [];
