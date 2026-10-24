@@ -34,7 +34,7 @@ const SURFACE = `${LIGHTS}${NOISE}
     float crack=exp(-abs(fbm2(q*1.6+4.)-.5)*55.)*smoothstep(.4,.75,noise2(q*.7-2.));
     vec3 col=mix(vec3(.04,.07,.18),vec3(.2,.33,.64),smoothstep(.25,.85,neb));
     col=mix(col,vec3(.38,.23,.62),vio*.75)*.8+env*(.35+fres*1.5)+vec3(.78,.88,1.)*crack*.55;
-    return vec4(col,min(.95,.54+fres*.38+crack*.12));}
+    return vec4(col,min(.95,.7+fres*.25+crack*.1));}
   bool hidden(vec3 w,vec3 center,float hemi){return dot(w-center,w-cameraPosition)*hemi>0.;}`;
 // A glint drawn as a thin four-point star with fainter diagonals, not a disc.
 const STAR = `uniform vec3 col;varying float vI;varying float vA;varying vec3 vCol;
@@ -356,7 +356,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
       slotColA: { value: C('#FFFFFF') }, slotColB: { value: C('#FFFFFF') } };
     layered(pivot, band.geo, hemi => ribbonMaterial(hemi, u), i);
     const edges = [circle(edgeRadius, 192, 0, TAU, edgeZ), circle(edgeRadius, 192, 0, TAU, -edgeZ)];
-    threads(edges, { parent: pivot, color: '#EEF0FA', width: .75, opacity: .55, bloom: true, order: 70 });
+    threads(edges, { parent: pivot, color: '#EEF0FA', width: 1.1, opacity: .55, bloom: true, order: 70 });
     glints(pivot, edges.map(e => e.filter((_, k) => k % 2)), { size: 1.25, gain: 1.2, density: .55 });
     return { pivot, gimbal, axis: new THREE.Vector3(...spec.axis).normalize(), speed: spec.speed, u, radius: spec.r, depth, slots: [] };
   });
@@ -370,7 +370,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
   for (const [r, a0, a1, tilt] of arcs) wires.push({ r, a0, a1, tilt });
   layered(frame, wireGeometry(wires, .018), wireMaterial, 4);
   const wirePaths = wires.map(({ r, a0 = 0, a1 = TAU, tilt }) => tilted(circle(r, Math.round((a1 - a0) / TAU * 192), a0, a1), tilt));
-  threads(wirePaths, { parent: frame, color: '#EEF0FA', width: .55, opacity: .35, bloom: true, order: 70 });
+  threads(wirePaths, { parent: frame, color: '#EEF0FA', width: .8, opacity: .35, bloom: true, order: 70 });
   glints(frame, wirePaths, { size: 1.1, gain: 1.1, density: .5 });
   const graduations = [], spurs = [];
   for (let i = 0; i < 144; i++) {
@@ -451,7 +451,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
     // The two outer crystals share the armillary's light: an ice-white bloom
     // and star glints wherever one of their edges mirrors a light.
     if (i < 2) {
-      threads(paths, { parent: holder, color: '#E4ECFF', width: .45, opacity: i ? .32 : .45, bloom: true, leaf: 5, order: 70 });
+      threads(paths, { parent: holder, color: '#E4ECFF', width: .75, opacity: i ? .32 : .45, bloom: true, leaf: 5, order: 70 });
       glints(holder, paths.map(([a, b]) => [.2, .5, .8].map(k => a.map((x, c) => x + (b[c] - x) * k))), { size: .95, gain: i ? .8 : 1.1, density: .45, color: '#EAF0FF' });
     }
     geo.dispose();
