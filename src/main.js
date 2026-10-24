@@ -158,16 +158,17 @@ const LAKE_EDGE = LAKE_R + 3.4;
 const lakeMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false,
   uniforms:{ t:{value:0}, energy:{value:0}, glow:{value:0}, star:{value:new V3(0, ORACLE_Y, 0)}, lamps:{value:[new V3(0,-99,0), new V3(0,-99,0), new V3(0,-99,0)]},
     mirror:{value:null}, mirrorM:{value:new THREE.Matrix4()}, now:{value:0},
-    ripples:{value:[0,1,2,3].map(() => new THREE.Vector4(0, 0, -99, 0))} },   /* x, z, start time, strength: see splashLake */
+    ripples:{value:[0,1,2,3].map(() => new THREE.Vector4(0, 0, -99, 0))},   /* x, z, start time, strength: see splashLake */
+    drips:{value:Array.from({ length:32 }, () => new THREE.Vector4(0, 0, -99, 0))} },   /* the same for single drops: see dropRipple */
   vertexShader:`attribute float depth; uniform mat4 mirrorM; varying vec3 vW; varying float vDepth; varying vec4 vM;
     void main(){ vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; vDepth = depth; vM = mirrorM*w; gl_Position = projectionMatrix*viewMatrix*w; }`,
-  fragmentShader:`uniform float t; uniform float energy; uniform float glow; uniform vec3 star; uniform vec3 lamps[3]; uniform sampler2D mirror; uniform float now; uniform vec4 ripples[4]; varying vec3 vW; varying float vDepth; varying vec4 vM;
+  fragmentShader:`uniform float t; uniform float energy; uniform float glow; uniform vec3 star; uniform vec3 lamps[3]; uniform sampler2D mirror; uniform float now; uniform vec4 ripples[4]; uniform vec4 drips[32]; varying vec3 vW; varying float vDepth; varying vec4 vM;
     /* a reflected light, drawn out into a vertical path toward the viewer the way calm water does */
     float streak(vec3 R, vec3 L, float w, float len){ float az = acos(clamp(dot(normalize(R.xz), normalize(L.xz)), -1., 1.)), el = asin(clamp(R.y, -1., 1.)) - asin(clamp(L.y, -1., 1.));
       return exp(-az*az*w - el*el*len); }
     void main(){ vec2 p = vW.xz; float r = length(p); if (vDepth < 0. || r > ${LAKE_EDGE.toFixed(2)}) discard;
       vec3 V = normalize(vW - cameraPosition), R = vec3(V.x, -V.y, V.z);
-      float fres = .45 + .55*pow(1. - abs(V.y), 3.);
+      float fres = .36 + .64*pow(1. - abs(V.y), 3.);
       /* the mirror: the valley drawn upside down under the water */
       float spring = exp(-r*r/(34. + energy*10.)), heart = exp(-r*r/7.);
       /* ripples from things falling into the water: rings spreading out, bending the reflection and catching a little light */
@@ -175,6 +176,10 @@ const lakeMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false,
       for (int i = 0; i < 4; i++){ vec4 q = ripples[i]; float life = 2.4 + q.w*1.1, age = now - q.z; if (age < 0. || age > life) continue;
         float sc = .65 + .4*q.w; vec2 off = p - q.xy; float dd = length(off), front = age*1.8*sc, fade = q.w*(1. - age/life)*(1. - age/life);
         float wave = sin((dd - front)*9./sc)*exp(-pow((dd - front)/((.3 + age*.25)*sc), 2.))*smoothstep(0., .25, dd)*fade;
+        bend += off/max(dd, 1e-3)*wave; glint += max(wave, 0.); }
+      for (int i = 0; i < 32; i++){ vec4 q = drips[i]; float age = now - q.z, life = 1.4 + q.w*1.4; if (age < 0. || age > life) continue;
+        vec2 off = p - q.xy; float dd = length(off), sc = .22 + .3*q.w, front = age*.9*sc + .03, fade = q.w*.7*(1. - age/life)*(1. - age/life);
+        float wave = sin((dd - front)*16./sc)*exp(-pow((dd - front)/((.1 + age*.16)*sc), 2.))*fade;
         bend += off/max(dd, 1e-3)*wave; glint += max(wave, 0.); }
       vec4 m = vM; m.xy += bend*.035*m.w;
       vec3 col = texture2DProj(mirror, m).rgb*mix(vec3(1.3,1.38,1.55), vec3(1.05,1.6,1.55), spring) + vec3(.55,.85,1.)*glint*.22;
@@ -184,7 +189,7 @@ const lakeMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false,
       /* through the water: clear over the shallows, deep blue-violet further out, the spring glowing in the middle */
       float deep = smoothstep(0., 1.6, vDepth);
       vec3 body = mix(vec3(.03,.08,.12), vec3(.014,.02,.06), deep) + vec3(.16,.62,.66)*spring*.5;
-      float hide = mix(.25, .78, deep), a = fres + (1. - fres)*hide;
+      float hide = mix(.18, .52, deep), a = fres + (1. - fres)*hide;
       vec3 c = (col*fres + body*hide*(1. - fres))/a;
       /* the teal of the spring, glowing up through the water where the star's light comes down, seen from any angle */
       vec3 emit = vec3(.14,.62,.64)*(spring*.18 + heart*.12)*(1. + energy*.6 + glow*.3)*(.92 + .08*sin(t*.6));
@@ -548,47 +553,21 @@ const dropMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, u
 const streakMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false,
   vertexShader:'attribute float lineA; varying float vA; void main(){ vA = lineA; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
   fragmentShader:'varying float vA; void main(){ gl_FragColor = vec4(vec3(.48,.7,.78), vA); }' });
-/* small ripples where single drops land: one instanced mesh of flat rings on the water (one draw call), each spreading a pair of
-   fine rings and fading slowly, the way the big ripples do */
-const DROP_RINGS = 128, dropRingData = [], dropRingK = new Float32Array(DROP_RINGS), dropRingA = new Float32Array(DROP_RINGS);
-const dropRingGeo = new THREE.CircleGeometry(1, 40).rotateX(-Math.PI/2);
-dropRingGeo.setAttribute('ringK', new THREE.InstancedBufferAttribute(dropRingK, 1)); dropRingGeo.setAttribute('ringA', new THREE.InstancedBufferAttribute(dropRingA, 1));
-const dropRingMesh = new THREE.InstancedMesh(dropRingGeo, new THREE.ShaderMaterial({ transparent:true, depthWrite:false,
-  vertexShader:`attribute float ringK; attribute float ringA; varying vec2 vP; varying float vK; varying float vA;
-    void main(){ vP = position.xz; vK = ringK; vA = ringA; gl_Position = projectionMatrix*modelViewMatrix*instanceMatrix*vec4(position,1.); }`,
-  fragmentShader:`varying vec2 vP; varying float vK; varying float vA;
-    void main(){ float r = length(vP), ring = exp(-pow((r - .82)/.06, 2.));
-      gl_FragColor = vec4(vec3(.72,.9,.98), ring*vA); }` }), DROP_RINGS);
-dropRingMesh.frustumCulled = false; dropRingMesh.renderOrder = 2; scene.add(dropRingMesh);
-const ringM = new THREE.Matrix4();
-for (let i = 0; i < DROP_RINGS; i++){ dropRingData.push({ x:0, z:0, age:9, life:1, size:.3, on:false }); dropRingMesh.setMatrixAt(i, ringM.makeScale(0, 0, 0)); }
-let dropRingNext = 0;
-function dropRipple(x, z, s){
-  const o = dropRingData[dropRingNext]; dropRingNext = (dropRingNext + 1) % DROP_RINGS;
-  Object.assign(o, { x, z, age:0, life:2 + s*6, size:.5 + s*6, on:true });
-}
-function updateDropRings(dt){
-  let any = false;
-  dropRingData.forEach((o, i) => { if (!o.on) return; any = true; o.age += dt; const k = o.age/o.life;
-    if (k >= 1){ o.on = false; dropRingA[i] = 0; dropRingMesh.setMatrixAt(i, ringM.makeScale(0, 0, 0)); return; }
-    const sc = .04 + o.size*Math.sqrt(k); dropRingMesh.setMatrixAt(i, ringM.makeScale(sc, 1, sc).setPosition(o.x, WATER_Y + .012, o.z));
-    dropRingK[i] = k; dropRingA[i] = .26*(1 - k)*(1 - k)*Math.min(1, o.age*20); });
-  if (any || dropRingMesh.userData.dirty){ dropRingMesh.instanceMatrix.needsUpdate = true; dropRingGeo.attributes.ringK.needsUpdate = true; dropRingGeo.attributes.ringA.needsUpdate = true; }
-  dropRingMesh.userData.dirty = any;
-}
+/* small ripples where single drops land: real ripples in the water like the big ones (see the lake shader), only smaller and
+   quicker, kept in a ring of 32 */
+let dripNext = 0;
+function dropRipple(x, z, s){ lakeMat.uniforms.drips.value[dripNext].set(x, z, T, Math.min(1, .35 + s*5)); dripNext = (dripNext + 1) % 32; }
 function splashLake(at, power=1){
   lakeMat.uniforms.ripples.value[rippleNext].set(at.x, at.z, T, Math.min(2, .5 + power*.55)); rippleNext = (rippleNext + 1) % 4;
   if (reduceMotion) return;
-  /* an orderly splash: the crown is two rings of evenly spaced drops leaving together at nearly the same speed and angle (the
-     outer ring lower and wider), and the jet is a single file of drops rising straight up from the middle one after another,
-     smaller toward the top */
-  const r0 = .08 + power*.2, ring = Math.round(10 + 10*power), crown = ring*2, jet = Math.round(4 + 4*power), loose = Math.round(6 + 8*power), n = crown + jet + loose, a0 = rand()*6.283;
+  /* the crown is drops thrown up and out at random from around the impact; the jet is a single file of drops rising straight up
+     from the middle one after another, smaller toward the top, with loose drops thrown off around it */
+  const r0 = .08 + power*.2, crown = Math.round(18 + 30*power), jet = Math.round(4 + 4*power), loose = Math.round(6 + 8*power), n = crown + jet + loose;
   const pos = new Float32Array(n*3), size = new Float32Array(n), alpha = new Float32Array(n), line = new Float32Array(n*6), drops = [];
   for (let i=0;i<n;i++){ let p, v, wait;
-    if (i < crown){ const outer = i >= ring, k = i % ring, a = a0 + (k + (outer ? .5 : 0))/ring*6.283 + (rand() - .5)*.08, rr = r0*(outer ? 1.15 : .85);
-      const out = (outer ? 1.5 : 1.)*(.6 + power*.4)*(.78 + rand()*.44), up = (outer ? 2.3 : 3.2)*(.6 + power*.35)*(.92 + rand()*.16);
-      p = new V3(at.x + Math.cos(a)*rr, WATER_Y + .02, at.z + Math.sin(a)*rr); v = new V3(Math.cos(a)*out, up, Math.sin(a)*out); wait = outer ? .03 : 0;
-      size[i] = (.06 + .04*power)*(outer ? .85 : 1)*(.9 + rand()*.2); }
+    if (i < crown){ const a = rand()*6.283, rr = r0*(.8 + rand()*.4), out = (.7 + rand()*1.5)*(.6 + power*.4), up = (1.6 + rand()*2.4)*(.6 + power*.4);
+      p = new V3(at.x + Math.cos(a)*rr, WATER_Y + .02, at.z + Math.sin(a)*rr); v = new V3(Math.cos(a)*out, up, Math.sin(a)*out); wait = rand()*.05;
+      size[i] = .05 + rand()*rand()*.18*(.5 + power*.4); }
     else if (i < crown + jet){ const j = i - crown, f = j/Math.max(1, jet - 1);
       p = new V3(at.x + (rand() - .5)*.03, WATER_Y + .02, at.z + (rand() - .5)*.03); v = new V3((rand() - .5)*.12, (2.6 + 2.6*f)*(.7 + power*.3), (rand() - .5)*.12); wait = .14 + (1 - f)*.16;
       size[i] = (.12 + .06*power)*(1 - f*.55); }
@@ -621,7 +600,7 @@ function updateSplashes(dt){
     const pos = s.pts.geometry.attributes.position.array, al = s.pts.geometry.attributes.alpha.array, ln = s.streaks.geometry.attributes.position.array, la = s.streaks.geometry.attributes.lineA.array; let live = 0;
     s.drops.forEach((d, k) => {
       if (d.on && s.age > d.wait){ d.v.y -= 9.8*1.3*dt; d.v.multiplyScalar(Math.exp(-dt*.4)); d.p.addScaledVector(d.v, dt);
-        if (d.p.y < WATER_Y){ d.on = false; if (overWater(d.p.x, d.p.z)) dropRipple(d.p.x, d.p.z, d.s); } }
+        if (d.p.y < WATER_Y){ d.on = false; if (overWater(d.p.x, d.p.z) && rand() < .4) dropRipple(d.p.x, d.p.z, d.s); } }
       const shown = d.on && s.age > d.wait; if (shown) live++;
       pos.set([d.p.x, d.p.y, d.p.z], k*3); al[k] = shown ? Math.min(1, (s.age - d.wait)*12) : 0;
       const tail = shown ? .05 : 0; ln.set([d.p.x, d.p.y, d.p.z, d.p.x - d.v.x*tail, d.p.y - d.v.y*tail, d.p.z - d.v.z*tail], k*6); la[k*2] = al[k]*.46; la[k*2 + 1] = 0; });
@@ -725,14 +704,14 @@ function updateArrows(dt){
       if (!a.target){ for (const r of RELICS){ if ((r.state === 'orbit') && r.group.visible && a.pos.distanceTo(r.pos) < 1.9){ hitRelic(r, a.pos); a.life = 0; break; } } }
       if (!a.target && a.life > 0 && from.y >= WATER_Y && a.pos.y < WATER_Y){
         const k = (from.y - WATER_Y)/(from.y - a.pos.y), wx = from.x + (a.pos.x - from.x)*k, wz = from.z + (a.pos.z - from.z)*k;
-        if (Math.hypot(wx, wz) < LAKE_EDGE && groundH(wx, wz) < WATER_Y - .05){
-          a.pos.set(wx, WATER_Y - .25, wz); a.stuck = true; a.life = Math.min(a.life, .9); splashLake(a.pos, Math.min(1.4, a.vel.length()/40)); } }
+        /* into the lake: a splash at the surface, then the water slows it and it carries on to stick in the bed, seen through the water */
+        if (overWater(wx, wz)){ splashLake(new V3(wx, WATER_Y, wz), Math.min(1.4, a.vel.length()/40)); a.vel.multiplyScalar(.4); a.wet = true; } }
+      if (a.wet) a.vel.multiplyScalar(Math.exp(-dt*2.5));
       if (!a.target && a.life > 0 && !a.stuck){ const hit = arrowImpact(from, a.pos);
         if (hit){ a.pos.copy(hit); a.stuck = true; a.life = Math.min(a.life + 4, 7); a.tipS.material.opacity = .5; burst(aTip.clone(), C('#9FF2FF'), 14, .25); } }
       a.g.position.copy(a.pos); a.g.quaternion.setFromUnitVectors(ZAX, a.vel.clone().normalize());
       updateArrowTrail(a);
     } else a.tipS.material.opacity = Math.max(0, Math.min(.5, a.life*.3));
-    if (a.stuck && a.pos.y < WATER_Y){ a.pos.y -= dt*.6; a.g.position.copy(a.pos); }   /* an arrow in the lake sinks away */
     a.trail.material.opacity = a.stuck ? Math.max(0, a.trail.material.opacity - dt*2) : Math.max(0, Math.min(.7, a.life*.5));
     if (a.life <= 0){ scene.remove(a.g); scene.remove(a.trail); a.g.children.forEach(c => c.material && c.material.dispose()); a.trail.geometry.dispose(); arrows.splice(i,1); }
   }
@@ -1134,7 +1113,7 @@ document.querySelectorAll('[data-placeholder]').forEach(a => a.addEventListener(
 let last = performance.now();
 function simulate(dt){
   T += dt;
-  updatePlayer(dt); updateHero(dt); updateRelics(dt); updateArrows(dt); updateSplashes(dt); updateDropRings(dt); updateCamera(dt); updateWorld(dt); updateHover();
+  updatePlayer(dt); updateHero(dt); updateRelics(dt); updateArrows(dt); updateSplashes(dt); updateCamera(dt); updateWorld(dt); updateHover();
   sky.update(dt, T, camera, { showAll:gaze, hover:hoverStar, focus:openRelic });
   updateLabels(); updateCross(); updateStamina();
 }
