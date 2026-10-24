@@ -538,10 +538,16 @@ const overWater = (x, z) => Math.hypot(x, z) < LAKE_EDGE && groundH(x, z) < WATE
 const dropMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, uniforms:{ scale:wispScale },
   vertexShader:`attribute float size; attribute float alpha; uniform float scale; varying float vA;
     void main(){ vA = alpha; vec4 mv = modelViewMatrix*vec4(position,1.); gl_PointSize = size*scale/-mv.z; gl_Position = projectionMatrix*mv; }`,
-  fragmentShader:`varying float vA; void main(){ vec2 q = gl_PointCoord - .5; float r = length(q); if (r > .5) discard;
-    float body = smoothstep(.5, .3, r), glint = smoothstep(.22, 0., length(q + vec2(.12, .12)));
-    gl_FragColor = vec4(mix(vec3(.66,.83,.96), vec3(1.), glint*.8), body*(.7 + glint*.3)*vA); }` });
-const streakMat = new THREE.LineBasicMaterial({ color:0xCFEAFF, transparent:true, opacity:.5, depthWrite:false });
+  /* a drop of clear water, a small solid lens: a faint teal body, a small highlight on top from the star overhead, and a brighter
+     crescent at the bottom where the light focuses through it */
+  fragmentShader:`varying float vA; void main(){ vec2 q = gl_PointCoord - .5; float r = length(q)*2.; if (r > 1.) discard;
+    float body = sqrt(1. - r*r)*.32*smoothstep(1., .8, r);
+    vec2 h = q - vec2(0., -.2), b = q - vec2(0., .22); float spec = exp(-dot(h, h)*130.), focus = exp(-dot(b, b)*38.)*smoothstep(1., .75, r);
+    gl_FragColor = vec4(mix(mix(vec3(.4,.74,.82), vec3(.72,.93,1.), focus), vec3(1.), spec), (body + focus*.4 + spec*.8)*vA); }` });
+/* motion trails behind the drops: brightest at the drop, fading out behind it */
+const streakMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false,
+  vertexShader:'attribute float lineA; varying float vA; void main(){ vA = lineA; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
+  fragmentShader:'varying float vA; void main(){ gl_FragColor = vec4(vec3(.62,.86,.93), vA); }' });
 function splashLake(at, power=1){
   lakeMat.uniforms.ripples.value[rippleNext].set(at.x, at.z, T, Math.min(2, .5 + power*.55)); rippleNext = (rippleNext + 1) % 4;
   if (reduceMotion) return;
@@ -550,10 +556,10 @@ function splashLake(at, power=1){
   for (let i=0;i<n;i++){ const isJet = i >= crown, a = rand()*6.283, rr = isJet ? rand()*r0*.25 : r0*(.8 + rand()*.4);
     const out = isJet ? (rand() - .5)*.5 : (.7 + rand()*1.5)*(.6 + power*.4), up = isJet ? (3.2 + rand()*2.2)*(.7 + power*.35) : (1.6 + rand()*2.4)*(.6 + power*.4);
     drops.push({ p:new V3(at.x + Math.cos(a)*rr, WATER_Y + .02, at.z + Math.sin(a)*rr), v:new V3(Math.cos(a)*out, up, Math.sin(a)*out), wait:isJet ? .12 + rand()*.12 : rand()*.05, on:true });
-    size[i] = (isJet ? .1 : .05) + rand()*rand()*.18*(.5 + power*.4); }
+    size[i] = (isJet ? .08 : .04) + rand()*rand()*.14*(.5 + power*.4); }
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('size', new THREE.BufferAttribute(size, 1)); g.setAttribute('alpha', new THREE.BufferAttribute(alpha, 1));
   const pts = new THREE.Points(g, dropMat); pts.frustumCulled = false; scene.add(pts);
-  const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.BufferAttribute(line, 3));
+  const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.BufferAttribute(line, 3)); lg.setAttribute('lineA', new THREE.BufferAttribute(new Float32Array(n*2), 1));
   const streaks = new THREE.LineSegments(lg, streakMat); streaks.frustumCulled = false; scene.add(streaks);
   /* low mist over the water around the impact */
   const M = Math.round(4 + 6*power), mp = new Float32Array(M*3), mist = [];
@@ -572,13 +578,13 @@ function splashLake(at, power=1){
 }
 function updateSplashes(dt){
   for (let i = splashes.length-1; i >= 0; i--){ const s = splashes[i]; s.age += dt;
-    const pos = s.pts.geometry.attributes.position.array, al = s.pts.geometry.attributes.alpha.array, ln = s.streaks.geometry.attributes.position.array; let live = 0;
+    const pos = s.pts.geometry.attributes.position.array, al = s.pts.geometry.attributes.alpha.array, ln = s.streaks.geometry.attributes.position.array, la = s.streaks.geometry.attributes.lineA.array; let live = 0;
     s.drops.forEach((d, k) => {
       if (d.on && s.age > d.wait){ d.v.y -= 9.8*1.3*dt; d.v.multiplyScalar(Math.exp(-dt*.4)); d.p.addScaledVector(d.v, dt); if (d.p.y < WATER_Y) d.on = false; }
       const shown = d.on && s.age > d.wait; if (shown) live++;
       pos.set([d.p.x, d.p.y, d.p.z], k*3); al[k] = shown ? Math.min(1, (s.age - d.wait)*12) : 0;
-      const tail = shown ? .045 : 0; ln.set([d.p.x, d.p.y, d.p.z, d.p.x - d.v.x*tail, d.p.y - d.v.y*tail, d.p.z - d.v.z*tail], k*6); });
-    s.pts.geometry.attributes.position.needsUpdate = true; s.pts.geometry.attributes.alpha.needsUpdate = true; s.streaks.geometry.attributes.position.needsUpdate = true;
+      const tail = shown ? .05 : 0; ln.set([d.p.x, d.p.y, d.p.z, d.p.x - d.v.x*tail, d.p.y - d.v.y*tail, d.p.z - d.v.z*tail], k*6); la[k*2] = al[k]*.4; la[k*2 + 1] = 0; });
+    s.pts.geometry.attributes.position.needsUpdate = true; s.pts.geometry.attributes.alpha.needsUpdate = true; s.streaks.geometry.attributes.position.needsUpdate = true; s.streaks.geometry.attributes.lineA.needsUpdate = true;
     const f = Math.min(1, s.age/1.4); s.foam.scale.setScalar(s.r0 + (.9 + s.power*.5)*Math.sqrt(f)); s.fu.a.value = .45*(1 - f)*(1 - f);
     const mp = s.mistPts.geometry.attributes.position.array, ml = Math.min(1, s.age/1.3);
     s.mist.forEach((m, k) => { m.v.multiplyScalar(Math.exp(-dt*2.5)); m.p.addScaledVector(m.v, dt); mp.set([m.p.x, m.p.y, m.p.z], k*3); });
