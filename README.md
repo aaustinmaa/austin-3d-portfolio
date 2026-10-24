@@ -37,7 +37,7 @@ Requires Node 18 or newer.
 
 Light the four braziers on the spiral stairs to wake a hidden seventh relic. The wish pillars' caps, boulders, stair stones and the brazier landings can all be stood on; click a pillar to fly up onto it. The short introduction opens on arrival and again whenever you click Austin's name in the top bar.
 
-Each brazier has a hollow metal bowl, glowing coals, curling flame tongues and sparse rising embers. Ice-blue cores fade through cyan into blue-violet tips, with matching coals, embers and local light. Ignition eases in beneath a restrained cool halo. With reduced motion, the fire and light stay steady and embers stop drifting.
+Each brazier holds a rising fire made of soft light, using the same cream and honey palette as the path and carried lanterns. Three uneven tongues curl upward from a bright base and dissolve into wisps, with a diffuse halo, a faint pool inside the bowl and gentle local lighting. A volumetric shader gives the light depth without a solid surface. Ignition eases in; with reduced motion the fire and lighting stay steady.
 
 ## Project layout
 
@@ -50,7 +50,7 @@ src/polyhedra.js      Polyhedra drawn as light: clear glass and glowing-edge sha
 src/constellation.js  The skill constellation: star layout, figures, labels, wake-up animation
 src/relics.js         The seven relic models (faceted, with soft auras) and how each one unfolds when opened
 src/hero.js           The wanderer (a small doll in a thin robe and draped hood), its bow and lantern, and their animation
-src/braziers.js       Stair braziers: hollow bowls, coals, procedural flames, embers and local lighting
+src/braziers.js       Stair braziers: hollow bowls, rising volumetric fire, lantern glows and local lighting
 src/paperbird.js      The paper crane by the stair: Austin's name card, unfolding into paper visitors can write a note on
 src/colliders.js      Solid shapes for standing, walls, ceilings and arrow hits
 src/content.js        Everything visitors read: relic text, skills, the Oracle's lines and answers
