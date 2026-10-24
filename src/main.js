@@ -157,10 +157,11 @@ const pickables = [];
 const LAKE_EDGE = LAKE_R + 3.4;
 const lakeMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false,
   uniforms:{ t:{value:0}, energy:{value:0}, glow:{value:0}, star:{value:new V3(0, ORACLE_Y, 0)}, lamps:{value:[new V3(0,-99,0), new V3(0,-99,0), new V3(0,-99,0)]},
-    mirror:{value:null}, mirrorM:{value:new THREE.Matrix4()} },
+    mirror:{value:null}, mirrorM:{value:new THREE.Matrix4()}, now:{value:0},
+    ripples:{value:[0,1,2,3].map(() => new THREE.Vector4(0, 0, -99, 0))} },   /* x, z, start time, strength: see splashLake */
   vertexShader:`attribute float depth; uniform mat4 mirrorM; varying vec3 vW; varying float vDepth; varying vec4 vM;
     void main(){ vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; vDepth = depth; vM = mirrorM*w; gl_Position = projectionMatrix*viewMatrix*w; }`,
-  fragmentShader:`uniform float t; uniform float energy; uniform float glow; uniform vec3 star; uniform vec3 lamps[3]; uniform sampler2D mirror; varying vec3 vW; varying float vDepth; varying vec4 vM;
+  fragmentShader:`uniform float t; uniform float energy; uniform float glow; uniform vec3 star; uniform vec3 lamps[3]; uniform sampler2D mirror; uniform float now; uniform vec4 ripples[4]; varying vec3 vW; varying float vDepth; varying vec4 vM;
     /* a reflected light, drawn out into a vertical path toward the viewer the way calm water does */
     float streak(vec3 R, vec3 L, float w, float len){ float az = acos(clamp(dot(normalize(R.xz), normalize(L.xz)), -1., 1.)), el = asin(clamp(R.y, -1., 1.)) - asin(clamp(L.y, -1., 1.));
       return exp(-az*az*w - el*el*len); }
@@ -169,7 +170,14 @@ const lakeMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false,
       float fres = .45 + .55*pow(1. - abs(V.y), 3.);
       /* the mirror: the valley drawn upside down under the water */
       float spring = exp(-r*r/(34. + energy*10.)), heart = exp(-r*r/7.);
-      vec3 col = texture2DProj(mirror, vM).rgb*mix(vec3(1.3,1.38,1.55), vec3(1.05,1.6,1.55), spring);
+      /* ripples from things falling into the water: rings spreading out, bending the reflection and catching a little light */
+      vec2 bend = vec2(0.); float glint = 0.;
+      for (int i = 0; i < 4; i++){ vec4 q = ripples[i]; float age = now - q.z; if (age < 0. || age > 3.2) continue;
+        vec2 off = p - q.xy; float dd = length(off), front = age*1.9, fade = q.w*(1. - age/3.2)*(1. - age/3.2);
+        float wave = sin((dd - front)*9.)*exp(-pow((dd - front)/(.35 + age*.25), 2.))*smoothstep(0., .25, dd)*fade;
+        bend += off/max(dd, 1e-3)*wave; glint += max(wave, 0.); }
+      vec4 m = vM; m.xy += bend*.035*m.w;
+      vec3 col = texture2DProj(mirror, m).rgb*mix(vec3(1.3,1.38,1.55), vec3(1.05,1.6,1.55), spring) + vec3(.55,.85,1.)*glint*.22;
       /* soft paths of light under the star overhead and the lanterns */
       col += mix(vec3(.55,.9,1.), vec3(.8,.78,1.), glow)*streak(R, normalize(star - vW), 900., 50.)*(.3 + glow*.25 + energy*.3);
       for (int i = 0; i < 3; i++) col += vec3(1.,.76,.5)*streak(R, normalize(lamps[i] - vW), 2400., 60.)*.25;
@@ -520,6 +528,23 @@ function orbitPos(r, out){ const o = r.orbit, a = o.phase + T*o.speed; return ou
 
 /* bursts */
 const bursts = [];
+/* something falling into the lake: rings spread across the water and, unless motion is reduced, a spray of droplets jumps up and falls back */
+const splashes = []; let rippleNext = 0;
+function splashLake(at, power=1){
+  lakeMat.uniforms.ripples.value[rippleNext].set(at.x, at.z, T, Math.min(1.2, .6 + power*.5)); rippleNext = (rippleNext + 1) % 4;
+  if (reduceMotion) return;
+  const n = Math.round(26*power), g = new THREE.BufferGeometry(), p = new Float32Array(n*3), v = [];
+  for (let i=0;i<n;i++){ const a = rand()*6.283, out = .6 + rand()*1.6; p.set([at.x, WATER_Y + .02, at.z], i*3); v.push(new V3(Math.cos(a)*out, 2.6 + rand()*3.4*power, Math.sin(a)*out)); }
+  g.setAttribute('position', new THREE.BufferAttribute(p,3));
+  const pts = new THREE.Points(g, new THREE.PointsMaterial({ map:softTex, size:.16, color:0xBFEFFF, transparent:true, opacity:.9, depthWrite:false, blending:THREE.AdditiveBlending }));
+  pts.frustumCulled = false; scene.add(pts); splashes.push({ pts, v, life:1.1 });
+}
+function updateSplashes(dt){
+  for (let i = splashes.length-1; i >= 0; i--){ const s = splashes[i]; s.life -= dt; const p = s.pts.geometry.attributes.position.array;
+    s.v.forEach((v,k) => { if (p[k*3+1] < WATER_Y) return; v.y -= 14*dt; p[k*3] += v.x*dt; p[k*3+1] += v.y*dt; p[k*3+2] += v.z*dt; if (p[k*3+1] < WATER_Y) p[k*3+1] = WATER_Y - 1; });
+    s.pts.geometry.attributes.position.needsUpdate = true; s.pts.material.opacity = Math.min(.9, s.life*1.4);
+    if (s.life <= 0){ scene.remove(s.pts); s.pts.geometry.dispose(); s.pts.material.dispose(); splashes.splice(i,1); } }
+}
 function burst(pos, color, n=70, power=1){
   const g = new THREE.BufferGeometry(), p = new Float32Array(n*3), v = [];
   for (let i=0;i<n;i++){ p.set([pos.x,pos.y,pos.z], i*3); v.push(randUnit().multiplyScalar((3+rand()*7)*power)); }
@@ -609,11 +634,16 @@ function updateArrows(dt){
       else a.vel.y -= 6*dt;
       const from = a.pos.clone(); a.pos.addScaledVector(a.vel, dt);
       if (!a.target){ for (const r of RELICS){ if ((r.state === 'orbit') && r.group.visible && a.pos.distanceTo(r.pos) < 1.9){ hitRelic(r, a.pos); a.life = 0; break; } } }
-      if (!a.target && a.life > 0){ const hit = arrowImpact(from, a.pos);
+      if (!a.target && a.life > 0 && from.y >= WATER_Y && a.pos.y < WATER_Y){
+        const k = (from.y - WATER_Y)/(from.y - a.pos.y), wx = from.x + (a.pos.x - from.x)*k, wz = from.z + (a.pos.z - from.z)*k;
+        if (Math.hypot(wx, wz) < LAKE_EDGE && groundH(wx, wz) < WATER_Y - .05){
+          a.pos.set(wx, WATER_Y - .25, wz); a.stuck = true; a.life = Math.min(a.life, .9); splashLake(a.pos, Math.min(1.4, a.vel.length()/40)); } }
+      if (!a.target && a.life > 0 && !a.stuck){ const hit = arrowImpact(from, a.pos);
         if (hit){ a.pos.copy(hit); a.stuck = true; a.life = Math.min(a.life + 4, 7); a.tipS.material.opacity = .5; burst(aTip.clone(), C('#9FF2FF'), 14, .25); } }
       a.g.position.copy(a.pos); a.g.quaternion.setFromUnitVectors(ZAX, a.vel.clone().normalize());
       updateArrowTrail(a);
     } else a.tipS.material.opacity = Math.max(0, Math.min(.5, a.life*.3));
+    if (a.stuck && a.pos.y < WATER_Y){ a.pos.y -= dt*.6; a.g.position.copy(a.pos); }   /* an arrow in the lake sinks away */
     a.trail.material.opacity = a.stuck ? Math.max(0, a.trail.material.opacity - dt*2) : Math.max(0, Math.min(.7, a.life*.5));
     if (a.life <= 0){ scene.remove(a.g); scene.remove(a.trail); a.g.children.forEach(c => c.material && c.material.dispose()); a.trail.geometry.dispose(); arrows.splice(i,1); }
   }
@@ -883,7 +913,7 @@ function updateWorld(dt){
   shaftU.t.value = reduceMotion ? 0 : T; shaftU.hue.value.copy(oracle.light.color);
   /* the star's light breathes: slowly brighter, slowly dimmer, about every nine seconds */
   const breath = reduceMotion ? 1 : .82 + .26*(.5 - .5*Math.cos(T*.7));
-  shaftU.power.value = (.85 + L*.3 + ey*.45)*breath; lakeMat.uniforms.t.value = reduceMotion ? 0 : T; lakeMat.uniforms.energy.value = ey; lakeMat.uniforms.glow.value = L; fallMat.uniforms.t.value = T; beamMat.uniforms.t.value = T;
+  shaftU.power.value = (.85 + L*.3 + ey*.45)*breath; lakeMat.uniforms.t.value = reduceMotion ? 0 : T; lakeMat.uniforms.now.value = T; lakeMat.uniforms.energy.value = ey; lakeMat.uniforms.glow.value = L; fallMat.uniforms.t.value = T; beamMat.uniforms.t.value = T;
   if (beamState.life > 0){ beamState.life -= dt; const from = oracle.position.clone(), to = beamState.relic.pos.clone(); const dir = to.clone().sub(from), len = dir.length(); dir.normalize();
     beam.scale.set(1,len,1); beam.position.copy(from).addScaledVector(dir, len/2); beam.quaternion.setFromUnitVectors(UP, dir.clone().negate());
     beamMat.uniforms.rep.value = len/1.5; beamMat.uniforms.fade.value = Math.min(1, beamState.life/.8)*Math.min(1,(3.2-beamState.life)/.25)*1.3;
@@ -999,7 +1029,7 @@ document.querySelectorAll('[data-placeholder]').forEach(a => a.addEventListener(
 let last = performance.now();
 function simulate(dt){
   T += dt;
-  updatePlayer(dt); updateHero(dt); updateRelics(dt); updateArrows(dt); updateCamera(dt); updateWorld(dt); updateHover();
+  updatePlayer(dt); updateHero(dt); updateRelics(dt); updateArrows(dt); updateSplashes(dt); updateCamera(dt); updateWorld(dt); updateHover();
   sky.update(dt, T, camera, { showAll:gaze, hover:hoverStar, focus:openRelic });
   updateLabels(); updateCross(); updateStamina();
 }
