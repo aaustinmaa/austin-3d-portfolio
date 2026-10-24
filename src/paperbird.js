@@ -115,20 +115,23 @@ function cornerBetween(ma, mb, out){
 }
 
 /* blank writing paper: pale lavender, faint ruled lines, the creases of the crane it was folded from, and a greeting */
-function letterTexture(){
+function letterTexture(hint){
   const w = 512, h = 512, c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d');
   const X = x => (x + 1)/2*w, Y = y => (1 - y)/2*h;
+  const draw = () => {
   g.fillStyle = '#E4DFF0'; g.fillRect(0,0,w,h);
   const v = g.createRadialGradient(w/2,h/2,h*.3,w/2,h/2,h*.75); v.addColorStop(0,'rgba(70,66,120,0)'); v.addColorStop(1,'rgba(70,66,120,.22)'); g.fillStyle = v; g.fillRect(0,0,w,h);
   g.strokeStyle = 'rgba(60,58,98,.2)'; g.lineWidth = 2; for (let y=150; y<h-40; y+=40){ g.beginPath(); g.moveTo(40,y); g.lineTo(w-40,y); g.stroke(); }
   /* the crane's creases, a shade darker where they fold toward you */
   g.lineWidth = 1.5; const line = (a, b, al) => { g.strokeStyle = `rgba(60,58,98,${al})`; g.beginPath(); g.moveTo(X(PTS[a][0]), Y(PTS[a][1])); g.lineTo(X(PTS[b][0]), Y(PTS[b][1])); g.stroke(); };
   for (let j=0;j<4;j++){ line(0, A(j), .16); line(0, M(j), .12); line(P(j), P(j+1), .12); line(A(j), P(j), .1); line(A(j), P(j+1), .1); }
-  const greet = () => { g.fillStyle = 'rgba(38,42,78,.75)'; g.font = 'italic 500 44px "Cormorant Garamond", Georgia, serif'; g.fillText('To Austin,', 42, 104); };
-  const t = new THREE.CanvasTexture(c);
-  /* draw the greeting again once the handwriting face has loaded */
-  if (document.fonts) document.fonts.load('italic 500 44px "Cormorant Garamond"').then(() => { g.fillStyle = '#E4DFF0'; g.fillRect(38,62,250,56); greet(); t.needsUpdate = true; }).catch(() => {});
-  greet(); return t;
+  /* the greeting, and in a small faint hand at the foot of the page, the hint that it can be written on */
+  g.fillStyle = 'rgba(38,42,78,.75)'; g.font = 'italic 500 44px "Cormorant Garamond", Georgia, serif'; g.fillText('To Austin,', 42, 104);
+  if (hint){ g.fillStyle = 'rgba(38,42,78,.42)'; g.font = 'italic 500 22px "Cormorant Garamond", Georgia, serif'; g.textAlign = 'right'; g.fillText(hint, w-44, h-26); g.textAlign = 'left'; } };
+  draw(); const t = new THREE.CanvasTexture(c);
+  /* draw the page again once the handwriting face has loaded */
+  if (document.fonts) document.fonts.load('italic 500 44px "Cormorant Garamond"').then(() => { draw(); t.needsUpdate = true; }).catch(() => {});
+  return t;
 }
 
 /* paper lights itself evenly: a soft key from just above the viewer and a little sky, worked out per facet, so a flat
@@ -136,7 +139,7 @@ function letterTexture(){
 const KEY = new V3(), UP = new V3(0,1,0), nW = new V3(), e1 = new V3(), e2 = new V3();
 function lightFacet(n, pulse){ return Math.min(1.1, .3 + .54*Math.max(0, n.dot(KEY)) + .1*Math.max(0, n.y) + pulse*.25); }
 
-export function createPaperBird(scene, { perch, star, reduceMotion }){
+export function createPaperBird(scene, { perch, star, hint, reduceMotion }){
   const pick = [], group = new THREE.Group(); group.rotation.order = 'YXZ'; scene.add(group);
   const onlyVisible = function(r, out){ if (this.visible) THREE.Mesh.prototype.raycast.call(this, r, out); };
 
@@ -153,7 +156,7 @@ export function createPaperBird(scene, { perch, star, reduceMotion }){
   const inGeo = new THREE.BufferGeometry(), outGeo = new THREE.BufferGeometry();
   inGeo.setAttribute('position', sPos); outGeo.setAttribute('position', sPos); inGeo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
   inGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(NF*9), 3)); outGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(NF*9), 3));
-  const sheetIn = new THREE.Mesh(inGeo, new THREE.MeshBasicMaterial({ map:letterTexture(), vertexColors:true, side:THREE.FrontSide }));
+  const sheetIn = new THREE.Mesh(inGeo, new THREE.MeshBasicMaterial({ map:letterTexture(hint), vertexColors:true, side:THREE.FrontSide }));
   const sheetOut = new THREE.Mesh(outGeo, new THREE.MeshBasicMaterial({ vertexColors:true, side:THREE.BackSide }));
   const sheet = new THREE.Group(); sheet.add(sheetIn, sheetOut); sheet.scale.setScalar(HS); sheet.rotation.y = Math.PI/2; sheet.visible = false; group.add(sheet);
   [sheetIn, sheetOut].forEach(m => { m.userData.bird = true; m.raycast = onlyVisible; pick.push(m); });
