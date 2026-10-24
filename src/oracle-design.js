@@ -34,7 +34,7 @@ const SURFACE = `${LIGHTS}${NOISE}
     float crack=exp(-abs(fbm2(q*1.6+4.)-.5)*55.)*smoothstep(.4,.75,noise2(q*.7-2.));
     vec3 col=mix(vec3(.04,.07,.18),vec3(.2,.33,.64),smoothstep(.25,.85,neb));
     col=mix(col,vec3(.38,.23,.62),vio*.75)*.8+env*(.35+fres*1.5)+vec3(.78,.88,1.)*crack*.55;
-    return vec4(col,.42+fres*.4+crack*.12);}
+    return vec4(col,min(.95,.54+fres*.38+crack*.12));}
   bool hidden(vec3 w,vec3 center,float hemi){return dot(w-center,w-cameraPosition)*hemi>0.;}`;
 // A glint drawn as a thin four-point star with fainter diagonals, not a disc.
 const STAR = `uniform vec3 col;varying float vI;varying float vA;varying vec3 vCol;
