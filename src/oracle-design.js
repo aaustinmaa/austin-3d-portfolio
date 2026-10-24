@@ -9,15 +9,32 @@ export function buildOracleDesign({ main, reduceMotion }) {
   const group = new THREE.Group(), clock = { value: 0 }, energy = { value: 0 }, power = { value: 0 };
   // Tighten the armillary silhouette without scaling the central polyhedra.
   const armillary = new THREE.Group(); armillary.scale.setScalar(.88 * .88); group.add(armillary);
-  const gold = C('#FFE3AC'), ice = C('#C6E9FF');
+  const gold = C('#CDB58E'), ice = C('#9CAFD9');
   const px = Math.min(devicePixelRatio || 1, 1.75);
   const sprite = (parent, color, size, opacity, map = glowTex) => {
     const s = new THREE.Sprite(new THREE.SpriteMaterial({ map, color, opacity, transparent: true,
       blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
     s.scale.set(size, size, 1); parent.add(s); return s;
   };
-  const haze = sprite(group, '#657BC8', 68, .18, hazeTex);
-  const aura = sprite(group, '#A7C4F5', 25, .15);
+  const haze = sprite(group, '#546A9F', 54, .3, hazeTex);
+  const aura = sprite(group, '#617DAD', 29, .16);
+  // Local blue mist with a trace of violet; leave the shared valley fog alone.
+  const mist = new THREE.Mesh(new THREE.PlaneGeometry(48, 48), new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+    uniforms: { t: clock, power },
+    vertexShader: `varying vec2 vUv;void main(){vUv=uv;vec4 center=modelViewMatrix*vec4(0.,0.,0.,1.);
+      center.xy+=position.xy;center.z-=2.;gl_Position=projectionMatrix*center;}`,
+    fragmentShader: `uniform float t;uniform float power;varying vec2 vUv;
+      float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+      float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
+        return mix(mix(hash(i),hash(i+vec2(1.,0.)),f.x),mix(hash(i+vec2(0.,1.)),hash(i+vec2(1.)),f.x),f.y);}
+      float cloud(vec2 p){return noise(p)*.57+noise(p*2.03+7.)*.28+noise(p*4.1-3.)*.15;}
+      void main(){vec2 p=(vUv-.5)*2.;float feather=pow(max(0.,1.-dot(p,p)),2.);
+        vec2 drift=vec2(t*.012,-t*.008);float n=cloud(p*3.2+drift+cloud(p*2.-drift)*1.6);
+        float w=smoothstep(.22,.78,n);vec3 col=mix(vec3(.18,.2,.34),vec3(.2,.3,.47),w);
+        gl_FragColor=vec4(col,feather*w*(.28+power*.025));}`
+  }));
+  mist.frustumCulled = false; group.add(mist);
 
   // World-space ribbons are expanded perpendicular to their projected tangent.
   // The narrow bright thread and wide faint skirt provide their own soft bloom.
@@ -49,7 +66,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
         void main(){float p=abs(vUv.y-.5)*2.;float sigma=max(.055,fwidth(vUv.y)*.65);float thread=exp(-pow((vUv.y-.5)/sigma,2.))+.075*exp(-p*p*3.5);
           float glint=pow(.5+.5*cos(vUv.x*6.283185-t*.22+vSeed),28.);
           float a=thread*opacity*(1.12+glint*flow+energy*.16+power*.05);
-          gl_FragColor=vec4(mix(col,vec3(1.,.98,.91),glint*.45),a);}`
+          gl_FragColor=vec4(mix(col,vec3(.76,.81,.93),glint*.22),a);}`
     });
     const mesh = new THREE.Mesh(geo, mat); parent.add(mesh); return mat;
   }
@@ -66,7 +83,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
           gl_PointSize=clamp(size*px*850./max(1.,-mv.z),1.,56.*px);gl_Position=projectionMatrix*mv;}`,
       fragmentShader: `uniform vec3 col;uniform float opacity;varying float vLight;
         void main(){vec2 p=gl_PointCoord-.5;float d=dot(p,p);float ray=(exp(-abs(p.x)*95.)*exp(-abs(p.y)*6.)+exp(-abs(p.y)*95.)*exp(-abs(p.x)*6.))*.65;
-          float a=(exp(-d*90.)+exp(-d*13.)*.2+ray)*opacity*vLight;gl_FragColor=vec4(mix(col,vec3(1.),exp(-d*100.)),a);}`
+          float a=(exp(-d*90.)+exp(-d*13.)*.2+ray)*opacity*vLight;gl_FragColor=vec4(mix(col,vec3(.78,.79,1.),exp(-d*100.)*.35),a);}`
     });
     parent.add(new THREE.Points(geo, mat)); return mat;
   }
@@ -81,9 +98,9 @@ export function buildOracleDesign({ main, reduceMotion }) {
         void main(){vec3 n=normalize(vN),v=normalize(vV);float facing=abs(dot(n,v)),rim=pow(1.-facing,2.5);vec3 r=reflect(-v,n);
           float shine=pow(max(dot(r,normalize(vec3(-.5,.8,.65))),0.),28.)+pow(max(dot(r,normalize(vec3(.7,-.3,.8))),0.),55.)*.5;
           float d=min(min(vEdge.x,vEdge.y),vEdge.z),w=max(fwidth(d),.0001);float border=exp(-d/(w*3.));
-          vec3 c=mix(col,vec3(.71,.64,.96),(.5+.5*sin(dot(normalize(vObject),vec3(2.,3.,1.))))*.2);
-          float a=((.11+rim*.62+shine*.65)*body+border*edgeK)*(gl_FrontFacing?1.:.22)*(1.+energy*.18);
-          gl_FragColor=vec4(mix(c,vec3(1.,.97,.9),clamp(shine*.65,0.,1.)),a);}`
+          vec3 c=mix(col,vec3(.47,.4,.7),(.5+.5*sin(dot(normalize(vObject),vec3(2.,3.,1.))))*.22);
+          float a=((.1+rim*.48+shine*.42)*body+border*edgeK)*(gl_FrontFacing?1.:.16)*(1.+energy*.12);
+          gl_FragColor=vec4(mix(c,vec3(.67,.72,.95),clamp(shine*.4,0.,1.)),a);}`
     });
     return mat;
   }
@@ -136,8 +153,8 @@ export function buildOracleDesign({ main, reduceMotion }) {
           float glint=pow(max(dot(r,normalize(vec3(-.4,.7,.7))),0.),38.)+pow(max(dot(r,normalize(vec3(.6,-.4,.7))),0.),60.)*.55;
           float cloud=smoothstep(.23,.78,nebula(vec2(vUv.x*30.+offset+t*.012,vUv.y*3.4+sin(vUv.x*16.+offset)*.8)));
           float etch=texture2D(map,vUv).a*smoothstep(.5,.85,vFace);float filament=pow(.5+.5*cos(vUv.x*6.283185-t*.18+offset),18.);
-          vec3 col=mix(vec3(.42,.68,1.),vec3(.76,.65,1.),cloud*.38);col=mix(col,vec3(.78,.94,1.),rim*.6+glint*.25);
-          col=mix(col,vec3(1.,.89,.67),etch*.7+restored*.06);
+          vec3 col=mix(vec3(.3,.48,.78),vec3(.52,.44,.76),cloud*.35);col=mix(col,vec3(.64,.76,.94),rim*.45+glint*.2);
+          col=mix(col,vec3(.8,.68,.51),etch*.5+restored*.04);
           float a=(.115+rim*.28+glint*.38+cloud*.17+etch*.22+restored*.025)*(gl_FrontFacing?1.:.22)*(1.+energy*.12);
           a+=etch*filament*.08;gl_FragColor=vec4(col,a);}`
     });
@@ -167,7 +184,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
   threads(graduations, { parent: frame, width: .15, opacity: .55, flow: 0 });
   threads([[[0, -15.15, 0], [0, 15.15, 0]]], { parent: frame, width: .19, opacity: .7, flow: .08 });
 
-  const jewelMat = crystal({ color: '#DCE8FC', body: .85, edge: .12 });
+  const jewelMat = crystal({ color: '#A3B9DB', body: .85, edge: .12 });
   function jewel(parent, point, radius = .27) {
     const geo = withEdges(new THREE.IcosahedronGeometry(radius, 1)); const mesh = new THREE.Mesh(geo, jewelMat);
     mesh.position.set(...point); parent.add(mesh); return mesh;
@@ -180,20 +197,20 @@ export function buildOracleDesign({ main, reduceMotion }) {
     threads([path], { parent: frame, width: .15, opacity: .55, flow: 0 });
   }
 
-  const core = new THREE.Group(); core.scale.setScalar(1.3); core.rotation.set(.03, 0, .1); group.add(core);
+  const core = new THREE.Group(); core.scale.setScalar(1.3 * 1.3); core.rotation.set(.03, 0, .1); group.add(core);
   const alignment = new THREE.Group(); alignment.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, (1 + Math.sqrt(5)) / 2).normalize(), new THREE.Vector3(0, 0, 1)); core.add(alignment);
   const coreShapes = [new THREE.IcosahedronGeometry(4.05, 0), new THREE.DodecahedronGeometry(3.2, 0), new THREE.OctahedronGeometry(2.4, 0), rhombicTriacontahedron(1.7)];
   coreShapes.forEach((geo, i) => {
     const holder = new THREE.Group(); holder.rotation.set(0, i === 2 ? Math.PI / 4 : 0, 0); alignment.add(holder);
-    const g = withEdges(geo); holder.add(new THREE.Mesh(g, crystal({ body: .48 + i * .05, edge: .012 })));
+    const g = withEdges(geo); holder.add(new THREE.Mesh(g, crystal({ color: ['#789DD0', '#8495C6', '#9697CE', '#869ECF'][i], body: .48 + i * .05, edge: .012 })));
     const edges = new THREE.EdgesGeometry(geo, 1).attributes.position, paths = [];
     for (let j = 0; j < edges.count; j += 2) paths.push([[edges.getX(j), edges.getY(j), edges.getZ(j)], [edges.getX(j + 1), edges.getY(j + 1), edges.getZ(j + 1)]]);
-    threads(paths, { parent: holder, opacity: .67 + i * .025, width: .19, flow: .09 });
-    sparks(holder, corners(geo).map(v => v.toArray()), { size: .3, opacity: .8, color: i % 2 ? '#D5E8FF' : gold }); geo.dispose();
+    threads(paths, { parent: holder, color: i % 2 ? '#91A8D0' : '#A69CBF', opacity: .45 + i * .018, width: .21, flow: .09 });
+    sparks(holder, corners(geo).map(v => v.toArray()), { size: .3, opacity: .6, color: i % 2 ? '#9FBBDD' : '#AEAAD0' }); geo.dispose();
   });
-  const heartGlow = sprite(core, '#DCF4FF', 6.4, .6);
-  sprite(core, '#FFFFFF', 1.65, .95);
-  sparks(core, [[0, 0, 0]], { size: 2.5, opacity: 1, color: '#F7F6E8' });
+  const heartGlow = sprite(core, '#7C94C7', 5.4, .3);
+  sprite(core, '#B2C6E7', 1.25, .62);
+  sparks(core, [[0, 0, 0]], { size: 2, opacity: .65, color: '#A4BEDF' });
 
   const dust = [];
   for (let i = 0; i < 120; i++) {
@@ -233,8 +250,8 @@ export function buildOracleDesign({ main, reduceMotion }) {
       s.glow.uniforms.opacity.value = 1 + s.lit * .12 + s.flash * .12;
     });
     rings.forEach((r, i) => { r.mat.uniforms.restored.value = (slots[i * 2]?.lit + slots[i * 2 + 1]?.lit) / 2 || 0; });
-    heartGlow.material.opacity = .57 + speak * .07 + flash * .08;
-    haze.material.opacity = .13 + p * .035; aura.material.opacity = .12 + p * .03 + speak * .025;
+    heartGlow.material.opacity = .28 + speak * .04 + flash * .04;
+    haze.material.opacity = .28 + p * .025; aura.material.opacity = .15 + p * .02 + speak * .02;
   }
   return { group, update, receive(relic) { const s = slots.find(x => x.relic === relic); if (s) { s.target = 1; s.flash = 1; } }, bloom() { slots.forEach(s => s.flash = 1); } };
 }
