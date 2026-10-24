@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { glowTex, hazeTex, rayTex } from './textures.js';
 import { withEdges, rhombicTriacontahedron } from './polyhedra.js';
-import { crystalMaterial } from './oracle-crystal.js';
 
 // Fixed analytic lights shared by the glass, the metal and the glints. They live
 // in world space, so every highlight stays on its own surface as the hoops turn.
@@ -28,6 +27,14 @@ const SURFACE = `${LIGHTS}${NOISE}
     float s=pow(max(dot(r,KEY),0.),160.)+pow(max(dot(r,FILL),0.),220.)*.7+pow(max(dot(r,UNDER),0.),120.)*.5;
     float a=h*40.;vec2 q=mat2(cos(a),-sin(a),sin(a),cos(a))*f;q.x*=1.+2.5*hash1(c+1.3);
     return step(1.-density,h)*s*smoothstep(.32,.08,length(q))*4.;}
+  // Nebula crystal shared by the hoops and the core: dark glass with violet
+  // clouds and fine white fractures that mirrors the sky, more so at grazing.
+  vec4 nebula(vec3 n,vec3 v,vec2 q,float t){vec3 env=sky(reflect(-v,n));float fres=.05+.95*pow(1.-abs(dot(n,v)),4.);
+    float neb=fbm2(q+vec2(t*.01,0.)),vio=smoothstep(.5,.82,fbm2(q*.55+11.));
+    float crack=exp(-abs(fbm2(q*1.6+4.)-.5)*55.)*smoothstep(.4,.75,noise2(q*.7-2.));
+    vec3 col=mix(vec3(.04,.07,.18),vec3(.2,.33,.64),smoothstep(.25,.85,neb));
+    col=mix(col,vec3(.38,.23,.62),vio*.75)*.8+env*(.35+fres*1.5)+vec3(.78,.88,1.)*crack*.55;
+    return vec4(col,.42+fres*.4+crack*.12);}
   bool hidden(vec3 w,vec3 center,float hemi){return dot(w-center,w-cameraPosition)*hemi>0.;}`;
 // A glint drawn as a thin four-point star with fainter diagonals, not a disc.
 const STAR = `uniform vec3 col;varying float vI;varying float vA;varying vec3 vCol;
@@ -235,16 +242,10 @@ export function buildOracleDesign({ main, reduceMotion }) {
           float star=smoothstep(aa*1.5,0.,r-(.06+.42*pow(abs(cos(2.*a)),14.)+.2*pow(abs(sin(2.*a)),14.)));
           return clamp(rings+star,0.,1.)*step(0.,u0);}
         void main(){if(hidden(vW,center,hemi))discard;
-          vec3 n=normalize(vN),v=normalize(cameraPosition-vW);float ndv=abs(dot(n,v));
+          vec3 n=normalize(vN),v=normalize(cameraPosition-vW);
           vec2 band=vec2(vUv.x*circ,(vUv.y-.5)*width);float edge=(.5-abs(vUv.y-.5))*width,aa=fwidth(edge)+1e-4;
           float outer=step(.9,vFace),faceK=step(.4,vFace);
-          vec3 env=sky(reflect(-v,n));float fres=.05+.95*pow(1.-ndv,4.);
-          vec2 q=band*.45+offset*7.;
-          float neb=fbm2(q+vec2(t*.01,0.)),vio=smoothstep(.5,.82,fbm2(q*.55+11.));
-          float crack=exp(-abs(fbm2(q*1.6+4.)-.5)*55.)*smoothstep(.4,.75,noise2(q*.7-2.));
-          vec3 col=mix(vec3(.04,.07,.18),vec3(.2,.33,.64),smoothstep(.25,.85,neb));
-          col=mix(col,vec3(.38,.23,.62),vio*.75)*.8+env*(.35+fres*1.5)+vec3(.78,.88,1.)*crack*.55;
-          float alpha=.42+fres*.4+crack*.12;
+          vec4 glass=nebula(n,v,band*.45+offset*7.,t);vec3 col=glass.rgb;float alpha=glass.a;
           float discA,discB,ma=medal(slotU.x,band.y,discA)*outer,mb=medal(slotU.y,band.y,discB)*outer;
           col=mix(col,vec3(.02,.03,.08),(discA+discB)*outer*.6);alpha=mix(alpha,.85,(discA+discB)*outer);
           float lip=max(1.-smoothstep(.3,.55,vFace),faceK*smoothstep(aa,0.,edge-.06));
@@ -400,28 +401,53 @@ export function buildOracleDesign({ main, reduceMotion }) {
   // and the core stays a small, intense heart. Each solid nests in the last.
   const core = new THREE.Group(); core.scale.setScalar(.78); core.rotation.set(.03, 0, .1); group.add(core);
   const alignment = new THREE.Group(); alignment.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, (1 + Math.sqrt(5)) / 2).normalize(), new THREE.Vector3(0, 0, 1)); core.add(alignment);
+  // Each crystal is the hoops' nebula glass, mapped flat across every facet.
+  // Light from the heart grows toward the centre, so the inner crystals glow
+  // through the outer ones. The two outer crystals carry platinum lips along
+  // their true edges, like the hoops; the inner two keep soft violet outlines.
+  const coreMaterial = (side, shell, lipped) => new THREE.ShaderMaterial({ ...PREMUL, side, extensions: { derivatives: true },
+    uniforms: { t: clock, energy, power, shell: { value: shell }, lipped: { value: lipped ? 1 : 0 } },
+    vertexShader: `attribute vec3 edgeW;varying vec3 vP;varying vec3 vL;varying vec3 vW;varying vec3 vN;varying vec3 vE;
+      void main(){vP=position;vL=normal;vE=edgeW;vec4 w=modelMatrix*vec4(position,1.);vW=w.xyz;vN=mat3(modelMatrix)*normal;gl_Position=projectionMatrix*viewMatrix*w;}`,
+    fragmentShader: `uniform float t,energy,power,shell,lipped;varying vec3 vP;varying vec3 vL;varying vec3 vW;varying vec3 vN;varying vec3 vE;${SURFACE}
+      void main(){vec3 n=normalize(vN),l=normalize(vL),v=normalize(cameraPosition-vW);if(!gl_FrontFacing)n=-n;
+        vec3 up=abs(l.y)<.9?vec3(0.,1.,0.):vec3(1.,0.,0.),t1=normalize(cross(l,up)),t2=cross(l,t1);
+        vec2 f=vec2(dot(vP,t1),dot(vP,t2)),q=f*.45+shell*7.3+l.xy*5.;
+        vec4 glass=nebula(n,v,q,t);vec3 col=glass.rgb;float alpha=glass.a;
+        float d=min(min(vE.x,vE.y),vE.z),lip=lipped*smoothstep(fwidth(d)+1e-4,0.,d-.08);
+        vec3 mc=metal(n,v,smoothstep(.2,.85,noise2(q*2.3)))*(1.+energy*.2+power*.08)+vec3(1.,.99,.97)*glitter(f/.09+shell*13.,n,v,.18)*3.;
+        col=mix(col,mc,lip);alpha=mix(alpha,1.,lip);
+        float fleck=glitter(f/.06+31.+shell,n,v,.03)*(1.-lip),heat=exp(-length(vP)*.55);
+        if(!gl_FrontFacing)alpha*=.6;
+        gl_FragColor=vec4(col*alpha+vec3(.6,.73,1.)*heat*(1.1+energy*.3+power*.1)*(1.-lip)+vec3(.96,.97,1.)*fleck*2.5,alpha);}`
+  });
+  // Distance from each point to its solid's true edges, so a lip keeps one
+  // width on every facet however that facet is split into triangles.
+  function edgeDistances(g) {
+    const p = g.attributes.position, bary = g.attributes.edge.array, out = new Float32Array(p.count * 3);
+    const v = [0, 1, 2].map(() => new THREE.Vector3()), a = new THREE.Vector3(), b = new THREE.Vector3();
+    for (let t = 0; t < p.count / 3; t++) {
+      v.forEach((x, k) => x.fromBufferAttribute(p, t * 3 + k));
+      const area2 = a.subVectors(v[1], v[0]).cross(b.subVectors(v[2], v[0])).length();
+      for (let c = 0; c < 3; c++) {
+        const seam = bary[(t * 3 + (c + 1) % 3) * 3 + c] > .5, h = area2 / v[(c + 1) % 3].distanceTo(v[(c + 2) % 3]);
+        for (let k = 0; k < 3; k++) out[(t * 3 + k) * 3 + c] = seam ? 99 : k === c ? h : 0;
+      }
+    }
+    g.setAttribute('edgeW', new THREE.BufferAttribute(out, 3));
+  }
   const coreShapes = [new THREE.IcosahedronGeometry(4.05, 0), new THREE.DodecahedronGeometry(3.2, 0), new THREE.OctahedronGeometry(2.4, 0), rhombicTriacontahedron(1.32)];
   coreShapes.forEach((geo, i) => {
     const holder = new THREE.Group(); holder.rotation.set(0, i === 2 ? Math.PI / 4 : 0, 0); alignment.add(holder);
-    const g = withEdges(geo), normals = g.attributes.normal;
-    const seeds = new Float32Array(normals.count);
-    for (let j = 0; j < normals.count; j++) seeds[j] = normals.getX(j) * 11 + normals.getY(j) * 23 + normals.getZ(j) * 17;
-    g.setAttribute('seed', new THREE.BufferAttribute(seeds, 1));
-    g.setAttribute('cut', new THREE.BufferAttribute(new Float32Array(normals.count), 1));
+    const g = withEdges(geo); edgeDistances(g);
     for (const side of [THREE.BackSide, THREE.FrontSide]) {
-      const material = crystalMaterial({ radius: [4.05, 3.2, 2.4, 1.32][i], tint: i % 2 ? '#ADB5E8' : '#A2C4E9', opacity: i === 0 ? 1.3 : 1.05, side, energy });
-      const surface = new THREE.Mesh(g, material);
-      surface.renderOrder = side === THREE.BackSide ? 30 + i : 45 - i;
-      surface.onBeforeRender = (_renderer, _scene, camera) => {
-        camera.getWorldPosition(material.uniforms.localCamera.value);
-        surface.worldToLocal(material.uniforms.localCamera.value);
-      };
-      holder.add(surface);
+      const surface = new THREE.Mesh(g, coreMaterial(side, i, i < 2));
+      surface.renderOrder = side === THREE.BackSide ? 30 + i : 45 - i; holder.add(surface);
     }
     const edges = new THREE.EdgesGeometry(geo, 1).attributes.position, paths = [];
     for (let j = 0; j < edges.count; j += 2) paths.push([[edges.getX(j), edges.getY(j), edges.getZ(j)], [edges.getX(j + 1), edges.getY(j + 1), edges.getZ(j + 1)]]);
     // Between the back and front faces, so the near crystal softens its outlines.
-    threads(paths, { parent: holder, color: i % 2 ? '#91A8D0' : '#A69CBF', opacity: .45 + i * .018, width: .17, flow: .09, order: 38 });
+    if (i >= 2) threads(paths, { parent: holder, color: i % 2 ? '#91A8D0' : '#A69CBF', opacity: .45 + i * .018, width: .17, flow: .09, order: 38 });
     // The two outer crystals share the armillary's light: an ice-white bloom
     // and star glints wherever one of their edges mirrors a light.
     if (i < 2) {

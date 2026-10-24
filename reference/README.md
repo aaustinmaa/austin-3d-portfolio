@@ -13,4 +13,4 @@ Each file is standalone: open it directly in a browser. It loads three.js r128 f
 
 The study imports the same `createOracle` used in the valley and is not a production build entry.
 
-The core crystal material (`src/oracle-crystal.js`) follows the optical shader from the `codex/oracle-jewel` worktree: view-dependent reflection, chromatic refraction and internal veins, applied to option A’s existing convex geometry. The armillary form and selected proportions stay independent of that material.
+The core crystals and the armillary hoops share one nebula glass shader in `src/oracle-design.js`: analytic sky reflections, violet clouds and fine white fractures, edged in platinum, applied to option A’s convex core geometry. An earlier core material adapted from the `codex/oracle-jewel` worktree (chromatic refraction and internal veins) is in the git history as `src/oracle-crystal.js`.
