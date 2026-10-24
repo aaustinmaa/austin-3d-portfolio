@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Option A · Oracle design study</title>
+<style>*{box-sizing:border-box}body{margin:0;background:#070b1b;color:#c7d6e7;font:12px system-ui}canvas{display:block;width:100vw;height:100vh}header{position:fixed;top:22px;left:26px;letter-spacing:.18em;color:#e8dfcc}nav{position:fixed;bottom:24px;left:26px;display:flex;gap:8px;flex-wrap:wrap}button{color:#b9cddd;background:#10162a;border:1px solid #29344b;border-radius:20px;padding:9px 15px;cursor:pointer}button:disabled{opacity:.35;cursor:default}button[aria-pressed=true]{border-color:#dfcea7;color:#fff2d2}#status{position:fixed;left:26px;bottom:78px;color:#657d9c;font-size:10px;letter-spacing:.12em}aside{position:fixed;right:24px;top:24px;width:170px;border:1px solid #293449;border-radius:8px;overflow:hidden;background:#090e20}aside .image{width:100%;overflow:hidden}aside img{width:300%;max-width:none;display:block}aside p{padding:0 10px;letter-spacing:.08em;color:#8d9bac;font-size:10px}a{color:#b3c5da}a.scene{position:fixed;right:24px;bottom:28px;text-decoration:none}aside[hidden]{display:none}@media(max-width:700px){aside{width:100px}nav{max-width:85vw;bottom:16px}#status{bottom:115px}}</style></head><body>
+<canvas aria-label="Interactive 3D study of the option A celestial Oracle"></canvas><header>OPTION A / CELESTIAL ORACLE</header>
+<aside><div class="image"><img src="./oracle-concepts.png" alt="Selected concept A"></div><p>CONCEPT A · REFERENCE</p></aside><div id="status">Loading geometry…</div>
+<nav><button id="rest" aria-pressed="true">Rest</button><button id="speak" aria-pressed="false">Speaking</button><button id="partial" aria-pressed="false">Three relics</button><button id="complete" aria-pressed="false">Complete</button><button id="valley">Valley distance</button><button id="reduced">Reduced motion</button><button id="reference">Reference</button></nav><a href="/" class="scene">Open valley ↗</a>
+<script type="module">
+import * as THREE from 'three';import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls.js';import {createOracle} from '../src/oracle.js';
+const reduced=new URLSearchParams(location.search).has('reduced');
+const scene=new THREE.Scene();scene.background=new THREE.Color('#070b1b');
+const renderer=new THREE.WebGLRenderer({canvas:document.querySelector('canvas'),antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,1.75));
+const camera=new THREE.PerspectiveCamera(42,1,.1,500);camera.position.set(0,3,48);
+const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=!reduced;controls.dampingFactor=.08;controls.minDistance=22;controls.maxDistance=110;
+const main=['#9FE8FF','#F4A8CD','#F4D58D','#A9B5FF','#D6B8FF','#A8E8CF'].map(color=>({color}));
+const oracle=createOracle(scene,{y:0,main,reduceMotion:reduced});let power=0,target=0,speaking=false,t=0,far=false;
+const states=['rest','speak','partial','complete'];function state(id){speaking=id==='speak';states.forEach(s=>document.getElementById(s).setAttribute('aria-pressed',String(s===id)));}
+document.getElementById('rest').onclick=()=>location.href=location.pathname+(reduced?'?reduced':'');
+document.getElementById('speak').onclick=()=>{speaking=!speaking;state(speaking?'speak':'rest');if(speaking)oracle.speakPulse();};
+document.getElementById('partial').onclick=()=>{main.slice(0,3).forEach(r=>oracle.receive(r));target=.5;state('partial');};
+document.getElementById('complete').onclick=()=>{main.forEach(r=>oracle.receive(r));target=1;oracle.bloom();state('complete');document.getElementById('partial').disabled=true;};
+document.getElementById('valley').onclick=()=>{far=!far;camera.position.set(0,far?-44:3,far?60:48);controls.update();};
+document.getElementById('reduced').onclick=()=>location.href=location.pathname+(reduced?'':'?reduced');
+document.getElementById('reference').onclick=()=>{document.querySelector('aside').hidden=!document.querySelector('aside').hidden;};
+function resize(){renderer.setSize(innerWidth,innerHeight,false);camera.aspect=innerWidth/innerHeight;camera.fov=innerWidth<innerHeight?60:42;camera.updateProjectionMatrix();}addEventListener('resize',resize);resize();
+let before=performance.now();function frame(now){const dt=Math.min((now-before)/1000,.05);before=now;t+=dt;power+=(target-power)*(1-Math.exp(-dt));oracle.update(dt,t,{power,speak:speaking?.5+.2*Math.sin(t*2):0});controls.update();renderer.render(scene,camera);requestAnimationFrame(frame);}requestAnimationFrame(frame);
+setInterval(()=>{const ok=renderer.info.programs.every(p=>p.diagnostics?.runnable!==false);document.getElementById('status').textContent=`${reduced?'REDUCED MOTION':'LIVE'} · ${renderer.info.render.calls} DRAW CALLS · ${ok?'SHADERS OK':'SHADER ERROR'}`;},1000);
+</script></body></html>
