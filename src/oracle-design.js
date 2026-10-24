@@ -7,6 +7,8 @@ import { withEdges, corners, rhombicTriacontahedron } from './polyhedra.js';
 export function buildOracleDesign({ main, reduceMotion }) {
   const TAU = Math.PI * 2, C = v => new THREE.Color(v), motion = reduceMotion ? 0 : 1;
   const group = new THREE.Group(), clock = { value: 0 }, energy = { value: 0 }, power = { value: 0 };
+  // Tighten the armillary silhouette without scaling the central polyhedra.
+  const armillary = new THREE.Group(); armillary.scale.setScalar(.88); group.add(armillary);
   const gold = C('#FFE3AC'), ice = C('#C6E9FF');
   const px = Math.min(devicePixelRatio || 1, 1.75);
   const sprite = (parent, color, size, opacity, map = glowTex) => {
@@ -115,11 +117,12 @@ export function buildOracleDesign({ main, reduceMotion }) {
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); geo.computeVertexNormals(); return geo;
   }
   const rings = [
-    { r: 10.5, w: 1.22, tilt: [.78, .32, -.48] },
-    { r: 10.7, w: 1.13, tilt: [-.59, .58, .65] },
-    { r: 10.9, w: .92, tilt: [.2, 1.16, -.3] },
+    { r: 10.5, w: 1.22, tilt: [.78, .32, -.48], axis: [.3, 1, .2], speed: .1 },
+    { r: 10.7, w: 1.13, tilt: [-.59, .58, .65], axis: [1, .25, -.3], speed: -.085 },
+    { r: 10.9, w: .92, tilt: [.2, 1.16, -.3], axis: [-.2, .45, 1], speed: .095 },
   ].map((spec, i) => {
-    const pivot = new THREE.Group(); pivot.rotation.set(...spec.tilt); group.add(pivot);
+    const gimbal = new THREE.Group(); armillary.add(gimbal);
+    const pivot = new THREE.Group(); pivot.rotation.set(...spec.tilt); gimbal.add(pivot);
     const mat = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending, fog: false,
       uniforms: { map: { value: engraving }, t: clock, energy, power, restored: { value: 0 }, offset: { value: i * 2.1 } },
@@ -146,12 +149,12 @@ export function buildOracleDesign({ main, reduceMotion }) {
       ruler.push([[Math.cos(a) * inner, Math.sin(a) * inner, .12], [Math.cos(a) * outer, Math.sin(a) * outer, .12]]);
     }
     threads(ruler, { parent: pivot, opacity: .46, width: .14, flow: 0 });
-    return { pivot, mat, radius: spec.r };
+    return { pivot, gimbal, axis: new THREE.Vector3(...spec.axis).normalize(), speed: spec.speed, mat, radius: spec.r };
   });
 
   // The reference globe stays delicate: four great circles, tiny angular marks,
   // and a few jewel-like junctions. Its long pole establishes the vertical axis.
-  const frame = new THREE.Group(); group.add(frame);
+  const frame = new THREE.Group(); armillary.add(frame);
   for (const tilt of [[0, 0, 0], [0, .97, 0], [0, -1.06, 0], [1.32, 0, .1]]) {
     const p = new THREE.Group(); p.rotation.set(...tilt); frame.add(p);
     threads([circle(12.05)], { parent: p, opacity: .67, width: .23, flow: .1 });
@@ -197,7 +200,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
     const a = i * 2.399963, h = 1 - 2 * (i + .5) / 120, r = 5.2 + random() * 6.6, s = Math.sqrt(1 - h * h);
     dust.push([Math.cos(a) * r * s, h * r, Math.sin(a) * r * s]);
   }
-  sparks(group, dust, { size: .22, opacity: .32, color: '#A8B9ED' });
+  sparks(armillary, dust, { size: .22, opacity: .32, color: '#A8B9ED' });
 
   const slots = main.map((relic, i) => {
     const ring = rings[Math.floor(i / 2) % rings.length], a = (i % 2 ? .78 : .28) * TAU;
@@ -212,12 +215,18 @@ export function buildOracleDesign({ main, reduceMotion }) {
     threads(medallion, { parent: holder, opacity: .62, width: .14, flow: 0 });
     return { relic, glow, lit: 0, target: 0, flash: 0, color: C(relic.color).lerp(gold, .65) };
   });
-  let rotation = 0;
+  let rotation = 0, orbitTime = 0;
   function update(dt, T, { power: p, speak, flash, finale }) {
     clock.value = T * motion; energy.value = speak + flash * .35; power.value = p;
     rotation += dt * motion * .018 * (1 - p * .5);
-    core.rotation.y = rotation * .7; frame.rotation.y = rotation * .28;
-    rings.forEach((r, i) => { r.pivot.rotation.z += dt * motion * (i % 2 ? -.012 : .014) * (1 - p * .45); });
+    orbitTime += dt * motion;
+    core.rotation.y = rotation * .7; frame.rotation.y = orbitTime * .045;
+    // Rotate each ring's plane, not just its circularly symmetric rim. Keep
+    // this movement equally legible before and after restoring the relics.
+    rings.forEach((r, i) => {
+      r.gimbal.quaternion.setFromAxisAngle(r.axis, orbitTime * r.speed);
+      r.pivot.rotation.z += dt * motion * (i % 2 ? -.065 : .075);
+    });
     slots.forEach(s => {
       s.lit += (s.target - s.lit) * (1 - Math.exp(-dt * (reduceMotion ? 30 : 1.5))); s.flash = Math.max(0, s.flash - dt * .8);
       s.glow.uniforms.col.value.copy(gold).lerp(s.color, s.lit * .35).lerp(ice, finale * .25);
