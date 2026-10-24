@@ -393,14 +393,28 @@ const oracleState = { energy:0, target:0, eye:0, eyeTarget:0 };
 const beamVert = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }';
 const beamFrag = `uniform float t; uniform float fade; uniform float rep; uniform vec3 col; varying vec2 vUv;
   void main(){ float f = smoothstep(0.,.1,vUv.y)*smoothstep(1.,.8,vUv.y); float s = .55 + .45*sin(vUv.y*rep - t*4.); float a = f*s*fade; gl_FragColor = vec4(col*a, a); }`;
-/* the star's column of light down into the lake: the faint banded beam, with a wider and fainter layer around it */
-const columnMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide, fog:false,
-  uniforms:{ t:{value:0}, fade:{value:.2}, rep:{value:40}, col:{value:C('#9FE8FF')} }, vertexShader:beamVert, fragmentShader:beamFrag });
-const columnOuterMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide, fog:false,
-  uniforms:{ t:{value:0}, fade:{value:.08}, rep:{value:24}, col:{value:C('#BFEFFF')} }, vertexShader:beamVert, fragmentShader:beamFrag });
-{ const h = ORACLE_Y - 3 - WATER_Y;
-  [[.3, 1.2, columnMat], [.75, 2.6, columnOuterMat]].forEach(([top, bottom, mat]) => {
-    const m = new THREE.Mesh(new THREE.CylinderGeometry(top, bottom, h, 24, 1, true), mat); m.position.y = WATER_Y + h/2; scene.add(m); }); }
+/* the star's light, standing in the air from the star down into the lake. It is lit as a volume, not painted on a tube: for each
+   pixel the shader finds how close that line of sight passes to the beam's axis and how high, so the light is brightest down
+   the middle and fades smoothly outward with no edge, from any angle and in the lake's mirror too. A bright core, a soft
+   glow around it and a faint wide haze, with a little more light where it gathers above the water and very slow drifting
+   density, like light through still air */
+const shaftU = { t:{value:0}, power:{value:1} };
+{ const top = ORACLE_Y - 3, h = top - WATER_Y;
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(6, 6, h, 48, 1, true), new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.BackSide, fog:false,
+    uniforms:shaftU,
+    vertexShader:'varying vec3 vW; void main(){ vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }',
+    fragmentShader:`uniform float t; uniform float power; varying vec3 vW;
+      float h2(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
+      float n2(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f); return mix(mix(h2(i), h2(i+vec2(1,0)), f.x), mix(h2(i+vec2(0,1)), h2(i+vec2(1,1)), f.x), f.y); }
+      void main(){ vec3 d = normalize(vW - cameraPosition); vec2 o = cameraPosition.xz, k = d.xz; float kk = max(dot(k, k), 1e-6);
+        float s = -dot(o, k)/kk, dist = abs(o.x*k.y - o.y*k.x)/sqrt(kk), y = cameraPosition.y + d.y*s, d2 = dist*dist;
+        float along = smoothstep(${WATER_Y.toFixed(2)} - .05, ${(WATER_Y + .5).toFixed(2)}, y)*smoothstep(${top.toFixed(1)}, ${(top - 10).toFixed(1)}, y)*step(0., s);
+        float drift = .9 + .1*n2(vec2(dist*1.5, y*.18 + t*.06)), gather = 1. + .9*exp(-(y - ${WATER_Y.toFixed(2)})*.35);
+        float core = exp(-d2/.35), glow = exp(-d2/3.), haze = exp(-d2/14.);
+        vec3 c = (vec3(.85,.97,1.)*core*.36 + vec3(.55,.88,1.)*glow*.13 + vec3(.45,.7,1.)*haze*.04)*along*drift*gather*power;
+        c *= smoothstep(.8, 3., length(o));   /* fade if the camera is inside the beam */
+        gl_FragColor = vec4(c, max(c.r, max(c.g, c.b))); }` }));
+  m.position.y = WATER_Y + h/2; m.renderOrder = 3; scene.add(m); }
 const beamMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide, fog:false,
   uniforms:{ t:{value:0}, fade:{value:0}, rep:{value:30}, col:{value:C('#BFF6FF')} }, vertexShader:beamVert, fragmentShader:beamFrag });
 const beam = new THREE.Mesh(new THREE.CylinderGeometry(.12,.45,1,12,1,true), beamMat); beam.visible = false; scene.add(beam);
@@ -741,7 +755,7 @@ function updateWorld(dt){
   moon.intensity = lerp(.06, .2, L) + D*.04;
   scene.fog.color.copy(fogCol[0]).lerp(fogCol[1], L).lerp(fogCol[2], D*.4); scene.fog.near = lerp(14, 26, L); scene.fog.far = lerp(95, 150, L);
   skyMat.uniforms.glow.value = L; skyMat.uniforms.dawn.value = D;
-  columnMat.uniforms.t.value = columnOuterMat.uniforms.t.value = T; columnMat.uniforms.fade.value = .38 + ey*.25 + L*.12; columnOuterMat.uniforms.fade.value = .14 + ey*.1 + L*.05; lakeMat.uniforms.t.value = reduceMotion ? 0 : T; lakeMat.uniforms.energy.value = ey; lakeMat.uniforms.glow.value = L; fallMat.uniforms.t.value = T; beamMat.uniforms.t.value = T;
+  shaftU.t.value = reduceMotion ? 0 : T; shaftU.power.value = .85 + L*.3 + ey*.45; lakeMat.uniforms.t.value = reduceMotion ? 0 : T; lakeMat.uniforms.energy.value = ey; lakeMat.uniforms.glow.value = L; fallMat.uniforms.t.value = T; beamMat.uniforms.t.value = T;
   if (beamState.life > 0){ beamState.life -= dt; const from = oracle.position.clone(), to = beamState.relic.pos.clone(); const dir = to.clone().sub(from), len = dir.length(); dir.normalize();
     beam.scale.set(1,len,1); beam.position.copy(from).addScaledVector(dir, len/2); beam.quaternion.setFromUnitVectors(UP, dir.clone().negate());
     beamMat.uniforms.rep.value = len/1.5; beamMat.uniforms.fade.value = Math.min(1, beamState.life/.8)*Math.min(1,(3.2-beamState.life)/.25)*1.3;
