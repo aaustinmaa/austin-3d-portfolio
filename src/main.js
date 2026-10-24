@@ -421,9 +421,11 @@ const shaftU = { t:{value:0}, power:{value:1}, hue:{value:C('#9FE8FF')}, veil:{v
         float rIn = mix(.45, 3.2, f), rOut = mix(.9, 6.2, f);
         float qi = dist/rIn, qo = dist/rOut;
         float inner = sqrt(max(0., 1. - qi*qi)), outer = sqrt(max(0., 1. - qo*qo));
-        /* where the line of sight meets the water inside the light, its footprint settles softly instead of ending at an edge */
-        if (sw < s0){ inner = (1. - smoothstep(.1, 1.15, qi))*.55; outer = (1. - smoothstep(.2, 1.2, qo))*.5; }
-        float along = smoothstep(${(WATER_Y - .05).toFixed(2)}, ${(WATER_Y + .02).toFixed(2)}, y)*smoothstep(${top.toFixed(1)} + .5, ${(top - 4).toFixed(1)}, y)*step(0., s);
+        /* where the line of sight meets the water well before its closest pass, the light's footprint on the water settles
+           softly; the two are blended over a few metres so there is no seam where one gives way to the other */
+        float foot = smoothstep(0., 3., s0 - s);
+        inner = mix(inner, (1. - smoothstep(.1, 1.15, qi))*.55, foot); outer = mix(outer, (1. - smoothstep(.2, 1.2, qo))*.5, foot);
+        float along = smoothstep(${top.toFixed(1)} + .5, ${(top - 4).toFixed(1)}, y)*step(0., s);
         float spread = pow(.45/rIn, .3), gather = 1. + .8*exp(-(y - ${WATER_Y.toFixed(2)})*.3);
         vec3 tint = mix(vec3(.96,.98,1.), hue, smoothstep(0., .85, f)*.8), mist = mix(hue, veil, .55);
         float down = .5 + .5*sin(6.2832*(f*1.8 - t*.3)), up = .5 + .5*sin(6.2832*(f*2.7 + t*.05) + 1.3);
