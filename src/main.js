@@ -178,7 +178,7 @@ const lakeMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false,
       float hide = mix(.25, .78, deep), a = fres + (1. - fres)*hide;
       vec3 c = (col*fres + body*hide*(1. - fres))/a;
       /* the teal of the spring, glowing up through the water where the star's light comes down, seen from any angle */
-      vec3 emit = vec3(.14,.62,.64)*(spring*.2 + heart*.22)*(1. + energy*.6 + glow*.3)*(.92 + .08*sin(t*.6));
+      vec3 emit = vec3(.14,.62,.64)*(spring*.18 + heart*.12)*(1. + energy*.6 + glow*.3)*(.92 + .08*sin(t*.6));
       float a2 = min(1., a + max(emit.g, emit.b)*.5); c = (c*a + emit)/a2; a = a2;
       a *= smoothstep(0., .05, vDepth)*(1. - smoothstep(${(LAKE_EDGE - .6).toFixed(2)}, ${LAKE_EDGE.toFixed(2)}, r));
       gl_FragColor = vec4(c, a); }` });
@@ -424,9 +424,9 @@ const shaftU = { t:{value:0}, power:{value:1}, hue:{value:C('#9FE8FF')}, veil:{v
         /* where the line of sight meets the water well before its closest pass, the light's footprint on the water settles
            softly; the two are blended over a few metres so there is no seam where one gives way to the other */
         float foot = smoothstep(0., 3., s0 - s);
-        inner = mix(inner, (1. - smoothstep(.1, 1.15, qi))*.55, foot); outer = mix(outer, (1. - smoothstep(.2, 1.2, qo))*.5, foot);
+        inner = mix(inner, (1. - smoothstep(.1, 1.15, qi))*.36, foot); outer = mix(outer, (1. - smoothstep(.2, 1.2, qo))*.32, foot);
         float along = smoothstep(${top.toFixed(1)} + .5, ${(top - 4).toFixed(1)}, y)*step(0., s);
-        float spread = pow(.45/rIn, .3), gather = 1. + .8*exp(-(y - ${WATER_Y.toFixed(2)})*.3);
+        float spread = pow(.45/rIn, .3), gather = 1. + .35*exp(-(y - ${WATER_Y.toFixed(2)})*.3);
         vec3 tint = mix(vec3(.96,.98,1.), hue, smoothstep(0., .85, f)*.8), mist = mix(hue, veil, .55);
         float down = .5 + .5*sin(6.2832*(f*1.8 - t*.3)), up = .5 + .5*sin(6.2832*(f*2.7 + t*.05) + 1.3);
         float swell = .4 + 1.25*pow(down, 3.) + .1*up;
