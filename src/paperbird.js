@@ -227,7 +227,11 @@ export function createPaperBird(scene, { perch, star, hint, reduceMotion }){
     sheet.position.y = BIRD_Y*(1 - span(k,.51,.8));
   }
 
-  const SWAP = .3;
+  /* the crane becomes folded paper over k 0 to FOLDED, unhurried; the folded paper then opens out quickly (and the same
+     the other way: the paper folds up quickly, then takes its time becoming a crane) */
+  const SWAP = .3, FOLDED = .51, CRANE_SECS = 1.1, PAPER_SECS = .45, REFOLD = CRANE_SECS + PAPER_SECS;
+  const rate = k => k < FOLDED ? FOLDED/CRANE_SECS : (1 - FOLDED)/PAPER_SECS;
+  const refoldK = t => t < PAPER_SECS ? 1 - (1 - FOLDED)*t/PAPER_SECS : Math.max(0, FOLDED*(1 - (t - PAPER_SECS)/CRANE_SECS));
   function pose(k, light){
     crane.visible = k < SWAP; sheet.visible = !crane.visible;
     if (crane.visible) poseCrane(k/SWAP, light); else poseSheet(k, light);
@@ -246,14 +250,14 @@ export function createPaperBird(scene, { perch, star, hint, reduceMotion }){
   function update(dt, T, camera){
     pulse = Math.max(0, pulse - dt); camPos.setFromMatrixPosition(camera.matrixWorld);
     if (away >= 0){ /* a sent note: fold back into a crane where it is, fly off to the star, then a new crane settles on the lantern */
-      away += reduceMotion ? 4.6 : dt; const fold = 1 - span(away, 0, .8), fly = span(away, .8, 3.3), back = span(away, 3.8, 4.6), s = star();
-      if (away < 3.6){ at.lerpVectors(close, s, fly); at.y += Math.sin(Math.PI*fly)*2; group.position.copy(at); group.scale.setScalar(Math.max(.001, 1 - fly*.9)); light(camera);
-        const fy = faceYaw(); group.rotation.set(-.3*fly, fy + wrapA(Math.atan2(s.x - at.x, s.z - at.z) - fy)*span(away, .8, 1.5), 0); pose(fold, 0); }
+      const F = REFOLD; away += reduceMotion ? F + 3.8 : dt; const fly = span(away, F, F + 2.5), back = span(away, F + 3, F + 3.8), s = star();
+      if (away < F + 2.8){ at.lerpVectors(close, s, fly); at.y += Math.sin(Math.PI*fly)*2; group.position.copy(at); group.scale.setScalar(Math.max(.001, 1 - fly*.9)); light(camera);
+        const fy = faceYaw(); group.rotation.set(-.3*fly, fy + wrapA(Math.atan2(s.x - at.x, s.z - at.z) - fy)*span(away, F, F + .7), 0); pose(refoldK(away), 0); }
       else { group.position.copy(rest); group.rotation.set(0, REST_YAW, 0); group.scale.setScalar(Math.max(.001, back)); light(camera); pose(0, 0); }
-      glow.position.copy(group.position); glow.scale.setScalar(1.2); glow.material.opacity = away < 3.6 ? .4*(1 - fly) : .14*back;
+      glow.position.copy(group.position); glow.scale.setScalar(1.2); glow.material.opacity = away < F + 2.8 ? .4*(1 - fly) : .14*back;
       if (back >= 1){ away = -1; k = 0; z = 0; writing = false; group.scale.setScalar(1); }
       return; }
-    const step = reduceMotion ? 1 : dt/1.5, wantK = near || writing ? 1 : 0, wantZ = writing && k > .99 ? 1 : 0;
+    const step = reduceMotion ? 1 : dt*rate(k), wantK = near || writing ? 1 : 0, wantZ = writing && k > .99 ? 1 : 0;
     if (z > 0 || wantZ > 0) z += Math.sign(wantZ - z)*Math.min(Math.abs(wantZ - z), reduceMotion ? 1 : dt/1.2);
     else { if (k === 0 && wantK > 0) chooseSide(); k += Math.sign(wantK - k)*Math.min(Math.abs(wantK - k), step); }
     /* the crane rises off its lantern and turns its folds toward you; once open, the sheet can come close */

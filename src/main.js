@@ -938,9 +938,10 @@ function updateTracker(){
 }
 updateTracker();
 const card = document.getElementById('card');
-let cardFor = null;
-function hideCard(){ card.hidden = true; cardFor = null; }
+let cardFor = null, introCard = null;   // introCard: where the wanderer stood when the name card opened on arrival (it closes on their first move, once)
+function hideCard(){ card.hidden = true; cardFor = null; introCard = null; }
 function renderCard(o, isRelic, withLinks){
+  introCard = null;
   card.innerHTML = `<button class="x" type="button" aria-label="Close">×</button>
     <div class="kicker"><span class="gem" style="background:${o.color};color:${o.color}"></span>${o.kicker}</div>
     <h2>${o.title || o.name}</h2>${o.meta ? `<div class="meta">${o.meta}</div>` : ''}<p>${o.body}</p>
@@ -958,7 +959,9 @@ function showRelicCard(r){ renderCard(r, true); }
 function showAbout(){ if (openRelic) sendBack(openRelic); renderCard(ABOUT, false); }
 document.getElementById('brand').addEventListener('click', () => cardFor === ABOUT && !card.hidden ? hideCard() : showAbout());
 let welcomed = false;
-function welcome(){ if (welcomed) return; welcomed = true; if (!cardFor && !openRelic) renderCard(ABOUT, false); }
+function welcome(){ if (welcomed) return; welcomed = true; if (!cardFor && !openRelic){ renderCard(ABOUT, false); introCard = P.pos.clone(); } }
+/* the name card that greets a new visitor steps aside as soon as they first move, so they meet it again at the crane */
+function closeIntroCard(){ if (introCard && (P.pos.distanceTo(introCard) > .3 || P.flight)) hideCard(); }
 /* ---------- the note: the crane flies toward you and opens into a large sheet of paper to write on ---------- */
 const letter = document.getElementById('letter'), letterForm = document.getElementById('letterForm'), letterMsg = document.getElementById('letterMsg');
 const letterFrom = document.getElementById('letterFrom'), letterStatus = document.getElementById('letterStatus'), letterSend = document.getElementById('letterSend');
@@ -989,7 +992,7 @@ letterForm.addEventListener('submit', async e => { e.preventDefault(); if (lette
    has come close; a quiet line on the paper itself hints that it can be written on */
 let byBird = false;
 function updateBird(dt){
-  bird.update(dt, T, camera);
+  closeIntroCard(); bird.update(dt, T, camera);
   const d = Math.hypot(P.pos.x - CRANE_LANTERN.x, P.pos.z - CRANE_LANTERN.z), level = Math.abs(P.pos.y - groundH(CRANE_LANTERN.x, CRANE_LANTERN.z)) < 3;
   if (!byBird && welcomed && d < 3 && level && !P.flight){ byBird = true; bird.setNear(true); if (!openRelic && !writing && (card.hidden || cardFor === ABOUT)) renderCard(ABOUT, false); }
   else if (byBird && (d > 5.5 || !level)){ byBird = false; bird.setNear(false); }
