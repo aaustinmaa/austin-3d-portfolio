@@ -395,9 +395,41 @@ const oracleState = { energy:0, target:0, eye:0, eyeTarget:0 };
 const beamVert = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }';
 const beamFrag = `uniform float t; uniform float fade; uniform float rep; uniform vec3 col; varying vec2 vUv;
   void main(){ float f = smoothstep(0.,.1,vUv.y)*smoothstep(1.,.8,vUv.y); float s = .55 + .45*sin(vUv.y*rep - t*4.); float a = f*s*fade; gl_FragColor = vec4(col*a, a); }`;
-const columnMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide, fog:false,
-  uniforms:{ t:{value:0}, fade:{value:.1}, rep:{value:40}, col:{value:C('#9FE8FF')} }, vertexShader:beamVert, fragmentShader:beamFrag });
-{ const h = ORACLE_Y - 3 - WATER_Y; const col = new THREE.Mesh(new THREE.CylinderGeometry(.3, 1.2, h, 24, 1, true), columnMat); col.position.y = WATER_Y + h/2; scene.add(col); }
+/* the star's shaft of light, straight down into the middle of the lake: bright enough to find from the shore and follow up to
+   the star. A white-cyan core in a soft sheath (both brightest where they face you, so the edges melt), slow pulses of light
+   rising toward the star, motes drifting up along it, and a pool of light where it meets the water */
+const SHAFT_H = ORACLE_Y - 3 - WATER_Y, shaftU = { t:{value:0}, power:{value:.7} };
+const shaftMat = (colour, width, strength) => new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide, fog:false,
+  uniforms:{ ...shaftU, col:{value:C(colour)} },
+  vertexShader:`varying vec2 vUv; varying float vF; void main(){ vUv = uv; vec4 mv = modelViewMatrix*vec4(position,1.);
+    vF = abs(dot(normalize(normalMatrix*normal), normalize(-mv.xyz))); gl_Position = projectionMatrix*mv; }`,
+  fragmentShader:`uniform float t; uniform float power; uniform vec3 col; varying vec2 vUv; varying float vF;
+    void main(){ float ends = smoothstep(0., .02, vUv.y)*smoothstep(1., .93, vUv.y);
+      float pulse = pow(.5 + .5*sin(vUv.y*16. - t*1.3), 6.)*.7, base = 1. + .8*exp(-vUv.y*14.);
+      float a = pow(vF, ${width.toFixed(1)})*ends*base*(.8 + pulse)*power*${strength.toFixed(2)};
+      gl_FragColor = vec4(col*a, a); }` });
+{ [[.16, .26, '#E4FCFF', 2., .85], [1.1, 2.2, '#7FE3F5', 2.5, .5]].forEach(([top, bottom, colour, width, strength]) => {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(top, bottom, SHAFT_H, 24, 1, true), shaftMat(colour, width, strength)); m.position.y = WATER_Y + SHAFT_H/2; scene.add(m); });
+  /* motes rising slowly along the shaft */
+  const N = 60, g = new THREE.BufferGeometry(), sq = seq(53), seed = new Float32Array(N*3);
+  for (let i = 0; i < N; i++) seed.set([sq(), .15 + sq()*.75, sq()*6.283], i*3);
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N*3), 3)); g.setAttribute('seed', new THREE.BufferAttribute(seed, 3));
+  const motes = new THREE.Points(g, new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, fog:false,
+    uniforms:{ ...shaftU, scale:wispScale },
+    vertexShader:`attribute vec3 seed; uniform float t; uniform float power; uniform float scale; varying float vA;
+      void main(){ float k = fract(seed.x + t*.012), a = seed.z + t*.15;
+        vec3 p = vec3(cos(a)*seed.y, ${WATER_Y.toFixed(2)} + k*${SHAFT_H.toFixed(1)}, sin(a)*seed.y);
+        vA = smoothstep(0., .05, k)*smoothstep(1., .85, k)*power; vec4 mv = modelViewMatrix*vec4(p, 1.);
+        gl_PointSize = .3*scale/-mv.z; gl_Position = projectionMatrix*mv; }`,
+    fragmentShader:`varying float vA; void main(){ vec2 q = gl_PointCoord - .5; float a = exp(-dot(q,q)*30.)*vA; gl_FragColor = vec4(vec3(.7,.95,1.)*a, a); }` }));
+  motes.frustumCulled = false; scene.add(motes);
+  /* where it meets the water, just under the mirror's clip so the pool is not reflected twice */
+  const pool = new THREE.Mesh(new THREE.CircleGeometry(3.4, 48).rotateX(-Math.PI/2), new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, fog:false,
+    uniforms:shaftU,
+    vertexShader:'varying vec2 vP; void main(){ vP = position.xz; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
+    fragmentShader:`uniform float t; uniform float power; varying vec2 vP;
+      void main(){ float r2 = dot(vP, vP), a = (exp(-r2*1.6)*.9 + exp(-r2*.28)*.3)*(.85 + .15*sin(t*.9))*power; gl_FragColor = vec4(vec3(.55,.92,1.)*a, a); }` }));
+  pool.position.y = WATER_Y + .015; pool.renderOrder = 2; scene.add(pool); }
 const beamMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide, fog:false,
   uniforms:{ t:{value:0}, fade:{value:0}, rep:{value:30}, col:{value:C('#BFF6FF')} }, vertexShader:beamVert, fragmentShader:beamFrag });
 const beam = new THREE.Mesh(new THREE.CylinderGeometry(.12,.45,1,12,1,true), beamMat); beam.visible = false; scene.add(beam);
@@ -738,7 +770,7 @@ function updateWorld(dt){
   moon.intensity = lerp(.06, .2, L) + D*.04;
   scene.fog.color.copy(fogCol[0]).lerp(fogCol[1], L).lerp(fogCol[2], D*.4); scene.fog.near = lerp(14, 26, L); scene.fog.far = lerp(95, 150, L);
   skyMat.uniforms.glow.value = L; skyMat.uniforms.dawn.value = D;
-  columnMat.uniforms.t.value = T; columnMat.uniforms.fade.value = .1 + ey*.25 + L*.12; lakeMat.uniforms.t.value = reduceMotion ? 0 : T; lakeMat.uniforms.energy.value = ey; lakeMat.uniforms.glow.value = L; fallMat.uniforms.t.value = T; beamMat.uniforms.t.value = T;
+  shaftU.t.value = reduceMotion ? 0 : T; shaftU.power.value = .7 + L*.3 + ey*.5; lakeMat.uniforms.t.value = reduceMotion ? 0 : T; lakeMat.uniforms.energy.value = ey; lakeMat.uniforms.glow.value = L; fallMat.uniforms.t.value = T; beamMat.uniforms.t.value = T;
   if (beamState.life > 0){ beamState.life -= dt; const from = oracle.position.clone(), to = beamState.relic.pos.clone(); const dir = to.clone().sub(from), len = dir.length(); dir.normalize();
     beam.scale.set(1,len,1); beam.position.copy(from).addScaledVector(dir, len/2); beam.quaternion.setFromUnitVectors(UP, dir.clone().negate());
     beamMat.uniforms.rep.value = len/1.5; beamMat.uniforms.fade.value = Math.min(1, beamState.life/.8)*Math.min(1,(3.2-beamState.life)/.25)*1.3;
