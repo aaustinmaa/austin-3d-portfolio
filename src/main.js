@@ -398,8 +398,9 @@ const beamFrag = `uniform float t; uniform float fade; uniform float rep; unifor
    that line of sight passes closest to the axis and how far off it passes there, measured against the cone's width at that
    height, so the light is fullest down the middle and ends at a clean round edge from any angle (and in the lake's mirror).
    The same light spreads over more width as it falls, so it is densest and whitest under the star and thins to cyan over the
-   water, gathering a little where it lands. The only motion is a slow, faint brightening that drifts down */
-const shaftU = { t:{value:0}, power:{value:1} };
+   water, gathering a little where it lands. A fine spine of whiter light runs down the axis, and soft halos of light are let
+   down the cone one after another, widening with it as they fall and fading as they reach the water */
+const shaftU = { t:{value:0}, power:{value:1} }, halos = [];
 { const top = ORACLE_Y - 3, h = top - WATER_Y;
   const m = new THREE.Mesh(new THREE.CylinderGeometry(2, 8.5, h, 64, 1, true), new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.BackSide, fog:false,
     uniforms:shaftU,
@@ -414,10 +415,29 @@ const shaftU = { t:{value:0}, power:{value:1} };
         float along = smoothstep(${WATER_Y.toFixed(2)} - .05, ${(WATER_Y + .4).toFixed(2)}, y)*smoothstep(${top.toFixed(1)} + .5, ${(top - 4).toFixed(1)}, y)*step(0., s);
         float spread = pow(.45/rIn, .3), gather = 1. + .8*exp(-(y - ${WATER_Y.toFixed(2)})*.3), fall = .95 + .05*sin(y*.4 + t*.6);
         vec3 tint = mix(vec3(.95,.99,1.), vec3(.6,.9,1.), smoothstep(0., .8, f));
-        vec3 c = (tint*inner*.36 + mix(tint, vec3(.45,.78,1.), .5)*outer*.16)*spread*gather*fall*along*power;
+        float spine = exp(-dist*dist/mix(.025, .1, f))*mix(.5, .3, f);
+        vec3 c = (tint*inner*.36 + mix(tint, vec3(.45,.78,1.), .5)*outer*.16 + vec3(.95,1.,1.)*spine)*spread*gather*fall*along*power;
         c *= smoothstep(.8, 3., length(o));   /* fade if the camera is inside the light */
         gl_FragColor = vec4(c, 1.); }` }));   /* additive blending scales by alpha, so alpha 1 adds the light as shaded */
-  m.position.y = WATER_Y + h/2; m.renderOrder = 3; scene.add(m); }
+  m.position.y = WATER_Y + h/2; m.renderOrder = 3; scene.add(m);
+  /* the halos: flat discs whose shader draws one soft ring; update() lets each one down the cone in turn */
+  const haloGeo = new THREE.CircleGeometry(1, 96).rotateX(-Math.PI/2);
+  for (let i = 0; i < 4; i++){
+    const u = { a:{value:0}, w:{value:.08} };
+    const disc = new THREE.Mesh(haloGeo, new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide, fog:false,
+      uniforms:{ ...u, power:shaftU.power },
+      vertexShader:'varying vec2 vP; void main(){ vP = position.xz; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
+      fragmentShader:`uniform float a; uniform float w; uniform float power; varying vec2 vP;
+        void main(){ float r = length(vP), ring = exp(-pow((r - .82)/w, 2.))*.38 + exp(-pow((r - .82)/(w*3.5), 2.))*.14, fill = exp(-r*r*3.)*.1; gl_FragColor = vec4(vec3(.82,.97,1.)*(ring + fill)*a*power, 1.); }` }));
+    disc.renderOrder = 3; scene.add(disc); halos.push({ disc, u, phase:i/4 });
+  }
+  halos.update = T => halos.forEach(o => {
+    const f = (T*.045 + o.phase) % 1, y = top - f*h, r = lerp(.45, 3.2, f)*1.12/.82;
+    o.disc.position.set(0, y, 0); o.disc.scale.setScalar(r);
+    o.u.a.value = Math.min(1, f/.08)*(1 - Math.min(1, Math.max(0, (f - .82)/.18)));
+    o.u.w.value = .07/r*(1 + f*1.5) + .025;
+  });
+}
 const beamMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide, fog:false,
   uniforms:{ t:{value:0}, fade:{value:0}, rep:{value:30}, col:{value:C('#BFF6FF')} }, vertexShader:beamVert, fragmentShader:beamFrag });
 const beam = new THREE.Mesh(new THREE.CylinderGeometry(.12,.45,1,12,1,true), beamMat); beam.visible = false; scene.add(beam);
@@ -758,7 +778,7 @@ function updateWorld(dt){
   moon.intensity = lerp(.06, .2, L) + D*.04;
   scene.fog.color.copy(fogCol[0]).lerp(fogCol[1], L).lerp(fogCol[2], D*.4); scene.fog.near = lerp(14, 26, L); scene.fog.far = lerp(95, 150, L);
   skyMat.uniforms.glow.value = L; skyMat.uniforms.dawn.value = D;
-  shaftU.t.value = reduceMotion ? 0 : T; shaftU.power.value = .85 + L*.3 + ey*.45; lakeMat.uniforms.t.value = reduceMotion ? 0 : T; lakeMat.uniforms.energy.value = ey; lakeMat.uniforms.glow.value = L; fallMat.uniforms.t.value = T; beamMat.uniforms.t.value = T;
+  shaftU.t.value = reduceMotion ? 0 : T; shaftU.power.value = .85 + L*.3 + ey*.45; halos.update(reduceMotion ? 0 : T); lakeMat.uniforms.t.value = reduceMotion ? 0 : T; lakeMat.uniforms.energy.value = ey; lakeMat.uniforms.glow.value = L; fallMat.uniforms.t.value = T; beamMat.uniforms.t.value = T;
   if (beamState.life > 0){ beamState.life -= dt; const from = oracle.position.clone(), to = beamState.relic.pos.clone(); const dir = to.clone().sub(from), len = dir.length(); dir.normalize();
     beam.scale.set(1,len,1); beam.position.copy(from).addScaledVector(dir, len/2); beam.quaternion.setFromUnitVectors(UP, dir.clone().negate());
     beamMat.uniforms.rep.value = len/1.5; beamMat.uniforms.fade.value = Math.min(1, beamState.life/.8)*Math.min(1,(3.2-beamState.life)/.25)*1.3;
