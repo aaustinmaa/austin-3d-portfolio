@@ -393,27 +393,30 @@ const oracleState = { energy:0, target:0, eye:0, eyeTarget:0 };
 const beamVert = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }';
 const beamFrag = `uniform float t; uniform float fade; uniform float rep; uniform vec3 col; varying vec2 vUv;
   void main(){ float f = smoothstep(0.,.1,vUv.y)*smoothstep(1.,.8,vUv.y); float s = .55 + .45*sin(vUv.y*rep - t*4.); float a = f*s*fade; gl_FragColor = vec4(col*a, a); }`;
-/* the star's light, standing in the air from the star down into the lake: a thick, round column, lit as a volume rather than
-   painted on a tube. For each pixel the shader finds how close that line of sight passes to the axis and how much of the
-   column it crosses, so the light is fullest down the middle and ends cleanly at a round edge, from any angle and in the
-   lake's mirror too. Two nested layers, a brighter inner column inside a fainter outer one, with light gathering above the
-   water and very slow, faint brightness drifting down through it */
+/* the star's light, let down onto the lake: it leaves the star narrow and opens out as it falls, a cone of light around a
+   brighter inner cone. It is lit as a volume, not painted on a surface: for each pixel the shader finds the height where
+   that line of sight passes closest to the axis and how far off it passes there, measured against the cone's width at that
+   height, so the light is fullest down the middle and ends at a clean round edge from any angle (and in the lake's mirror).
+   The same light spreads over more width as it falls, so it is densest and whitest under the star and thins to cyan over the
+   water, gathering a little where it lands. The only motion is a slow, faint brightening that drifts down */
 const shaftU = { t:{value:0}, power:{value:1} };
 { const top = ORACLE_Y - 3, h = top - WATER_Y;
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(6, 6, h, 48, 1, true), new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.BackSide, fog:false,
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(2, 8.5, h, 64, 1, true), new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.BackSide, fog:false,
     uniforms:shaftU,
     vertexShader:'varying vec3 vW; void main(){ vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }',
     fragmentShader:`uniform float t; uniform float power; varying vec3 vW;
-      float h2(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7)))*43758.5453); }
-      float n2(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.-2.*f); return mix(mix(h2(i), h2(i+vec2(1,0)), f.x), mix(h2(i+vec2(0,1)), h2(i+vec2(1,1)), f.x), f.y); }
       void main(){ vec3 d = normalize(vW - cameraPosition); vec2 o = cameraPosition.xz, k = d.xz; float kk = max(dot(k, k), 1e-6);
-        float s = -dot(o, k)/kk, dist = abs(o.x*k.y - o.y*k.x)/sqrt(kk), y = cameraPosition.y + d.y*s, d2 = dist*dist;
-        float along = smoothstep(${WATER_Y.toFixed(2)} - .05, ${(WATER_Y + .5).toFixed(2)}, y)*smoothstep(${top.toFixed(1)}, ${(top - 10).toFixed(1)}, y)*step(0., s);
-        float drift = .92 + .08*n2(vec2(dist*.8, y*.12 + t*.05)), fall = .94 + .06*sin(y*.5 + t*.7), gather = 1. + .7*exp(-(y - ${WATER_Y.toFixed(2)})*.3);
-        float inner = sqrt(max(0., 1. - d2/2.6)), outer = sqrt(max(0., 1. - d2/10.)), heart = exp(-d2/.6);
-        vec3 c = (vec3(.8,.96,1.)*inner*.5 + vec3(.5,.84,1.)*outer*.2 + vec3(.9,.98,1.)*heart*.16)*along*drift*fall*gather*power;
-        c *= smoothstep(.8, 3., length(o));   /* fade if the camera is inside the beam */
-        gl_FragColor = vec4(c, max(c.r, max(c.g, c.b))); }` }));
+        float s = -dot(o, k)/kk, dist = abs(o.x*k.y - o.y*k.x)/sqrt(kk), y = cameraPosition.y + d.y*s;
+        float f = clamp((${top.toFixed(1)} - y)/${h.toFixed(1)}, 0., 1.);            /* 0 under the star, 1 at the water */
+        float rIn = mix(.45, 3.2, f), rOut = mix(.9, 6.2, f);
+        float qi = dist/rIn, qo = dist/rOut;
+        float inner = sqrt(max(0., 1. - qi*qi)), outer = sqrt(max(0., 1. - qo*qo));
+        float along = smoothstep(${WATER_Y.toFixed(2)} - .05, ${(WATER_Y + .4).toFixed(2)}, y)*smoothstep(${top.toFixed(1)} + .5, ${(top - 4).toFixed(1)}, y)*step(0., s);
+        float spread = pow(.45/rIn, .3), gather = 1. + .8*exp(-(y - ${WATER_Y.toFixed(2)})*.3), fall = .95 + .05*sin(y*.4 + t*.6);
+        vec3 tint = mix(vec3(.95,.99,1.), vec3(.6,.9,1.), smoothstep(0., .8, f));
+        vec3 c = (tint*inner*.36 + mix(tint, vec3(.45,.78,1.), .5)*outer*.16)*spread*gather*fall*along*power;
+        c *= smoothstep(.8, 3., length(o));   /* fade if the camera is inside the light */
+        gl_FragColor = vec4(c, 1.); }` }));   /* additive blending scales by alpha, so alpha 1 adds the light as shaded */
   m.position.y = WATER_Y + h/2; m.renderOrder = 3; scene.add(m); }
 const beamMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide, fog:false,
   uniforms:{ t:{value:0}, fade:{value:0}, rep:{value:30}, col:{value:C('#BFF6FF')} }, vertexShader:beamVert, fragmentShader:beamFrag });
