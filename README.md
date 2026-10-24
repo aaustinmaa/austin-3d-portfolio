@@ -14,6 +14,7 @@ The wanderer wears a pale, thin woven robe and a sewn hood with a pointed back a
 npm install
 npm run dev        # http://localhost:5173, reloads on save
 npm run build      # production build into dist/
+npm test           # geometry and collision regressions
 npm run preview    # serve the production build locally
 ```
 
@@ -37,6 +38,8 @@ Requires Node 18 or newer.
 
 Light the four braziers on the spiral stairs to wake a hidden seventh relic. The wish pillars' caps, boulders, stair stones and the brazier landings can all be stood on; click a pillar to fly up onto it. The short introduction opens on arrival and again whenever you click Austin's name in the top bar.
 
+Solid boundaries come from the rendered triangles: terrain, path stones, boulders, cliff faces, pillar shafts and caps, stair undersides, tree tiers, lanterns and hollow brazier bowls. Moving relics, Oracle glass and folding paper update their boundaries with their animation. Walking, manual flight and click-to-fly all check the same geometry; an obstructed flight stops safely, and higher perches are approached from above. Both drawn and guided arrows stop at the first surface, with the tip on that surface. The camera also checks these boundaries. Auras, flames, particles, grass and the lake's reflection remain non-solid.
+
 Each brazier has a hollow metal bowl, glowing coals, curling flame tongues and sparse rising embers. Ice-blue cores fade through cyan into blue-violet tips, with matching coals, embers and local light. Ignition eases in beneath a restrained cool halo. With reduced motion, the fire and light stay steady and embers stop drifting.
 
 ## Project layout
@@ -52,7 +55,7 @@ src/relics.js         The seven relic models (faceted, with soft auras) and how 
 src/hero.js           The wanderer (a small doll in a thin robe and draped hood), its bow and lantern, and their animation
 src/braziers.js       Stair braziers: hollow bowls, coals, procedural flames, embers and local lighting
 src/paperbird.js      The paper crane by the stair: Austin's name card, unfolding into paper visitors can write a note on
-src/colliders.js      Solid shapes for standing, walls, ceilings and arrow hits
+src/colliders.js      Render-mesh collision trees for standing, body movement, ceilings, camera and arrow hits
 src/content.js        Everything visitors read: relic text, skills, the Oracle's lines and answers
 src/noise.js          Seeded random and value noise (the valley is identical on every visit)
 src/textures.js       Canvas-drawn textures: glows, rays, runes, sigils, dials, paper, fabric weave

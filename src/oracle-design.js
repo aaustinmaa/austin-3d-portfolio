@@ -6,6 +6,7 @@ import { crystalMaterial } from './oracle-crystal.js';
 // Option A: crystal armillary ribbons, fine champagne filaments and a nested
 // luminous jewel. All curves and glass surfaces exist in world space.
 export function buildOracleDesign({ main, reduceMotion }) {
+  const solid = mesh => { mesh.userData.solid = true; return mesh; };
   const TAU = Math.PI * 2, C = v => new THREE.Color(v), motion = reduceMotion ? 0 : 1;
   const group = new THREE.Group(), clock = { value: 0 }, energy = { value: 0 }, power = { value: 0 };
   // Tighten the armillary silhouette without scaling the central polyhedra.
@@ -217,10 +218,10 @@ export function buildOracleDesign({ main, reduceMotion }) {
           float a=(.115+rim*.28+glint*.38+cloud*.17+etch*.22+restored*.025)*(gl_FrontFacing?1.:.22)*(1.+energy*.12);
           a+=etch*filament*.08;gl_FragColor=vec4(col,a);}`
     });
-    pivot.add(new THREE.Mesh(bandGeometry(spec.r, spec.w), mat));
+    pivot.add(solid(new THREE.Mesh(bandGeometry(spec.r, spec.w), mat)));
     const edgeRadii = [spec.r - spec.w * .48, spec.r + spec.w * .48];
     for (const edgeRadius of edgeRadii) {
-      pivot.add(new THREE.Mesh(new THREE.TorusGeometry(edgeRadius, .065, 12, 224), goldRimMaterial));
+      pivot.add(solid(new THREE.Mesh(new THREE.TorusGeometry(edgeRadius, .065, 12, 224), goldRimMaterial)));
     }
     rimFragments(pivot, edgeRadii, i * .73);
     const ruler = [];
@@ -237,7 +238,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
   const frame = new THREE.Group(); armillary.add(frame);
   for (const tilt of [[0, 0, 0], [0, .97, 0], [0, -1.06, 0], [1.32, 0, .1]]) {
     const p = new THREE.Group(); p.rotation.set(...tilt); frame.add(p);
-    p.add(new THREE.Mesh(new THREE.TorusGeometry(12.05, .032, 8, 192), goldRimMaterial));
+    p.add(solid(new THREE.Mesh(new THREE.TorusGeometry(12.05, .032, 8, 192), goldRimMaterial)));
     rimFragments(p, [12.05], tilt[1], 22);
   }
   const graduations = [];
@@ -250,7 +251,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
 
   const jewelMat = crystal({ color: '#A3B9DB', body: .85, edge: .12 });
   function jewel(parent, point, radius = .27) {
-    const geo = withEdges(new THREE.IcosahedronGeometry(radius, 1)); const mesh = new THREE.Mesh(geo, jewelMat);
+    const geo = withEdges(new THREE.IcosahedronGeometry(radius, 1)); const mesh = solid(new THREE.Mesh(geo, jewelMat));
     mesh.position.set(...point); parent.add(mesh); return mesh;
   }
   const polePoints = [[0, -13.55, 0], [0, -12.05, 0], [0, 12.05, 0], [0, 13.55, 0], [0, -15, 0], [0, 15, 0]];
@@ -274,6 +275,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
     for (const side of [THREE.BackSide, THREE.FrontSide]) {
       const material = crystalMaterial({ radius: [4.05, 3.2, 2.4, 1.7][i], tint: i % 2 ? '#ADB5E8' : '#A2C4E9', opacity: i === 0 ? 1.04 : .86, side, energy });
       const surface = new THREE.Mesh(g, material);
+      surface.userData.solid = side === THREE.FrontSide;
       surface.renderOrder = side === THREE.BackSide ? 10 + i : 45 - i;
       surface.onBeforeRender = (_renderer, _scene, camera) => {
         camera.getWorldPosition(material.uniforms.localCamera.value);

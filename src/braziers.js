@@ -86,7 +86,7 @@ emberGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(0,2,0),1.6);
 export function createBrazier(scene, position, { seed=0, reduceMotion=false, pixelRatio=1 }={}){
   const root = new THREE.Group(); root.name = 'brazier'; root.position.copy(position); scene.add(root);
   const solid = (g,m) => { const o = new THREE.Mesh(g,m); o.castShadow = o.receiveShadow = true; root.add(o); return o; };
-  solid(bodyGeo,metal); solid(trimGeo,trim);
+  const solids = [solid(bodyGeo,metal), solid(trimGeo,trim)];
   const coals = new THREE.MeshStandardMaterial({ color:0x25212C, roughness:1, flatShading:true, emissive:0x4868D6, emissiveIntensity:0 });
   const coalBed = new THREE.InstancedMesh(coalGeo,coals,11), c = new THREE.Object3D();
   for (let i=0;i<11;i++){
@@ -96,6 +96,7 @@ export function createBrazier(scene, position, { seed=0, reduceMotion=false, pix
     c.updateMatrix(); coalBed.setMatrixAt(i,c.matrix);
   }
   coalBed.castShadow = coalBed.receiveShadow = true; root.add(coalBed);
+  solids.push(coalBed);
   const uniforms = { time:{value:0}, seed:{value:seed}, strength:{value:0} };
   const flame = new THREE.Mesh(flameGeo,new THREE.ShaderMaterial({
     uniforms, vertexShader:flameVertex, fragmentShader:flameFragment, transparent:true, depthWrite:false,
@@ -120,7 +121,7 @@ export function createBrazier(scene, position, { seed=0, reduceMotion=false, pix
         gl_FragColor = vec4(.58,.82,1.,a); }`,
   })); root.add(embers);
   const light = new THREE.PointLight(0x93B7FF,0,7,2); light.position.y = 1.5; root.add(light);
-  const b = { root, pos:root.position.clone(), top:position.y, lit:false, ignition:0, flame, embers, light,
+  const b = { root, solids, pos:root.position.clone(), top:position.y, lit:false, ignition:0, flame, embers, light,
     update(dt,time){
       b.ignition = b.lit ? Math.min(1,b.ignition + dt*2.4) : 0;
       const strength = reduceMotion ? (b.lit ? 1 : 0) : THREE.MathUtils.smoothstep(b.ignition,0,1);

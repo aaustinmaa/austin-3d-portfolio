@@ -280,7 +280,7 @@ export function createPaperBird(scene, { perch, star, hint, reduceMotion }){
     glow.position.copy(group.position).addScaledVector(toCam, -.35 - open*.25); glow.position.y += .12*(1 - open);
     glow.scale.setScalar(1.2 + open*2.2); glow.material.opacity = .14 + open*.2 + pulse*.4;
   }
-  return { pick, update, position:group.position, sheetPosition:group.position,
+  return { pick, solids:[crane, sheetIn], update, position:group.position, sheetPosition:group.position,
     get busy(){ return away >= 0; }, get unfolded(){ return away < 0 && k > .99 && z === 0; }, get ready(){ return writing && z > .97; },
     /* the wanderer is close: unfold above the lantern (or fold back up when they leave) */
     setNear(on){ near = on; },

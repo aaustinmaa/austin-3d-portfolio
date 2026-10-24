@@ -5,7 +5,7 @@ import './styles.css';
 import { rand, hash, vnoise, fbm, sstep, lerp, ease, C, mixHex, randUnit } from './noise.js';
 import { radialTex, glowTex, softTex, runeTex } from './textures.js';
 import { ABOUT, RELICS, INTENTS, FALLBACK, SKILLS, LINES, FINALE, NOTE, starLine } from './content.js';
-import { colliders, addFrustum, addBox, addPrism, floorAt, ceilingAt, pushOut, solidAt } from './colliders.js';
+import { collisionWorld, colliders, addMesh, floorAt, ceilingAt, pushOut } from './colliders.js';
 import { createOracle } from './oracle.js';
 import { createConstellation } from './constellation.js';
 import { buildForm } from './relics.js';
@@ -115,7 +115,8 @@ const rockMat = new THREE.MeshStandardMaterial({ vertexColors:true, roughness:1,
 const M4 = new THREE.Matrix4(), Q = new THREE.Quaternion();
 function inst(geo, mat, items, opts={}){ if (!items.length) return null; const m = new THREE.InstancedMesh(geo, mat, items.length);
   items.forEach((it,i) => { M4.compose(it.p, it.q || Q.identity(), it.s || new V3(1,1,1)); m.setMatrixAt(i, M4); if (it.c) m.setColorAt(i, it.c); });
-  m.frustumCulled = false; m.castShadow = !!opts.cast; m.receiveShadow = !!opts.receive; scene.add(m); return m; }
+  m.frustumCulled = false; m.castShadow = !!opts.cast; m.receiveShadow = !!opts.receive; scene.add(m);
+  if (opts.solid) addMesh(m, { name:opts.solid }); return m; }
 const yawQ = a => new THREE.Quaternion().setFromAxisAngle(UP, a);
 const pines = [], grass = [];
 const pickables = [];
@@ -131,6 +132,7 @@ const pickables = [];
     col.set([tmpC.r,tmpC.g,tmpC.b], i*3); }
   g.setAttribute('color', new THREE.BufferAttribute(col,3)); g.computeVertexNormals();
   const ground = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors:true, roughness:1, flatShading:true })); ground.receiveShadow = true; scene.add(ground); pickables.push(ground);
+  addMesh(ground, { name:'terrain', terrain:true });
   /* grass grows in soft meadows, thinning toward the lake and kept off the path */
   for (let i=0;i<7000 && grass.length<3600;i++){ const a=rand()*6.283, d=LAKE_BLOCK+.3+rand()*(WORLD_R+.5-LAKE_BLOCK), x=Math.cos(a)*d, z=Math.sin(a)*d, gy=groundH(x,z);
     if (gy < WATER_Y + .3 || (onPath(x,z) && Math.abs(x - Math.sin(z*.35)*.8) < 1.7) || fbm(x*.12+5, z*.12-2) < .34 - Math.max(0, 22 - d)*.012) continue; grass.push([x, gy, z]); }
@@ -141,14 +143,14 @@ const pickables = [];
   const stones = []; for (let z=21.5; z>10.4; z-=.95){ const sway = Math.sin(z*.35)*.8;
     for (let k=-1;k<=1;k++){ if (k && rand() < .35) continue; const x = sway + k*.95 + (rand()-.5)*.25, zz = z + (rand()-.5)*.2;
       stones.push({ p:new V3(x, groundH(x,zz) - .02, zz), q:yawQ(rand()*6), s:new V3(.75+rand()*.3, 1, .7+rand()*.3), c:mixHex('#2A3042','#3A4156', rand()) }); } }
-  inst(rockify(new THREE.CylinderGeometry(.5,.54,.14,7,1), .25, 5.1, (t,c) => c.setRGB(1,1,1), .1), new THREE.MeshStandardMaterial({ vertexColors:true, roughness:.95, flatShading:true }), stones, { receive:true });
+  inst(rockify(new THREE.CylinderGeometry(.5,.54,.14,7,1), .25, 5.1, (t,c) => c.setRGB(1,1,1), .1), new THREE.MeshStandardMaterial({ vertexColors:true, roughness:.95, flatShading:true }), stones, { receive:true, solid:'flagstones' });
 
   /* scattered boulders, some big enough to stand on */
   const bGeo = rockify(new THREE.IcosahedronGeometry(1,1), .55, 3.3, (t,c,n) => c.copy(mixHex('#191E2C','#2C3244', t)).lerp(C('#283252'), t > .78 ? .55 : 0), .4), boulders = [];
   for (let i=0;i<34;i++){ const a = rand()*6.283, d = 11 + rand()*17, x = Math.cos(a)*d, z = Math.sin(a)*d; if (onPath(x,z) || Math.hypot(x, z-21.5) < 4) continue;
     const s = .35 + Math.pow(rand(),1.6)*1.3, gy = groundH(x,z), q = yawQ(rand()*6), sz = s*(.8+rand()*.4); if (nearPillar(x, z, 1.5 + s)) continue;
-    boulders.push({ p:new V3(x, gy - s*.2, z), q, s:new V3(s, s*.72, sz) }); addFrustum(x, z, gy - .5, gy + s*.48, s*.9, s*.62, { stand: s > .55 }); }
-  inst(bGeo, rockMat, boulders, { cast:true, receive:true });
+    boulders.push({ p:new V3(x, gy - s*.2, z), q, s:new V3(s, s*.72, sz) }); }
+  inst(bGeo, rockMat, boulders, { cast:true, receive:true, solid:'boulders' });
 }
 
 /* ---------- lake ---------- */
@@ -227,7 +229,7 @@ function addCliff(a, R, rb, rt, h, top=true){
   const g = new THREE.CylinderGeometry(rt, rb, h, 11, 14, false); g.translate(0,h/2,0); rockify(g, .34, a*3.7+R, cliffCol, 0);
   const m = new THREE.Mesh(g, rockMat); const x=Math.sin(a)*R, z=Math.cos(a)*R, by=groundH(x*.82,z*.82)-2;
   m.position.set(x,by,z); m.castShadow = true; m.receiveShadow = true; scene.add(m);
-  addFrustum(x, z, by, by+h, rb*.9, rt*.9);
+  addMesh(m, { name:'cliff' });
   if (top){ const n = 2 + Math.floor(rand()*3); for (let i=0;i<n;i++){ const aa=rand()*6.283, d=rand()*rt*.55; pines.push({ x:x+Math.cos(aa)*d, y:by+h-.15, z:z+Math.sin(aa)*d, s:1.1+rand()*.9 }); } }
   cliffs.push({a,R,rb,rt,h,by}); return m;
 }
@@ -257,7 +259,7 @@ const bandMat = new THREE.MeshBasicMaterial({ color:0x78E6F0, transparent:true, 
     const cap = new THREE.Mesh(new THREE.BoxGeometry(1.7,.4,1.7), stone); cap.position.y = h + .2; shaft.add(cap);
     const band = new THREE.Mesh(new THREE.CylinderGeometry(.6,.6,.12,24,1,true), bandMat); band.position.y = h*.62; shaft.add(band);
     [shaft, cap].forEach(m => { m.castShadow = m.receiveShadow = true; m.userData.perch = new V3(o.x, gy + h + .4, o.z); pickables.push(m); });
-    addFrustum(o.x, o.z, gy - .3, gy + h, .7, .55, { stand:false }); addBox(o.x, o.z, gy + h, gy + h + .4, .85, .85, rot); });
+    addMesh(shaft, { name:'wish-pillar', filter:m => m !== band }); });
 }
 
 /* ---------- spiral stair, landings, braziers ---------- */
@@ -265,7 +267,7 @@ const pathLights = [];
 /* a stone cut to a given top outline (convex, in plan around its centre) and reaching down to the given points below it: a flat top with one
    clean edge over a few broad faces. It is the convex hull of the outline and those points.
    `top` is the face you walk on, `under` everything below it, `rim` the top's corners in order around it. */
-function floatingStone(sd, outline, below, thick, depth, topCol){
+function floatingStone(sd, outline, below, depth, topCol){
   const pts = outline.map(v => v.clone()).concat(below);
   /* the top is one even stone colour; each facet below takes its own shade, darkening toward the point */
   const g = new ConvexGeometry(pts), P = g.attributes.position, N = g.attributes.normal, top = { p:[], c:[] }, under = { p:[], c:[] }, c = new THREE.Color();
@@ -274,7 +276,7 @@ function floatingStone(sd, outline, below, thick, depth, topCol){
       if (up) c.copy(topCol).offsetHSL(0,0,(fbm(x*.7 + sd, z*.7 - sd) - .5)*.05); else c.copy(mixHex('#151926','#30364C', sstep(-depth, 0, y))).offsetHSL(0,0,shade);
       o.p.push(x,y,z); o.c.push(c.r,c.g,c.b); } }
   const geo = o => { const b = new THREE.BufferGeometry(); b.setAttribute('position', new THREE.Float32BufferAttribute(o.p,3)); b.setAttribute('color', new THREE.Float32BufferAttribute(o.c,3)); b.computeVertexNormals(); return b; };
-  return { top:geo(top), under:geo(under), rim:outline, thick, depth };
+  return { top:geo(top), under:geo(under), rim:outline, depth };
 }
 /* the convex hull, in plan, of some points, as corners in order around it */
 function planHull(ps){
@@ -284,12 +286,9 @@ function planHull(ps){
 /* every stone's top centre, so a click anywhere on a stone can set you down on it */
 const stones = [];
 const stoneAt = pt => stones.filter(s => pt.y > s.y - s.depth - .3 && pt.y < s.y + .1).reduce((b,s) => !b || Math.hypot(s.x - pt.x, s.z - pt.z) < Math.hypot(b.x - pt.x, b.z - pt.z) ? s : b, null);
-/* a stone placed with its top centre at (x, y, z): a prism over the top's outline carries you, a cone stands in for the rock underneath */
-function placeStone(s, x, y, z){ const rim = s.rim;
-  addPrism(y - s.thick, y, rim.map(v => [x + v.x, z + v.z]));
-  const inR = Math.min(...rim.map((a,k) => { const b = rim[(k+1)%rim.length]; return Math.abs(a.x*b.z - a.z*b.x)/Math.hypot(b.x - a.x, b.z - a.z); }));
-  addFrustum(x, z, y - s.depth, y - s.thick, 0, inR*.85, { stand:false, ceil:true });
-  stones.push({ x, y, z, depth:s.depth, reach:Math.max(...rim.map(v => Math.hypot(v.x, v.z))) }); }
+/* Every stone's actual top and underside are registered together after merging. Keep centres for click-to-land. */
+function placeStone(s, x, y, z){
+  stones.push({ x, y, z, depth:s.depth, reach:Math.max(...s.rim.map(v => Math.hypot(v.x, v.z))) }); }
 const braziers = [];
 {
   /* the stair is a winding run of rock cracked into stones, with a slanted, upright cut between each step and the next. Each stone has its own
@@ -328,17 +327,17 @@ const braziers = [];
     const far = land ? [A.at(e.bOut, A.h), A.at(e.bOut*(.7 + hash(i, 9.7)*.15), A.h - .5 - hash(i, 8.1)*.5), B.at(e.fOut, B.h), B.at(e.fOut*(.7 + hash(i, 9.9)*.15), B.h - .5 - hash(i, 8.4)*.5)] : [];
     const k = outline[Math.floor(hash(i, 4.9)*outline.length)], tip = new V3(k.x*(.15 + hash(i, 6.6)*.3), -depth, k.z*(.15 + hash(i, 6.6)*.3));
     const below = A.face.concat(B.face, far).map(v => new V3(v.x - cx, v.y - p.y, v.z - cz)).filter(v => v.y < -.01).concat([tip]);
-    const s = floatingStone(sd, outline, below, land ? .55 : .42, depth, col);
+    const s = floatingStone(sd, outline, below, depth, col);
     M4.makeTranslation(cx, p.y, cz); tops.push(s.top.applyMatrix4(M4)); unders.push(s.under.applyMatrix4(M4));
     placeStone(s, cx, p.y, cz);
     if (land) landings[i] = { p, x:cx, z:cz, rim:outline }; else if (i % 4 === 2) pathLights.push({ x:cx, y:p.y, z:cz }); }
   const stoneTop = new THREE.Mesh(merge(tops), rockMat), stoneBot = new THREE.Mesh(merge(unders), rockMat);
-  [stoneTop, stoneBot].forEach(o => { o.castShadow = o.receiveShadow = true; o.userData.stone = true; scene.add(o); pickables.push(o); });
+  [stoneTop, stoneBot].forEach(o => { o.castShadow = o.receiveShadow = true; o.userData.stone = true; scene.add(o); pickables.push(o); addMesh(o, { name:'stair-stone' }); });
   const plG = new THREE.BufferGeometry(); plG.setAttribute('position', new THREE.Float32BufferAttribute(pathLights.flatMap(p => [p.x, p.y+.18, p.z]), 3));
   scene.add(new THREE.Points(plG, new THREE.PointsMaterial({ size:.9, map:glowTex, color:0x78E6F0, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending })));
   BRAZIER_AT.forEach(idx => { const { p, x, z, rim } = landings[idx], out = new V3(Math.sin(p.a),0,Math.cos(p.a)), c = new V3(p.x,0,p.z).addScaledVector(out, 2);
     const b = createBrazier(scene,new V3(c.x + out.x*.8,p.y,c.z + out.z*.8),{ seed:idx*.73, reduceMotion, pixelRatio:PIXEL }); braziers.push(b);
-    addFrustum(b.pos.x, b.pos.z, p.y, p.y+1.23, .34, .55, { stand:false });
+    b.solids.forEach(m => addMesh(m, { name:'brazier' }));
     /* a pine to one side, partway toward the corner of the landing nearest that side so it always stands on the rock */
     const side = new V3(out.z*1.4 - out.x*1.6, 0, -out.x*1.4 - out.z*1.6), k = rim.reduce((b,v) => v.dot(side) > b.dot(side) ? v : b);
     pines.push({ x:x + k.x*.6, y:p.y-.05, z:z + k.z*.6, s:.8, valley:true }); });
@@ -353,18 +352,18 @@ const braziers = [];
   const spots = [[22.6,-1],[22.6,1],[19.7,-1],[16.9,1],[14.1,-1],[11.4,-1],[11.4,1]].map(([z,sd]) => { const x = Math.sin(z*.35)*.8 + sd*1.75; return { x, z, y:groundH(x,z) }; });
   const items = spots.map(o => ({ p:new V3(o.x, o.y - .04, o.z), q:yawQ(o.x*3) }));
   spots.slice(-3).forEach((o, i) => lakeMat.uniforms.lamps.value[i].set(o.x, o.y + 1.54, o.z));   // the lanterns closest to the lake show in it
-  inst(bronzeG, bronze, items, { cast:true }); inst(footG, stone, items, { cast:true, receive:true }); inst(glassG, new THREE.MeshBasicMaterial({ color:0xFFD6A0 }), items);
+  inst(bronzeG, bronze, items, { cast:true, solid:'lantern-frame' }); inst(footG, stone, items, { cast:true, receive:true, solid:'lantern-foot' }); inst(glassG, new THREE.MeshBasicMaterial({ color:0xFFD6A0 }), items, { solid:'lantern-glass' });
   spots.forEach(o => {
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xFFB86B, transparent:true, opacity:.6, depthWrite:false, blending:THREE.AdditiveBlending })); glow.position.set(o.x, o.y + 1.54, o.z); glow.scale.setScalar(1.5); scene.add(glow);
     const pool = new THREE.Mesh(new THREE.CircleGeometry(1.6, 24).rotateX(-Math.PI/2), new THREE.MeshBasicMaterial({ map:glowTex, color:0xFFB070, transparent:true, opacity:.16, depthWrite:false, blending:THREE.AdditiveBlending }));
-    pool.position.set(o.x, o.y + .06, o.z); scene.add(pool);
-    addFrustum(o.x, o.z, o.y - .3, o.y + .16, .26, .2, { stand:false }); addFrustum(o.x, o.z, o.y + .16, o.y + 1.85, .08, .08, { stand:false }); });
+    pool.position.set(o.x, o.y + .06, o.z); scene.add(pool); });
 }
 
 /* ---------- the paper crane: a way to leave Austin a note, on the last lantern on the right, where the path turns up to the stair ---------- */
 const CRANE_LANTERN = { x:Math.sin(11.4*.35)*.8 + 1.75, z:11.4 };
 const bird = createPaperBird(scene, { perch:new V3(CRANE_LANTERN.x, groundH(CRANE_LANTERN.x, CRANE_LANTERN.z) + 1.83, CRANE_LANTERN.z), star:() => oracle.position, hint:NOTE.crane, reduceMotion });
 pickables.push(...bird.pick);
+bird.solids.forEach(m => addMesh(m, { name:'paper-crane', dynamic:true, deforming:true, twoSided:true, stand:false }));
 
 /* ---------- vegetation ---------- */
 /* a pine: five drooping, ragged tiers over a short trunk, coloured darker inside and frosted at the tips */
@@ -389,8 +388,7 @@ function grassGeo(){
 const grassU = { t:{ value:0 }, glow:{ value:0 } };
 {
   const clear = t => !t.valley || !nearPillar(t.x, t.z, 1.2 + 1.1*t.s);
-  inst(pineGeo(), new THREE.MeshStandardMaterial({ vertexColors:true, roughness:1, flatShading:true }), pines.map(t => ({ p:new V3(t.x,t.y,t.z), q:yawQ(rand()*6), s:new V3(t.s,t.s*(.9+rand()*.45),t.s), c:mixHex('#C4C8E4','#FFFFFF',rand()) })).filter((it,i) => clear(pines[i])), { cast:true, receive:true });
-  pines.filter(t => t.valley && clear(t)).forEach(t => { addFrustum(t.x, t.z, t.y, t.y + 1.2*t.s, .17*t.s, .12*t.s, { stand:false }); addFrustum(t.x, t.z, t.y + .75*t.s, t.y + 3.6*t.s, .95*t.s, .05, { stand:false, ceil:false }); });
+  inst(pineGeo(), new THREE.MeshStandardMaterial({ vertexColors:true, roughness:1, flatShading:true }), pines.map(t => ({ p:new V3(t.x,t.y,t.z), q:yawQ(rand()*6), s:new V3(t.s,t.s*(.9+rand()*.45),t.s), c:mixHex('#C4C8E4','#FFFFFF',rand()) })).filter((it,i) => clear(pines[i])), { cast:true, receive:true, solid:'pine' });
   const grassMat = new THREE.MeshStandardMaterial({ vertexColors:true, roughness:1, side:THREE.DoubleSide });
   grassMat.onBeforeCompile = sh => { sh.uniforms.gT = grassU.t; sh.uniforms.gGlow = grassU.glow;
     sh.vertexShader = 'uniform float gT;\nvarying float vTip;\n' + sh.vertexShader.replace('#include <begin_vertex>', `vec3 transformed = vec3(position); vTip = uv.y;
@@ -446,6 +444,7 @@ const MIST = 26; const mists = []; for (let i=0;i<MIST;i++){ const a=rand()*6.28
 
 /* ---------- the star (the Oracle) and its column of light down to the lake ---------- */
 const oracle = createOracle(scene, { y:ORACLE_Y, main:MAIN, reduceMotion });
+addMesh(oracle.group, { name:'oracle-crystal', dynamic:true, stand:false, filter:m => m.userData.solid });
 const oracleState = { energy:0, target:0, eye:0, eyeTarget:0 };
 const beamVert = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }';
 const beamFrag = `uniform float t; uniform float fade; uniform float rep; uniform vec3 col; varying vec2 vUv;
@@ -495,13 +494,7 @@ function beamTo(r){ beamState = { life:3.2, relic:r }; beamMat.uniforms.col.valu
 /* ---------- the skill constellation ---------- */
 const starLabels = document.createElement('div'); starLabels.id = 'starLabels'; document.body.appendChild(starLabels);
 /* is a direction from o blocked by a basalt wall? Stars behind rock are hidden by depth; their names hide with them */
-function skyBlocked(o, d){ const hl2 = d.x*d.x + d.z*d.z; if (hl2 < 1e-8) return false;
-  for (const c of cliffs){ const x = Math.sin(c.a)*c.R, z = Math.cos(c.a)*c.R, along = ((x - o.x)*d.x + (z - o.z)*d.z)/hl2;
-    const miss = Math.hypot(o.x + d.x*along - x, o.z + d.z*along - z); if (along <= 0 || miss > c.rb) continue;
-    const half = Math.sqrt(c.rb*c.rb - miss*miss)/Math.sqrt(hl2);
-    for (let k = 0; k <= 6; k++){ const t = Math.max(0, along - half + half*k/3), y = o.y + d.y*t - c.by; if (y < 0 || y > c.h) continue;
-      const r = c.rb + (c.rt - c.rb)*y/c.h, qx = o.x + d.x*t - x, qz = o.z + d.z*t - z; if (qx*qx + qz*qz < r*r) return true; } }
-  return false; }
+function skyBlocked(o, d){ return !!collisionWorld.rayHit(o, d, 900, s => s.name === 'cliff'); }
 const sky = createConstellation(scene, { skills:SKILLS, relics:RELICS, labelsEl:starLabels, reduceMotion, blocked:skyBlocked });
 
 /* ---------- relics ---------- */
@@ -509,6 +502,8 @@ const sealMatBase = new THREE.MeshBasicMaterial({ map:runeTex, transparent:true,
 const hitMat = new THREE.MeshBasicMaterial({ visible:false });
 RELICS.forEach(r => {
   r.group = new THREE.Group(); scene.add(r.group); r.model = buildForm(r); r.group.add(r.model);
+  addMesh(r.model, { name:'relic', dynamic:true, relic:r, stand:false,
+    filter:m => !m.material.isShaderMaterial && m.material.blending !== THREE.AdditiveBlending });
   r.seal = new THREE.Group(); r.group.add(r.seal);
   [[1.55,.0],[1.75,1.1],[1.4,-1.0]].forEach(([R,tilt],i) => { const m = sealMatBase.clone(); m.color = C(r.color).lerp(C('#FFFFFF'), .25); m.opacity = .85;
     const band = new THREE.Mesh(new THREE.CylinderGeometry(R,R,.34,9,1,true), m); band.rotation.set(tilt,0,tilt*.6); band.userData.spd = (i%2 ? -1 : 1)*(.6+i*.25); r.seal.add(band); });
@@ -531,16 +526,20 @@ function burst(pos, color, n=70, power=1){
 }
 
 /* ---------- the wanderer ---------- */
+collisionWorld.build();
 const H = buildHero(scene), hero = H.root;
 
 /* ---------- player ---------- */
 const P = { pos:new V3(0,0,21.5), vel:new V3(), onGround:true, facing:Math.PI, target:null, flight:null, walk:0, speed:0, draw:0, drawing:false, auto:null,
   energy:1, flying:false, soared:false, jumpT:-9, stall:0 };
-P.pos.y = groundH(P.pos.x, P.pos.z);
-const SPEED = 7, GRAV = 26, JUMP = 9.6, STEP_UP = .6, ASCEND = 7.5, CEILING = 47, AIR_R = 33, FLY_SECONDS = 7.5, BODY_R = .32, HEAD = 1.7;
+P.pos.y = floorAt(P.pos.x, P.pos.z, groundH(P.pos.x, P.pos.z), .6, groundH(P.pos.x, P.pos.z)).h;
+const SPEED = 7, GRAV = 26, JUMP = 9.6, STEP_UP = .6, ASCEND = 7.5, CEILING = 47, AIR_R = 33, FLY_SECONDS = 7.5, BODY_R = .46, HEAD = 1.7;
 function jumpPress(){ if (P.flight) return; skipIntro(); if (P.onGround){ P.vel.y = JUMP; P.onGround = false; P.jumpT = T; } else P.jumpT = T - 1; }
 function supportAt(x,z,y){ return floorAt(x, z, y, STEP_UP, groundH(x,z)); }
-function flyTo(dest){ const from = P.pos.clone(), dist = from.distanceTo(dest); P.flight = { from, to:dest.clone(), t:0, dur:Math.min(3.6, Math.max(1.2, dist/12)), arc:2 + dist*.12 }; P.target = null; P.vel.set(0,0,0); }
+function flyTo(dest){ const from = P.pos.clone(), dist = from.distanceTo(dest);
+  // Approach a higher perch from above, with room for the whole robe before reaching its edge.
+  const arc = Math.max(2 + dist*.12, (dest.y - from.y)/Math.PI + HEAD + BODY_R);
+  P.flight = { from, to:dest.clone(), t:0, dur:Math.min(3.6, Math.max(1.2, dist/12)), arc }; P.target = null; P.vel.set(0,0,0); }
 /* Catch a descent over open water and ease onto dry ground instead of snapping to the bank. */
 function glideToShore(){
   const r = Math.hypot(P.pos.x, P.pos.z), angle = r > .1 ? Math.atan2(P.pos.x, P.pos.z) : camS.yaw;
@@ -572,7 +571,7 @@ function fireArrow(from, dir, speed, target){
   const tipS = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0x9FF2FF, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending })); tipS.position.z = .5; tipS.scale.set(.9,.9,1); g.add(tipS);
   const tg = new THREE.BufferGeometry(), tp = new Float32Array(ARROW_TRAIL_POINTS*3); for (let i=0;i<ARROW_TRAIL_POINTS;i++) tp.set([from.x,from.y,from.z], i*3); tg.setAttribute('position', new THREE.BufferAttribute(tp,3));
   const trail = new THREE.Line(tg, new THREE.LineBasicMaterial({ color:0x9FF2FF, transparent:true, opacity:.7, blending:THREE.AdditiveBlending, depthWrite:false })); trail.frustumCulled = false; scene.add(trail);
-  g.position.copy(from); scene.add(g); arrows.push({ g, tipS, trail, trailHistory:[{ time:0, pos:from.clone() }], pos:from.clone(), vel:dir.clone().normalize().multiplyScalar(speed), target, life: target ? 4 : 3.2, stuck:false, age:0 });
+  g.position.copy(from); scene.add(g); arrows.push({ g, tipS, trail, trailHistory:[{ time:0, pos:from.clone() }], pos:from.clone(), tip:from.clone(), vel:dir.clone().normalize().multiplyScalar(speed), target, life: target ? 4 : 3.2, stuck:false, age:0 });
 }
 /* Resample a fixed duration of the actual path, independent of frame rate. */
 function updateArrowTrail(a){
@@ -592,28 +591,37 @@ function updateArrowTrail(a){
   }
   attr.needsUpdate = true;
 }
-const aPrev = new V3(), aSeg = new V3(), aTip = new V3(), aDir = new V3();
-/* first point along the segment where the arrow's tip enters something solid or the ground; null if it flies clear */
-function arrowImpact(from, to){
-  aSeg.subVectors(to, from); const len = aSeg.length(); if (len < 1e-5) return null; aDir.copy(aSeg).divideScalar(len);
-  const n = Math.ceil(len/.18);
-  for (let k=1;k<=n;k++){ aTip.copy(from).addScaledVector(aSeg, k/n).addScaledVector(aDir, .5);
-    if (solidAt(aTip) || (aTip.y < groundH(aTip.x, aTip.z) + .02 && Math.hypot(aTip.x, aTip.z) < 64)) return aPrev.copy(from).addScaledVector(aSeg, k/n); }
-  return null;
-}
 function updateArrows(dt){
   for (let i = arrows.length-1; i >= 0; i--){
     const a = arrows[i]; a.life -= dt; a.age += dt;
     if (!a.stuck){
-      if (a.target){ const want = a.target.pos.clone().sub(a.pos); const d = want.length(); want.normalize().multiplyScalar(Math.max(50, a.vel.length())); a.vel.lerp(want, Math.min(1, dt*(6 + a.age*10))); if (d < 1.2 || a.age > 2.5){ hitRelic(a.target, a.pos); a.life = 0; } }
+      if (a.target){ const want = a.target.pos.clone().sub(a.pos); want.normalize().multiplyScalar(Math.max(50, a.vel.length())); a.vel.lerp(want, Math.min(1, dt*(6 + a.age*10))); }
       else a.vel.y -= 6*dt;
-      const from = a.pos.clone(); a.pos.addScaledVector(a.vel, dt);
-      if (!a.target){ for (const r of RELICS){ if ((r.state === 'orbit') && r.group.visible && a.pos.distanceTo(r.pos) < 1.9){ hitRelic(r, a.pos); a.life = 0; break; } } }
-      if (!a.target && a.life > 0){ const hit = arrowImpact(from, a.pos);
-        if (hit){ a.pos.copy(hit); a.stuck = true; a.life = Math.min(a.life + 4, 7); a.tipS.material.opacity = .5; burst(aTip.clone(), C('#9FF2FF'), 14, .25); } }
-      a.g.position.copy(a.pos); a.g.quaternion.setFromUnitVectors(ZAX, a.vel.clone().normalize());
+      a.pos.addScaledVector(a.vel, dt);
+      const direction = a.vel.clone().normalize(), tip = a.pos.clone().addScaledVector(direction, .5);
+      const hit = collisionWorld.segmentHit(a.tip, tip);
+      if (hit){
+        a.pos.copy(hit.point).addScaledVector(direction, -.5);
+        const relic = hit.solid.relic;
+        if (relic && relic.state === 'orbit'){ hitRelic(relic, hit.point); a.life = 0; }
+        else {
+          a.stuck = true; a.target = null; a.life = Math.min(a.life + 4, 7); a.tipS.material.opacity = .5;
+          if (hit.solid.dynamic){
+            const inverse = hit.object.matrixWorld.clone().invert();
+            a.attachment = { object:hit.object, position:a.pos.clone().applyMatrix4(inverse), direction:direction.clone().transformDirection(inverse) };
+          }
+          burst(hit.point, C('#9FF2FF'), 14, .25);
+        }
+      }
+      a.tip.copy(tip);
+      a.g.position.copy(a.pos); a.g.quaternion.setFromUnitVectors(ZAX, direction);
       updateArrowTrail(a);
-    } else a.tipS.material.opacity = Math.max(0, Math.min(.5, a.life*.3));
+    } else {
+      if (a.attachment){ const { object, position, direction } = a.attachment;
+        a.pos.copy(position).applyMatrix4(object.matrixWorld); a.g.position.copy(a.pos);
+        a.g.quaternion.setFromUnitVectors(ZAX, direction.clone().transformDirection(object.matrixWorld)); }
+      a.tipS.material.opacity = Math.max(0, Math.min(.5, a.life*.3));
+    }
     a.trail.material.opacity = a.stuck ? Math.max(0, a.trail.material.opacity - dt*2) : Math.max(0, Math.min(.7, a.life*.5));
     if (a.life <= 0){ scene.remove(a.g); scene.remove(a.trail); a.g.children.forEach(c => c.material && c.material.dispose()); a.trail.geometry.dispose(); arrows.splice(i,1); }
   }
@@ -750,9 +758,8 @@ function autoShoot(r){ if (P.auto || P.flight) return; P.auto = { r, t:0 }; P.ta
 function fireManual(){
   const from = bowWorld(); ray.setFromCamera(ndc.set(0,0), camera);
   let aimPt = camera.position.clone().addScaledVector(ray.ray.direction, 140);
-  const hit = ray.intersectObjects(pickables, false).find(h => !h.object.userData.relic && h.distance > 2); if (hit) aimPt = hit.point;
-  const relicAim = RELICS.filter(r => r.state === 'orbit' && r.group.visible).map(r => ({ r, d: ray.ray.distanceToPoint(r.pos), t: r.pos.clone().sub(camera.position).dot(ray.ray.direction) })).filter(o => o.d < 1.9 && o.t > 0).sort((a,b) => a.t - b.t)[0];
-  if (relicAim) aimPt = camera.position.clone().addScaledVector(ray.ray.direction, relicAim.t);
+  const hit = collisionWorld.rayHit(camera.position, ray.ray.direction, 140, s => s.arrows);
+  if (hit) aimPt = hit.point;
   fireArrow(from, aimPt.sub(from), 26 + 52*P.draw, null); P.draw = 0;
 }
 function setMode(m){ mode = m; document.getElementById('modeAuto').setAttribute('aria-pressed', m === 'auto'); document.getElementById('modeAim').setAttribute('aria-pressed', m === 'aim');
@@ -789,6 +796,8 @@ function followPose(){
   const dist = aim ? 4.4 : gaze ? Math.min(camS.dist, 6) : camS.dist;
   let d = dist; for (let k=0;k<12;k++){ const p = pivot.clone().addScaledVector(Lp, -d); const g = groundH(p.x,p.z); if (p.y > g + .35 && Math.hypot(p.x,p.z) < 42) break; d *= .82; }
   wantPos.copy(pivot).addScaledVector(Lp, -d);
+  const obstruction = collisionWorld.segmentHit(pivot, wantPos, s => s.body);
+  if (obstruction) wantPos.copy(pivot).addScaledVector(Lp, -Math.max(.25, obstruction.distance - .25));
   /* stay above the grass tops so blades never fill the view */
   if (wantPos.y < groundH(wantPos.x, wantPos.z) + .95) wantPos.y = groundH(wantPos.x, wantPos.z) + .95;
   wantLook.copy(pivot).addScaledVector(L, 30);
@@ -800,16 +809,23 @@ function updateCamera(dt){
   if (intro){ intro.t += dt; const e = ease(Math.min(1, Math.max(0, (intro.t-1.6)/(intro.dur-1.6))));
     camPos.lerpVectors(intro.from, wantPos, e); camLook.lerpVectors(intro.look, wantLook, e); if (intro.t >= intro.dur){ intro = null; welcome(); } }
   else { const k = 1 - Math.exp(-dt*(mode === 'aim' ? 14 : 7)); camPos.lerp(wantPos, k); camLook.lerp(wantLook, 1 - Math.exp(-dt*(mode === 'aim' ? 20 : 10))); }
+  if (!intro){
+    const pivot = P.pos.clone().add(new V3(0,1.55,0)), obstruction = collisionWorld.segmentHit(pivot, camPos, s => s.body);
+    if (obstruction){ const d = camPos.clone().sub(pivot).normalize(); camPos.copy(pivot).addScaledVector(d, Math.max(.1, obstruction.distance - .25)); }
+  }
   camera.position.copy(camPos); camera.lookAt(camLook); skyGroup.position.copy(camera.position);
   const fov = mode === 'aim' ? baseFov - 6 - P.draw*12 : gaze ? baseFov + 14 : baseFov; if (Math.abs(camera.fov - fov) > .05){ camera.fov = lerp(camera.fov, fov, 1 - Math.exp(-dt*8)); camera.updateProjectionMatrix(); }
 }
 
 /* ---------- simulation ---------- */
-const pushP = { x:0, z:0 };
 function updatePlayer(dt){
   if (P.flight){ const f = P.flight; f.t += dt/f.dur; const t = Math.min(1,f.t), e = t<.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;
-    const prev = P.pos.clone(); P.pos.lerpVectors(f.from, f.to, e); P.pos.y += Math.sin(Math.PI*e)*f.arc; const d = P.pos.clone().sub(prev); if (d.x*d.x+d.z*d.z > 1e-6) P.facing = Math.atan2(d.x,d.z);
-    if (t >= 1){ P.flight = null; P.vel.set(0,0,0); P.onGround = true; } P.speed = 0; return; }
+    const prev = P.pos.clone(), next = new V3().lerpVectors(f.from, f.to, e); next.y += Math.sin(Math.PI*e)*f.arc;
+    const motion = collisionWorld.moveBody(prev, next, BODY_R, HEAD); P.pos.copy(motion.position);
+    const d = P.pos.clone().sub(prev); if (d.x*d.x+d.z*d.z > 1e-6) P.facing = Math.atan2(d.x,d.z);
+    if (t >= 1 || motion.collided){ P.flight = null; P.vel.set(0,0,0); P.flying = false;
+      P.onGround = motion.grounded || Math.abs(supportAt(P.pos.x, P.pos.z, P.pos.y).h - P.pos.y) < .05; }
+    P.speed = 0; return; }
   let mx = 0, mz = 0;
   const fwd = (keys.KeyW||keys.ArrowUp?1:0) - (keys.KeyS||keys.ArrowDown?1:0), side = (keys.KeyD||keys.ArrowRight?1:0) - (keys.KeyA||keys.ArrowLeft?1:0);
   if (fwd || side){ const fx = -Math.sin(camS.yaw), fz = -Math.cos(camS.yaw), rx = Math.cos(camS.yaw), rz = -Math.sin(camS.yaw); mx = fx*fwd + rx*side; mz = fz*fwd + rz*side; P.target = null; }
@@ -824,8 +840,10 @@ function updatePlayer(dt){
   if (!s0.onPlatform && P.pos.y < 2 && nr < LAKE_BLOCK && Math.hypot(P.pos.x,P.pos.z) >= LAKE_BLOCK - 1e-4){
     const s = LAKE_BLOCK/nr; nx *= s; nz *= s; P.target = null;
   }
-  /* walls: anything taller than a step between the feet and the head pushes the body back out */
-  pushP.x = nx; pushP.z = nz; if (pushOut(pushP, P.pos.y + STEP_UP, P.pos.y + HEAD, BODY_R)){ nx = pushP.x; nz = pushP.z; }
+  /* The full airborne body meets the rendered faces; only walking gets a step allowance. */
+  const step = P.onGround ? STEP_UP : 0;
+  const horizontal = collisionWorld.moveBody(P.pos, new V3(nx, P.pos.y, nz), BODY_R, HEAD, step);
+  nx = horizontal.position.x; nz = horizontal.position.z;
   const moved = Math.hypot(nx - P.pos.x, nz - P.pos.z);
   if (P.target && moved < spd*dt*.25){ if ((P.stall += dt) > .5){ P.target = null; P.stall = 0; } } else P.stall = 0;
   /* stepping stones: walking off one over open air toward another just ahead hops across and lands a little way onto it */
@@ -843,14 +861,20 @@ function updatePlayer(dt){
   let ny = P.pos.y + P.vel.y*dt;
   /* ceilings: platform undersides stop the head */
   if (P.vel.y > 0){ const ceil = ceilingAt(nx, nz, P.pos.y + HEAD); if (ny + HEAD > ceil){ ny = Math.max(P.pos.y, ceil - HEAD); P.vel.y = 0; } }
-  const sup = supportAt(nx, nz, P.pos.y);
+  const sup = floorAt(nx, nz, P.pos.y, step, groundH(nx,nz));
   if (!sup.onPlatform && !P.flying && P.vel.y <= 0 && ny < 2 && Math.hypot(nx,nz) < LAKE_BLOCK - 1e-4){
     glideToShore(); if (P.flight) return;
   }
   if (ny > CEILING){ ny = CEILING; P.vel.y = Math.min(P.vel.y, 0); }
   if (ny <= sup.h){ ny = sup.h; P.vel.y = 0; P.onGround = true; } else P.onGround = ny - sup.h < .05;
   if (P.onGround){ P.soared = false; P.energy = Math.min(1, P.energy + dt/1.4); }
-  P.pos.set(nx, ny, nz); P.speed = Math.hypot(P.vel.x, P.vel.z);
+  const motion = collisionWorld.moveBody(P.pos, new V3(nx, ny, nz), BODY_R, HEAD, step);
+  P.pos.copy(motion.position);
+  for (const normal of horizontal.contacts.concat(motion.contacts)){
+    const into = P.vel.dot(normal); if (into < 0) P.vel.addScaledVector(normal, -into);
+  }
+  P.onGround ||= motion.grounded;
+  P.speed = Math.hypot(P.vel.x, P.vel.z);
   let want = null;
   if (mode === 'aim') want = camS.yaw + Math.PI;
   else if (P.auto){ const d = P.auto.r.pos.clone().sub(P.pos); want = Math.atan2(d.x, d.z); }
@@ -1039,7 +1063,8 @@ document.querySelectorAll('[data-placeholder]').forEach(a => a.addEventListener(
 let last = performance.now();
 function simulate(dt){
   T += dt;
-  updatePlayer(dt); updateHero(dt); updateRelics(dt); updateArrows(dt); updateCamera(dt); updateWorld(dt); updateBird(dt); updateHover();
+  updateWorld(dt); updateRelics(dt); updateBird(dt); collisionWorld.updateDynamic();
+  updatePlayer(dt); updateHero(dt); updateArrows(dt); updateCamera(dt); updateHover();
   sky.update(dt, T, camera, { showAll:gaze, hover:hoverStar, focus:openRelic });
   updateLabels(); updateCross(); updateStamina();
 }
@@ -1053,5 +1078,5 @@ setTimeout(() => oracleSay(LINES.intro), reduceMotion ? 200 : 2000);
 if (!intro) setTimeout(welcome, 600);
 
 /* dev-only handle for poking at the scene from the browser console; stripped from production builds */
-if (import.meta.env.DEV) window.__valley = { P, camS, RELICS, sky, oracle, world, colliders, bird, braziers, openLetter, closeLetter, summon, setGaze, scene, camera, renderer, keys, fireArrow, arrows,
+if (import.meta.env.DEV) window.__valley = { P, camS, RELICS, sky, oracle, world, colliders, collisionWorld, bird, braziers, openLetter, closeLetter, summon, setGaze, scene, camera, renderer, keys, fireArrow, arrows, flyTo,
   step(n=60, dt=1/60){ for (let i=0;i<n;i++) simulate(dt); reflectLake(); renderer.render(scene, camera); } };

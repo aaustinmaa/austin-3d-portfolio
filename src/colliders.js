@@ -1,88 +1,192 @@
-// Solid shapes shared by the wanderer and the arrows. Each collider is an upright frustum (a cylinder, or a cone
-// when one radius is 0), a box turned about the vertical axis, or an upright prism over a convex outline. Flags:
-//   stand  its flat top can be stood on        ceil   its underside stops the wanderer's head
-//   body   blocks the wanderer                 arrows stops arrows
-export const colliders = [];
-const clamp01 = t => t < 0 ? 0 : t > 1 ? 1 : t;
+import { Box3, Matrix4, Ray, Triangle, Vector3 } from 'three';
+import { Octree } from 'three/examples/jsm/math/Octree.js';
+import { Capsule } from 'three/examples/jsm/math/Capsule.js';
 
-export function addFrustum(x, z, y0, y1, r0, r1, o={}){
-  const c = { kind:'f', x, z, y0, y1, r0, r1, R:Math.max(r0, r1), stand: o.stand ?? r1 > .3, ceil: o.ceil ?? r0 > .3, body: o.body ?? true, arrows: o.arrows ?? true };
-  colliders.push(c); return c;
-}
-export function addBox(x, z, y0, y1, hx, hz, rot=0, o={}){
-  const c = { kind:'b', x, z, y0, y1, hx, hz, cs:Math.cos(rot), sn:Math.sin(rot), R:Math.hypot(hx, hz), stand: o.stand ?? true, ceil: o.ceil ?? true, body: o.body ?? true, arrows: o.arrows ?? true };
-  colliders.push(c); return c;
-}
-/* an upright prism over a convex outline, given as [x, z] corners in order (either winding) */
-export function addPrism(y0, y1, pts, o={}){
-  const n = pts.length, x = pts.reduce((s,p) => s + p[0], 0)/n, z = pts.reduce((s,p) => s + p[1], 0)/n;
-  const w = Math.sign(pts.reduce((s,p,i) => { const q = pts[(i+1)%n]; return s + p[0]*q[1] - q[0]*p[1]; }, 0));
-  const edges = pts.map((p,i) => { const q = pts[(i+1)%n], l = Math.hypot(q[0] - p[0], q[1] - p[1]); return { x:p[0], z:p[1], nx:w*(q[1] - p[1])/l, nz:-w*(q[0] - p[0])/l }; });
-  const c = { kind:'p', x, z, y0, y1, edges, R:Math.max(...pts.map(p => Math.hypot(p[0] - x, p[1] - z))), stand: o.stand ?? true, ceil: o.ceil ?? true, body: o.body ?? true, arrows: o.arrows ?? true };
-  colliders.push(c); return c;
-}
-const radiusAt = (c, y) => c.r0 + (c.r1 - c.r0)*clamp01((y - c.y0)/(c.y1 - c.y0));
-/* box-local coordinates of a world point (inverse of a rotation about +y) */
-function local(c, x, z, out){ const dx = x - c.x, dz = z - c.z; out.x = dx*c.cs - dz*c.sn; out.z = dx*c.sn + dz*c.cs; return out; }
-const L = { x:0, z:0 };
-/* how far (x, z) lies outside a prism's outline, measured from its nearest side (negative inside); the side is left in E.e */
-const E = { e:null };
-function outside(c, x, z){ let m = -Infinity; for (const e of c.edges){ const d = (x - e.x)*e.nx + (z - e.z)*e.nz; if (d > m){ m = d; E.e = e; } } return m; }
+const UP = new Vector3(0, 1, 0), DOWN = new Vector3(0, -1, 0), SKIN = .001;
+const visible = object => { for (let o=object; o; o=o.parent) if (!o.visible) return false; return true; };
 
-/* highest floor under (x, z) that a body standing at height y can reach with a step of `step` */
-export function floorAt(x, z, y, step, ground){
-  let best = ground <= y + step ? ground : -Infinity, onPlatform = false;
-  for (const c of colliders){
-    if (!c.stand || !c.body || c.y1 > y + step || c.y1 <= best) continue;
-    const dx = x - c.x, dz = z - c.z; if (Math.abs(dx) > c.R + .3 || Math.abs(dz) > c.R + .3) continue;
-    const on = c.kind === 'f' ? dx*dx + dz*dz < (c.r1 + .18)**2 : c.kind === 'p' ? outside(c, x, z) < .12 : (local(c, x, z, L), Math.abs(L.x) < c.hx + .12 && Math.abs(L.z) < c.hz + .12);
-    if (on){ best = c.y1; onPlatform = true; }
+// Physics uses the render geometry, including instance and parent transforms. Register matter explicitly:
+// light, flame, grass, auras and invisible interaction targets must never become invisible walls.
+export class CollisionWorld {
+  constructor(){ this.solids = []; this.tree = new Octree(); this.dynamic = []; this.geometryTrees = new WeakMap(); }
+
+  addMesh(root, options={}){
+    root.traverse(mesh => {
+      if (!mesh.isMesh || (options.filter && !options.filter(mesh))) return;
+      const solid = { mesh, name:options.name || root.name, body:true, stand:true, ceil:true, arrows:true, ...options };
+      this.solids.push(solid);
+      if (solid.dynamic) this.dynamic.push(solid);
+    });
+    return root;
   }
-  return { h:best, onPlatform };
-}
 
-/* lowest underside above a head at height `head` over (x, z); Infinity when the sky is open */
-export function ceilingAt(x, z, head){
-  let low = Infinity;
-  for (const c of colliders){
-    if (!c.ceil || !c.body || c.y1 < head) continue;
-    const dx = x - c.x, dz = z - c.z; if (Math.abs(dx) > c.R || Math.abs(dz) > c.R) continue;
-    let under;
-    if (c.kind === 'b'){ local(c, x, z, L); if (Math.abs(L.x) > c.hx || Math.abs(L.z) > c.hz) continue; under = c.y0; }
-    else if (c.kind === 'p'){ if (outside(c, x, z) > 0) continue; under = c.y0; }
-    else { const d = Math.hypot(dx, dz); if (d > c.R) continue;
-      under = c.r1 > c.r0 ? (d <= c.r0 ? c.y0 : c.y0 + (d - c.r0)/(c.r1 - c.r0)*(c.y1 - c.y0)) : (d <= c.r1 ? c.y0 : Infinity); }
-    if (under >= head - .25 && under < low) low = under;
-  }
-  return low;
-}
-
-/* push a body of radius r out of every wall it overlaps between `lo` (feet + step) and `hi` (head) */
-export function pushOut(p, lo, hi, r){
-  let hit = false;
-  for (let pass=0; pass<2; pass++) for (const c of colliders){
-    if (!c.body || c.y1 <= lo || c.y0 >= hi) continue;
-    const dx = p.x - c.x, dz = p.z - c.z; if (Math.abs(dx) > c.R + r || Math.abs(dz) > c.R + r) continue;
-    if (c.kind === 'f'){
-      const cr = Math.max(radiusAt(c, Math.max(lo, c.y0)), radiusAt(c, Math.min(hi, c.y1))) + r, d = Math.hypot(dx, dz);
-      if (d >= cr) continue; const k = d > 1e-4 ? cr/d : 0; p.x = c.x + (d > 1e-4 ? dx*k : cr); p.z = c.z + dz*k; hit = true;
-    } else if (c.kind === 'p'){
-      const d = outside(c, p.x, p.z); if (d >= r) continue; p.x += E.e.nx*(r - d); p.z += E.e.nz*(r - d); hit = true;
-    } else {
-      local(c, p.x, p.z, L); const ox = c.hx + r - Math.abs(L.x), oz = c.hz + r - Math.abs(L.z); if (ox <= 0 || oz <= 0) continue;
-      if (ox < oz) L.x += Math.sign(L.x || 1)*ox; else L.z += Math.sign(L.z || 1)*oz;
-      p.x = c.x + L.x*c.cs + L.z*c.sn; p.z = c.z - L.x*c.sn + L.z*c.cs; hit = true;
+  triangles(solid, visit){
+    const mesh = solid.mesh, p = mesh.geometry.attributes.position, index = mesh.geometry.index;
+    const count = index ? index.count : p.count, instance = new Matrix4(), matrix = new Matrix4();
+    for (let n=0; n<(mesh.isInstancedMesh ? mesh.count : 1); n++){
+      if (mesh.isInstancedMesh){ mesh.getMatrixAt(n, instance); matrix.multiplyMatrices(mesh.matrixWorld, instance); }
+      else matrix.copy(mesh.matrixWorld);
+      for (let i=0; i<count; i+=3){
+        const v = k => new Vector3().fromBufferAttribute(p, index ? index.getX(k) : k).applyMatrix4(matrix);
+        const triangle = new Triangle(v(i), v(i+1), v(i+2));
+        if (triangle.getArea() < 1e-10) continue;
+        triangle.solid = solid; visit(triangle);
+      }
     }
   }
-  return hit;
+
+  build(){
+    this.tree = new Octree();
+    for (const solid of this.solids){
+      solid.mesh.updateWorldMatrix(true, false);
+      if (!solid.dynamic) this.triangles(solid, t => this.tree.addTriangle(t));
+    }
+    if (this.tree.triangles.length) this.tree.build();
+    for (const solid of this.dynamic) if (!solid.deforming) this.geometryTree(solid.mesh.geometry);
+    this.updateDynamic();
+  }
+
+  updateDynamic(){
+    for (const solid of this.dynamic){
+      const mesh = solid.mesh; mesh.updateWorldMatrix(true, false);
+      // Paper vertices change as it folds; rigid meshes keep their existing local bounds.
+      if (solid.deforming || !mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+      solid.bounds = (solid.bounds || new Box3()).copy(mesh.geometry.boundingBox).applyMatrix4(mesh.matrixWorld);
+      if (mesh.isInstancedMesh){
+        solid.bounds.makeEmpty(); const instance = new Matrix4(), matrix = new Matrix4(), box = new Box3();
+        for (let i=0; i<mesh.count; i++){
+          mesh.getMatrixAt(i, instance); matrix.multiplyMatrices(mesh.matrixWorld, instance);
+          solid.bounds.union(box.copy(mesh.geometry.boundingBox).applyMatrix4(matrix));
+        }
+      }
+    }
+  }
+
+  geometryTree(geometry){
+    let tree = this.geometryTrees.get(geometry);
+    if (!tree){
+      tree = new Octree();
+      const p = geometry.attributes.position, index = geometry.index, count = index ? index.count : p.count;
+      for (let i=0; i<count; i+=3){
+        const v = k => new Vector3().fromBufferAttribute(p, index ? index.getX(k) : k);
+        const t = new Triangle(v(i), v(i+1), v(i+2)); if (t.getArea() > 1e-10) tree.addTriangle(t);
+      }
+      if (tree.triangles.length) tree.build(); this.geometryTrees.set(geometry, tree);
+    }
+    return tree;
+  }
+
+  // Moving rings and relics retain a local-space acceleration tree. Transform only nearby triangles,
+  // rather than rebuilding thousands of world-space faces for every arrow or capsule substep.
+  dynamicTriangles(solid, query, visit){
+    if (solid.deforming){ this.triangles(solid, visit); return; }
+    const mesh = solid.mesh, tree = this.geometryTree(mesh.geometry);
+    const matrix = new Matrix4(), instance = new Matrix4();
+    for (let n=0; n<(mesh.isInstancedMesh ? mesh.count : 1); n++){
+      if (mesh.isInstancedMesh){ mesh.getMatrixAt(n, instance); matrix.multiplyMatrices(mesh.matrixWorld, instance); }
+      else matrix.copy(mesh.matrixWorld);
+      const inverse = matrix.clone().invert(), triangles = [];
+      if (query instanceof Ray) tree.getRayTriangles(query.clone().applyMatrix4(inverse), triangles);
+      else {
+        const e = inverse.elements;
+        // Frobenius norm bounds radius expansion even with nested nonuniform scales and shear.
+        const scale = Math.hypot(e[0],e[1],e[2],e[4],e[5],e[6],e[8],e[9],e[10]);
+        const local = new Capsule(query.start.clone().applyMatrix4(inverse), query.end.clone().applyMatrix4(inverse), query.radius*scale);
+        tree.getCapsuleTriangles(local, triangles);
+      }
+      for (const local of triangles){ const t = local.clone(); t.a.applyMatrix4(matrix); t.b.applyMatrix4(matrix); t.c.applyMatrix4(matrix); t.solid = solid; visit(t); }
+    }
+  }
+
+  rayHit(origin, direction, distance=Infinity, accept=() => true){
+    const ray = new Ray(origin, direction), triangles = [], point = new Vector3();
+    this.tree.getRayTriangles(ray, triangles);
+    for (const solid of this.dynamic){
+      if (visible(solid.mesh) && accept(solid) && ray.intersectsBox(solid.bounds)) this.dynamicTriangles(solid, ray, t => triangles.push(t));
+    }
+    let best = null;
+    for (const triangle of triangles){
+      const solid = triangle.solid;
+      if (!accept(solid, triangle)) continue;
+      if (!ray.intersectTriangle(triangle.a, triangle.b, triangle.c, false, point)) continue;
+      const d = origin.distanceTo(point);
+      if (d > distance + 1e-6 || (best && d >= best.distance)) continue;
+      best = { distance:d, point:point.clone(), normal:triangle.getNormal(new Vector3()), solid, object:solid.mesh };
+    }
+    return best;
+  }
+
+  segmentHit(from, to, accept=s => s.arrows){
+    const direction = new Vector3().subVectors(to, from), distance = direction.length();
+    return distance > 1e-8 ? this.rayHit(from, direction.divideScalar(distance), distance, accept) : null;
+  }
+
+  floorAt(x, z, y, step, ground){
+    const normal = new Vector3();
+    const hit = this.rayHit(new Vector3(x, y + step + SKIN, z), DOWN, Infinity,
+      (s, t) => s.body && s.stand && (!t || t.getNormal(normal).y > .5));
+    return hit ? { h:hit.point.y, onPlatform:!hit.solid.terrain } : { h:ground, onPlatform:false };
+  }
+
+  ceilingAt(x, z, head){
+    const normal = new Vector3();
+    const hit = this.rayHit(new Vector3(x, head - .25, z), UP, Infinity,
+      (s, t) => s.body && s.ceil && (!t || t.getNormal(normal).y < -.01));
+    return hit ? hit.point.y : Infinity;
+  }
+
+  // Short capsule sweeps prevent tunnelling even through a thin rim, during a dive or a scripted flight.
+  // Only grounded steps may lift the bottom of the capsule; an airborne robe has no step allowance.
+  moveBody(from, to, radius, height, step=0){
+    const position = from.clone(), delta = new Vector3().subVectors(to, from);
+    const steps = Math.max(1, Math.ceil(delta.length()/(radius*.4)));
+    delta.divideScalar(steps);
+    const capsule = new Capsule(), bounds = new Box3(), contacts = [];
+    let collided = false, grounded = false, ceiling = false;
+    for (let i=0; i<steps; i++){
+      position.add(delta);
+      capsule.start.copy(position).addScaledVector(UP, step + radius);
+      capsule.end.copy(position).addScaledVector(UP, Math.max(step + radius, height - radius));
+      capsule.radius = radius;
+      for (let pass=0; pass<4; pass++){
+        const triangles = []; this.tree.getCapsuleTriangles(capsule, triangles);
+        bounds.setFromPoints([capsule.start, capsule.end]).expandByScalar(radius);
+        for (const solid of this.dynamic){
+          if (solid.body && visible(solid.mesh) && bounds.intersectsBox(solid.bounds)) this.dynamicTriangles(solid, capsule, t => triangles.push(t));
+        }
+        let corrected = false;
+        for (const triangle of triangles){
+          const solid = triangle.solid; if (!solid.body) continue;
+          if (solid.twoSided){
+            const normal = triangle.getNormal(new Vector3());
+            if (normal.dot(new Vector3().addVectors(capsule.start, capsule.end).multiplyScalar(.5).sub(triangle.a)) < 0){
+              const a = triangle.a; triangle.a = triangle.c; triangle.c = a;
+            }
+          }
+          const hit = this.tree.triangleCapsuleIntersect(capsule, triangle);
+          if (!hit || hit.depth < 1e-6) continue;
+          const correction = hit.normal.clone().multiplyScalar(hit.depth + SKIN);
+          capsule.translate(correction); position.add(correction); corrected = true;
+          if (hit.depth > SKIN){ collided = true; contacts.push(hit.normal); }
+          grounded ||= hit.normal.y > .5; ceiling ||= hit.normal.y < -.5;
+          const into = delta.dot(hit.normal); if (into < 0) delta.addScaledVector(hit.normal, -into);
+        }
+        if (!corrected) break;
+      }
+    }
+    return { position, collided, grounded, ceiling, contacts };
+  }
+
+  // A zero-length sweep also checks a proposed shore landing without moving the player.
+  pushOut(p, lo, hi, radius){
+    const from = new Vector3(p.x, lo, p.z), result = this.moveBody(from, from, radius, hi-lo);
+    p.x = result.position.x; p.z = result.position.z; return result.collided;
+  }
 }
 
-/* the collider an arrow tip at p is inside, if any */
-export function solidAt(p){
-  for (const c of colliders){
-    if (!c.arrows || p.y < c.y0 || p.y > c.y1) continue;
-    const dx = p.x - c.x, dz = p.z - c.z; if (Math.abs(dx) > c.R || Math.abs(dz) > c.R) continue;
-    if (c.kind === 'f' ? dx*dx + dz*dz < radiusAt(c, p.y)**2 : c.kind === 'p' ? outside(c, p.x, p.z) < 0 : (local(c, p.x, p.z, L), Math.abs(L.x) < c.hx && Math.abs(L.z) < c.hz)) return c;
-  }
-  return null;
-}
+export const collisionWorld = new CollisionWorld();
+export const colliders = collisionWorld.solids;
+export const addMesh = (mesh, options) => collisionWorld.addMesh(mesh, options);
+export const floorAt = (...args) => collisionWorld.floorAt(...args);
+export const ceilingAt = (...args) => collisionWorld.ceilingAt(...args);
+export const pushOut = (...args) => collisionWorld.pushOut(...args);
