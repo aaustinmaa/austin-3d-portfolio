@@ -416,8 +416,8 @@ const shaftU = { t:{value:0}, power:{value:1}, hue:{value:C('#9FE8FF')}, veil:{v
         float along = smoothstep(${WATER_Y.toFixed(2)} - .05, ${(WATER_Y + .4).toFixed(2)}, y)*smoothstep(${top.toFixed(1)} + .5, ${(top - 4).toFixed(1)}, y)*step(0., s);
         float spread = pow(.45/rIn, .3), gather = 1. + .8*exp(-(y - ${WATER_Y.toFixed(2)})*.3);
         vec3 tint = mix(vec3(.96,.98,1.), hue, smoothstep(0., .85, f)*.8), mist = mix(hue, veil, .55);
-        float down = .5 + .5*sin(6.2832*(f*1.6 - t*.11)), up = .5 + .5*sin(6.2832*(f*2.7 + t*.05) + 1.3);
-        float swell = .62 + .7*down*down + .14*up;
+        float down = .5 + .5*sin(6.2832*(f*1.8 - t*.3)), up = .5 + .5*sin(6.2832*(f*2.7 + t*.05) + 1.3);
+        float swell = .4 + 1.25*pow(down, 3.) + .1*up;
         vec3 c = (tint*inner*.36 + mist*outer*.17)*spread*gather*swell*along*power;
         c *= smoothstep(.8, 3., length(o));   /* fade if the camera is inside the light */
         gl_FragColor = vec4(c, 1.); }` }));   /* additive blending scales by alpha, so alpha 1 adds the light as shaded */
