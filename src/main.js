@@ -350,7 +350,7 @@ const braziers = [];
   const plG = new THREE.BufferGeometry(); plG.setAttribute('position', new THREE.Float32BufferAttribute(pathLights.flatMap(p => [p.x, p.y+.18, p.z]), 3));
   scene.add(new THREE.Points(plG, new THREE.PointsMaterial({ size:.9, map:glowTex, color:0x78E6F0, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending })));
   BRAZIER_AT.forEach(idx => { const { p, x, z, rim } = landings[idx], out = new V3(Math.sin(p.a),0,Math.cos(p.a)), c = new V3(p.x,0,p.z).addScaledVector(out, 2);
-    const b = createBrazier(scene,new V3(c.x + out.x*.8,p.y,c.z + out.z*.8),{ seed:idx*.73, reduceMotion }); braziers.push(b);
+    const b = createBrazier(scene,new V3(c.x + out.x*.8,p.y,c.z + out.z*.8),{ seed:idx*.73, reduceMotion, pixelRatio:PIXEL }); braziers.push(b);
     b.solids.forEach(m => addMesh(m, { name:'brazier' }));
     /* a pine to one side, partway toward the corner of the landing nearest that side so it always stands on the rock */
     const side = new V3(out.z*1.4 - out.x*1.6, 0, -out.x*1.4 - out.z*1.6), k = rim.reduce((b,v) => v.dot(side) > b.dot(side) ? v : b);

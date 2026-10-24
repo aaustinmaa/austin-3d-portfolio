@@ -42,7 +42,7 @@ Solid boundaries come from the rendered triangles: terrain, path stones, boulder
 
 Foreground rocks, trees and other scenery may naturally obscure the wanderer. They do not pull the camera closer, raise it or fade the character to keep the wanderer visible. Terrain clearance, manual zoom, aiming and the intentional crane-approach dolly still apply.
 
-Each brazier holds a rising fire made of soft light, using the same cream and honey palette as the path and carried lanterns. Three uneven tongues curl upward from a bright base and dissolve into wisps, with a diffuse halo, a faint pool inside the bowl and gentle local lighting. A volumetric shader gives the light depth without a solid surface. Ignition eases in; with reduced motion the fire and lighting stay steady.
+Each brazier holds a fire in the same cream and honey palette as the path and carried lanterns. A volumetric shader shapes three uneven tongues that rise from glowing coals in a sooty bowl, sway and fray into licks; its temperature runs from cream at the heart through honey to amber at the edges. The bowl hides the fire below its rim from every angle. Now and then a spark lifts off, beneath a soft halo and flickering local light. Lighting a brazier grows the flame up from the coals; with reduced motion the fire and lighting stay steady and no sparks rise.
 
 ## Project layout
 
@@ -55,7 +55,7 @@ src/polyhedra.js      Polyhedra drawn as light: clear glass and glowing-edge sha
 src/constellation.js  The skill constellation: star layout, figures, labels, wake-up animation
 src/relics.js         The seven relic models (faceted, with soft auras) and how each one unfolds when opened
 src/hero.js           The wanderer (a small doll in a thin robe and draped hood), its bow and lantern, and their animation
-src/braziers.js       Stair braziers: hollow bowls, rising volumetric fire, lantern glows and local lighting
+src/braziers.js       Stair braziers: sooty bowls, glowing coals, volumetric fire, sparks and local lighting
 src/paperbird.js      The paper crane by the stair: Austin's name card, unfolding into paper visitors can write a note on
 src/colliders.js      Render-mesh collision trees for standing, body movement, ceilings and arrow hits
 src/relic-targeting.js Forgiving arrow hits and aiming assistance for intangible relics
