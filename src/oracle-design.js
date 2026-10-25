@@ -455,7 +455,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
     // The two outer crystals share the armillary's light: an ice-white bloom
     // and star glints wherever one of their edges mirrors a light.
     if (i < 2) {
-      threads(paths, { parent: holder, color: '#E4ECFF', width: .75, opacity: i ? .32 : .45, bloom: true, leaf: 5, order: 70 });
+      threads(paths, { parent: holder, color: '#E4ECFF', width: .75, opacity: i ? .5 : .72, bloom: true, leaf: 5, order: 70 });
       glints(holder, paths.map(([a, b]) => [.2, .5, .8].map(k => a.map((x, c) => x + (b[c] - x) * k))), { size: .95, gain: i ? .8 : 1.1, density: .45, color: '#EAF0FF' });
     }
     geo.dispose();
