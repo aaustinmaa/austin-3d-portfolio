@@ -448,7 +448,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
   const shells = [];
   coreShapes.forEach((geo, i) => {
     const holder = new THREE.Group(); holder.rotation.set(0, i === 2 ? Math.PI / 4 : 0, 0); alignment.add(holder);
-    shells.push({ holder, base: holder.quaternion.clone(), axis: new THREE.Vector3(...[[0, 0, 1], [.4, 1, .2], [1, .3, -.5], [-.3, .6, 1]][i]).normalize(), speed: [.05, -.16, .22, -.3][i] });
+    shells.push({ holder, base: holder.quaternion.clone(), axis: new THREE.Vector3(...[[0, 0, 1], [.4, 1, .2], [1, .3, -.5], [-.3, .6, 1]][i]).normalize(), speed: [.075, -.24, .33, -.45][i] });
     const g = withEdges(geo); edgeDistances(g);
     for (const side of [THREE.BackSide, THREE.FrontSide]) {
       const surface = new THREE.Mesh(g, coreMaterial(side, i, i < 2));
@@ -512,7 +512,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
     clock.value = T * motion; energy.value = speak + flash * .35; power.value = p + finale * .1;
     group.getWorldPosition(center.value);
     orbitTime += dt * motion;
-    core.rotation.y = orbitTime * .1;
+    core.rotation.y = orbitTime * .15;
     shells.forEach(s => s.holder.quaternion.copy(s.base).multiply(spin.setFromAxisAngle(s.axis, orbitTime * s.speed)));
     frame.rotation.y = halo.rotation.y = orbitTime * .045;
     // Rotate each ring's plane, not just its circularly symmetric rim. Keep
