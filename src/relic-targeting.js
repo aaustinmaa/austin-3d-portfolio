@@ -20,12 +20,12 @@ export function relicArrowHit(from, to, relics, target=null){
   return closest;
 }
 
-export function relicAimPoint(ray, relics, maxDistance=Infinity){
+export function relicAimPoint(ray, relics, maxDistance=Infinity, minDistance=0){
   let closest = null;
   for (const relic of relics){
     if (!orbiting(relic) || ray.distanceToPoint(relic.pos) >= RELIC_HIT_RADIUS) continue;
     const distance = relic.pos.clone().sub(ray.origin).dot(ray.direction);
-    if (distance > 0 && distance < maxDistance && (!closest || distance < closest.distance)) closest = { distance, point:ray.at(distance, new Vector3()) };
+    if (distance > minDistance && distance < maxDistance && (!closest || distance < closest.distance)) closest = { distance, point:ray.at(distance, new Vector3()) };
   }
   return closest;
 }
