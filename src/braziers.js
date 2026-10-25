@@ -1,22 +1,15 @@
 import * as THREE from 'three';
-import { BufferGeometryUtils } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { glowTex } from './textures.js';
 
 // All four braziers share geometry. Decoration never consumes the valley's random sequence.
-const metal = new THREE.MeshStandardMaterial({ color:0x454459, roughness:.68, metalness:.38, emissive:0x1B1A30, emissiveIntensity:.45 });
-const trim = new THREE.MeshStandardMaterial({ color:0x79718B, roughness:.5, metalness:.5, emissive:0x252138, emissiveIntensity:.3 });
-const footGeo = new THREE.CylinderGeometry(.23,.34,.1,12).translate(0,.05,0);
-const stemGeo = new THREE.CylinderGeometry(.13,.21,.73,12).translate(0,.455,0);
-const collarGeo = new THREE.TorusGeometry(.18,.035,6,24).rotateX(Math.PI/2).translate(0,.79,0);
-const lathe = points => new THREE.LatheGeometry(points.map(([r,y]) => new THREE.Vector2(r,y)),32);
-const bowlGeo = lathe([[0,.82],[.19,.82],[.28,.87],[.4,.98],[.51,1.12],[.55,1.19],[.54,1.23],[.49,1.23]]);
-// The inside is sooty, so the fire light warms it without turning the bare metal into a bright band.
-const soot = new THREE.MeshStandardMaterial({ color:0x1C1922, roughness:.95, metalness:.1 });
-const sootGeo = lathe([[.49,1.23],[.46,1.14],[.36,1.03],[.22,.97],[0,.97]]);
-const rimGeo = new THREE.TorusGeometry(.518,.027,8,40).rotateX(Math.PI/2).translate(0,1.215,0);
-const bodyGeo = BufferGeometryUtils.mergeBufferGeometries([footGeo,stemGeo,bowlGeo]);
-const trimGeo = BufferGeometryUtils.mergeBufferGeometries([collarGeo,rimGeo]);
-const coalGeo = new THREE.CircleGeometry(.38,40).rotateX(-Math.PI/2).translate(0,1.05,0);
+// Plain faceted stone like the wish pillars: an eight-sided stem flaring into a shallow eight-sided bowl.
+const stone = new THREE.MeshStandardMaterial({ color:0x3A4054, roughness:.95, flatShading:true });
+// The inside is sooty, so the fire light warms it without lighting up a bright band.
+const soot = new THREE.MeshStandardMaterial({ color:0x1C1922, roughness:1, flatShading:true });
+const lathe = points => new THREE.LatheGeometry(points.map(([r,y]) => new THREE.Vector2(r,y)),8);
+const bodyGeo = lathe([[0,0],[.3,0],[.2,.78],[.42,.86],[.55,1.23],[.49,1.23]]);
+const sootGeo = lathe([[.49,1.23],[.36,1],[0,1]]);
+const coalGeo = new THREE.CircleGeometry(.38,8).rotateX(-Math.PI/2).translate(0,1.05,0);
 const plumeBox = new THREE.Box3(new THREE.Vector3(-.56,1,-.56),new THREE.Vector3(.56,2.5,.56));
 const plumeGeo = new THREE.BoxGeometry(...plumeBox.getSize(new THREE.Vector3()).toArray())
   .translate(...plumeBox.getCenter(new THREE.Vector3()).toArray());
@@ -29,8 +22,8 @@ const noiseGLSL = `
       mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);
   }`;
 
-// Integrate light through a volume, so the fire has depth from every angle. A broad base on the coals
-// splits into three uneven tongues; noise streams up through them and frays the tips into licks.
+// Integrate light through a volume, so the fire has depth from every angle: a single flame rising
+// from the coals, its edge rippled and its tip flickering as noise streams up through it.
 // Temperature sets the colour, all in the valley's champagne gold: white-hot at the heart, gold through
 // the body and soft amber gold at the edges, never orange or red.
 const plumeVertex = `varying vec3 vWorld;
@@ -47,25 +40,21 @@ const plumeFragment = `
     c = mix(c,vec3(1.,.88,.55),smoothstep(.3,.65,k));
     return mix(c,vec3(1.,.98,.93),smoothstep(.62,.95,k));
   }
-  // One tongue: 1 on its axis, 0 at its frayed edge. It narrows, sways and burns out toward its tip.
-  float tongue(vec3 q, vec2 at, float H, float R, float ph, float t, float n){
-    float h = q.y/H;
-    if(h>=1.) return -1.;
-    vec2 c = at*(1. + h*.8) + vec2(sin(t*1.9 + ph + q.y*2.6),cos(t*1.5 + ph + q.y*2.1))*.06*h*h;
-    float f = 1. - length(q.xz - c)/(R*pow(1.-h,.8)) - (n-.45)*(.4 + 1.1*h);
-    return f*(1. - smoothstep(.65,1.,h + n*.25));
-  }
-  vec4 flame(vec3 p, float t, float grow, mat2 rot){
+  // One flame, 1 on its axis and 0 at its edge. It narrows to a single tip, sways more toward the top,
+  // and noise rising through it ripples the edge and breaks the tip into flickering licks.
+  vec4 flame(vec3 p, float t, float grow){
     vec3 q = p - vec3(0.,FLOOR,0.);
-    if(q.y<=0. || (p.y<RIM && length(p.xz)>.378 + q.y*.62)) return vec4(0.);
-    vec3 s = vec3(q.x*4.2,q.y*3. - t*2.8,q.z*4.2);
+    if(q.y<=0. || (p.y<RIM && length(p.xz)>.35 + q.y*.55)) return vec4(0.);
+    float H = (1.2 + sin(t*2.3)*.08 + sin(t*3.9 + 1.)*.05)*grow, h = q.y/H;
+    if(h>=1.) return vec4(0.);
+    vec3 s = vec3(q.x*4.,q.y*3. - t*2.8,q.z*4.);
     float n = noise(s)*.6 + noise(s*2.2 + vec3(3.1,-t*1.6,7.7))*.4;
-    float f = tongue(q,vec2(0),(1.22 + sin(t*2.3)*.08 + sin(t*3.9 + 1.)*.05)*grow,.27,seed,t,n);
-    f = max(f,tongue(q,rot*vec2(-.13,.06),(.88 + sin(t*2.9 + 2.)*.09)*grow,.19,seed + 2.,t,n));
-    f = max(f,tongue(q,rot*vec2(.12,-.08),(1. + sin(t*2.6 + 4.)*.1)*grow,.18,seed + 4.,t,n));
+    vec2 sway = vec2(sin(t*1.9 + seed + q.y*2.6),cos(t*1.5 + seed + q.y*2.1))*.06*h*h;
+    float f = 1. - length(q.xz - sway)/(.3*pow(1.-h,.65)) - (n-.45)*(.3 + .7*h);
+    f *= 1. - smoothstep(.7,1.,h + n*.2);
     if(f<=0.) return vec4(0.);
     // The coals feed it a deeper glow; it burns hottest a little above them.
-    float h = q.y/(1.22*grow), feed = smoothstep(0.,.2,q.y), heat = clamp(f*1.8*(1.-h*.5)*(.6 + .4*feed),0.,1.);
+    float feed = smoothstep(0.,.2,q.y), heat = clamp(f*1.8*(1.-h*.5)*(.6 + .4*feed),0.,1.);
     // A dense body with a white-hot heart brighter than the screen can show, so it glares like a real flame.
     return vec4(ramp(heat) + vec3(1.,.96,.88)*smoothstep(.6,1.,heat)*1.6,smoothstep(0.,.07,f)*(.6 + .6*feed)*(1.25 - h*.6)*(.85 + .3*n));
   }
@@ -77,15 +66,14 @@ const plumeFragment = `
     if(A>1e-6){ float d = B*B - A*C; if(d<=0.) discard; d = sqrt(d); enter = max(enter,(-B-d)/A); leave = min(leave,(-B+d)/A); }
     // The bowl hides everything below its rim except what is seen down through its opening.
     float tr = (RIM - ro.y)/(abs(rd.y)>1e-5 ? rd.y : 1e-5), rc = length(ro.xz + rd.xz*tr);
-    if(ro.y>RIM){ if(rd.y<0. && rc>.49) leave = min(leave,tr); }
+    if(ro.y>RIM){ if(rd.y<0. && rc>.45) leave = min(leave,tr); }
     else { if(rd.y<=0. || rc<.56) discard; enter = max(enter,tr); }
     if(leave<=enter) discard;
-    float t = time + seed*13., grow = .3 + .7*strength, c = cos(seed*2.4), si = sin(seed*2.4);
-    mat2 rot = mat2(c,si,-si,c);
+    float t = time + seed*13., grow = .3 + .7*strength;
     float stepSize = (leave-enter)/32., jitter = fract(52.9829189*fract(dot(gl_FragCoord.xy,vec2(.06711056,.00583715))));
     vec3 sum = vec3(0.); float trans = 1.;
     for(int i=0;i<32;i++){
-      vec4 e = flame(ro + rd*(enter + (float(i)+jitter)*stepSize),t,grow,rot);
+      vec4 e = flame(ro + rd*(enter + (float(i)+jitter)*stepSize),t,grow);
       sum += trans*e.rgb*e.a*stepSize*4.; trans *= exp(-e.a*stepSize*5.);
     }
     gl_FragColor = vec4(sum*strength,1.);
@@ -147,7 +135,7 @@ const sparkFragment = `varying float vAlpha;
 export function createBrazier(scene, position, { seed=0, reduceMotion=false, pixelRatio=1 }={}){
   const root = new THREE.Group(); root.name = 'brazier'; root.position.copy(position); scene.add(root);
   const solid = (g,m) => { const o = new THREE.Mesh(g,m); o.castShadow = o.receiveShadow = true; root.add(o); return o; };
-  const solids = [solid(bodyGeo,metal), solid(trimGeo,trim), solid(sootGeo,soot)];
+  const solids = [solid(bodyGeo,stone), solid(sootGeo,soot)];
 
   const uniforms = { base:{value:position.clone()}, time:{value:0}, seed:{value:seed}, strength:{value:0} };
   const coals = new THREE.Mesh(coalGeo,new THREE.ShaderMaterial({

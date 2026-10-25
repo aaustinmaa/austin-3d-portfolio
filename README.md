@@ -42,7 +42,7 @@ Solid boundaries come from the rendered triangles: terrain, path stones, boulder
 
 Foreground rocks, trees and other scenery may naturally obscure the wanderer. They do not pull the camera closer, raise it or fade the character to keep the wanderer visible. Terrain clearance, manual zoom, aiming and the intentional crane-approach dolly still apply.
 
-Each brazier holds a golden fire that matches the valley's champagne-gold accents, never orange-red and never blue or violet. A volumetric shader shapes three uneven tongues that rise from glowing coals in a sooty bowl, sway and fray into licks; the flame is dense, with a glaring white-hot heart that runs through gold to soft amber gold at the edges. The bowl hides the fire below its rim from every angle. Now and then a spark lifts off, beneath a soft halo and flickering local light. Lighting a brazier grows the flame up from the coals; with reduced motion the fire and lighting stay steady and no sparks rise.
+Each brazier is a plain faceted stone bowl on an eight-sided stem, in the same basalt as the wish pillars, with no rings or ornament. It holds a golden fire that matches the valley's champagne-gold accents, never orange-red and never blue or violet. A volumetric shader shapes a single flame rising from glowing coals, its edge rippling and its tip flickering; the flame is dense, with a glaring white-hot heart that runs through gold to soft amber gold at the edges. The bowl hides the fire below its rim from every angle. Now and then a spark lifts off, beneath a soft halo and flickering local light. Lighting a brazier grows the flame up from the coals; with reduced motion the fire and lighting stay steady and no sparks rise.
 
 ## Project layout
 
@@ -55,7 +55,7 @@ src/polyhedra.js      Polyhedra drawn as light: clear glass and glowing-edge sha
 src/constellation.js  The skill constellation: star layout, figures, labels, wake-up animation
 src/relics.js         The seven relic models (faceted, with soft auras) and how each one unfolds when opened
 src/hero.js           The wanderer (a small doll in a thin robe and draped hood), its bow and lantern, and their animation
-src/braziers.js       Stair braziers: sooty bowls, glowing coals, volumetric fire, sparks and local lighting
+src/braziers.js       Stair braziers: plain faceted stone bowls, glowing coals, volumetric fire, sparks and local lighting
 src/paperbird.js      The paper crane by the stair: Austin's name card, unfolding into paper visitors can write a note on
 src/colliders.js      Render-mesh collision trees for standing, body movement, ceilings and arrow hits
 src/relic-targeting.js Forgiving arrow hits and aiming assistance for intangible relics
