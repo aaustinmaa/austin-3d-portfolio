@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { CollisionWorld } from '../src/colliders.js';
+import { CollisionWorld, slideVelocity } from '../src/colliders.js';
 
 const v = (x,y,z) => new THREE.Vector3(x,y,z);
 const close = (actual, expected, tolerance=1e-5) => assert.ok(Math.abs(actual-expected) < tolerance, `${actual} != ${expected}`);
@@ -105,4 +105,16 @@ test('cached moving geometry remains accurate under nested scales, rotation and 
   assert.equal(world.segmentHit(from,to), null);
   const result = world.moveBody(v(0,0,0), v(6,0,0), .32,1.7);
   assert.ok(result.collided); assert.ok(result.position.x < 3);
+});
+
+test('walkable banks support gravity without creating downhill drift; walls still slide', () => {
+  const resting = v(0,-1.3,0);
+  slideVelocity(resting,[v(0,.8,-.6)]);
+  close(resting.length(),0);
+  const walking = v(0,-1.3,7);
+  slideVelocity(walking,[v(0,.8,-.6)]);
+  close(walking.y,0); close(walking.z,7);
+  const wall = v(3,-2,4);
+  slideVelocity(wall,[v(-1,0,0)]);
+  close(wall.x,0); close(wall.y,-2); close(wall.z,4);
 });

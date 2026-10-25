@@ -190,3 +190,13 @@ export const addMesh = (mesh, options) => collisionWorld.addMesh(mesh, options);
 export const floorAt = (...args) => collisionWorld.floorAt(...args);
 export const ceilingAt = (...args) => collisionWorld.ceilingAt(...args);
 export const pushOut = (...args) => collisionWorld.pushOut(...args);
+
+// A walkable floor supports gravity; projecting gravity onto it would create an unintended downhill drift.
+export function slideVelocity(velocity, contacts){
+  for (const normal of contacts){
+    if (normal.y > .5){ velocity.y = Math.max(0, velocity.y); continue; }
+    const into = velocity.dot(normal);
+    if (into < 0) velocity.addScaledVector(normal, -into);
+  }
+  return velocity;
+}

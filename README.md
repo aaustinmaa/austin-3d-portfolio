@@ -36,13 +36,13 @@ Requires Node 18 or newer.
 | Click a star | The Oracle names the relics that use that skill |
 | Esc | Send the open relic back to the sky |
 
-Light the four braziers on the spiral stairs to wake a hidden seventh relic. The wish pillars' caps, boulders, stair stones and the brazier landings can all be stood on; click a pillar to fly up onto it. The short introduction opens on arrival and again whenever you click Austin's name in the top bar.
+Light the four braziers on the spiral stairs to wake a hidden seventh relic. The wish pillars' caps, boulders, stair stones and the brazier landings can all be stood on; click a pillar to fly up onto it. The wanderer starts gliding toward the paper crane while the opening camera is still descending. The camera blends directly into following and moving closer, forming one continuous shot without stopping between the descent and zoom in. Austin's name card appears halfway through the unfolding and closes when you leave. Clicking Austin's name in the top bar flies back to the crane and reopens the card. With reduced motion, the arrival and unfolding happen immediately.
 
 Solid boundaries come from the rendered triangles: terrain, path stones, boulders, cliff faces, pillar shafts and caps, stair undersides, tree tiers, lanterns and hollow brazier bowls. Moving relics, Oracle glass and folding paper update their boundaries with their animation. Walking, manual flight and click-to-fly all check the same geometry; an obstructed flight stops safely, and higher perches are approached from above. Both drawn and guided arrows stop at the first surface, with the tip on that surface. The camera also checks these boundaries. Auras, flames, particles, grass and the lake's reflection remain non-solid.
 
 Camera obstruction uses one head anchor and probes the lens edges as well as its centre. Near low obstacles it tries a slightly higher view to retain a comfortable distance, holding that view until there is room to return. When space forces the lens close, the wanderer fades before its head fills the screen. Cloth keeps its opaque depth and lining, and the lake's reflected view calculates its own fade distance.
 
-Each brazier has a hollow metal bowl, glowing coals, curling flame tongues and sparse rising embers. Ice-blue cores fade through cyan into blue-violet tips, with matching coals, embers and local light. Ignition eases in beneath a restrained cool halo. With reduced motion, the fire and light stay steady and embers stop drifting.
+Each brazier holds a rising fire made of soft light, using the same cream and honey palette as the path and carried lanterns. Three uneven tongues curl upward from a bright base and dissolve into wisps, with a diffuse halo, a faint pool inside the bowl and gentle local lighting. A volumetric shader gives the light depth without a solid surface. Ignition eases in; with reduced motion the fire and lighting stay steady.
 
 ## Project layout
 
@@ -55,7 +55,7 @@ src/polyhedra.js      Polyhedra drawn as light: clear glass and glowing-edge sha
 src/constellation.js  The skill constellation: star layout, figures, labels, wake-up animation
 src/relics.js         The seven relic models (faceted, with soft auras) and how each one unfolds when opened
 src/hero.js           The wanderer (a small doll in a thin robe and draped hood), its bow and lantern, and their animation
-src/braziers.js       Stair braziers: hollow bowls, coals, procedural flames, embers and local lighting
+src/braziers.js       Stair braziers: hollow bowls, rising volumetric fire, lantern glows and local lighting
 src/paperbird.js      The paper crane by the stair: Austin's name card, unfolding into paper visitors can write a note on
 src/colliders.js      Render-mesh collision trees for standing, body movement, ceilings, camera and arrow hits
 src/camera-rig.js     Camera clearance, stable raised views and near-camera character fading

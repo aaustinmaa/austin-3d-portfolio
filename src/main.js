@@ -5,7 +5,7 @@ import './styles.css';
 import { rand, hash, vnoise, fbm, sstep, lerp, ease, C, mixHex, randUnit } from './noise.js';
 import { radialTex, glowTex, softTex, runeTex } from './textures.js';
 import { ABOUT, RELICS, INTENTS, FALLBACK, SKILLS, LINES, FINALE, NOTE, starLine } from './content.js';
-import { collisionWorld, colliders, addMesh, floorAt, ceilingAt, pushOut } from './colliders.js';
+import { collisionWorld, colliders, addMesh, floorAt, ceilingAt, pushOut, slideVelocity } from './colliders.js';
 import { CameraBoom, installNearCameraFade } from './camera-rig.js';
 import { createOracle } from './oracle.js';
 import { createConstellation } from './constellation.js';
@@ -162,26 +162,39 @@ const pickables = [];
 const LAKE_EDGE = LAKE_R + 3.4;
 const lakeMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false,
   uniforms:{ t:{value:0}, energy:{value:0}, glow:{value:0}, star:{value:new V3(0, ORACLE_Y, 0)}, lamps:{value:[new V3(0,-99,0), new V3(0,-99,0), new V3(0,-99,0)]},
-    mirror:{value:null}, mirrorM:{value:new THREE.Matrix4()} },
+    mirror:{value:null}, mirrorM:{value:new THREE.Matrix4()}, now:{value:0},
+    ripples:{value:[0,1,2,3].map(() => new THREE.Vector4(0, 0, -99, 0))},   /* x, z, start time, strength: see splashLake */
+    drips:{value:Array.from({ length:32 }, () => new THREE.Vector4(0, 0, -99, 0))} },   /* the same for single drops: see dropRipple */
   vertexShader:`attribute float depth; uniform mat4 mirrorM; varying vec3 vW; varying float vDepth; varying vec4 vM;
     void main(){ vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; vDepth = depth; vM = mirrorM*w; gl_Position = projectionMatrix*viewMatrix*w; }`,
-  fragmentShader:`uniform float t; uniform float energy; uniform float glow; uniform vec3 star; uniform vec3 lamps[3]; uniform sampler2D mirror; varying vec3 vW; varying float vDepth; varying vec4 vM;
+  fragmentShader:`uniform float t; uniform float energy; uniform float glow; uniform vec3 star; uniform vec3 lamps[3]; uniform sampler2D mirror; uniform float now; uniform vec4 ripples[4]; uniform vec4 drips[32]; varying vec3 vW; varying float vDepth; varying vec4 vM;
     /* a reflected light, drawn out into a vertical path toward the viewer the way calm water does */
     float streak(vec3 R, vec3 L, float w, float len){ float az = acos(clamp(dot(normalize(R.xz), normalize(L.xz)), -1., 1.)), el = asin(clamp(R.y, -1., 1.)) - asin(clamp(L.y, -1., 1.));
       return exp(-az*az*w - el*el*len); }
     void main(){ vec2 p = vW.xz; float r = length(p); if (vDepth < 0. || r > ${LAKE_EDGE.toFixed(2)}) discard;
       vec3 V = normalize(vW - cameraPosition), R = vec3(V.x, -V.y, V.z);
-      float fres = .45 + .55*pow(1. - abs(V.y), 3.);
+      float fres = .36 + .64*pow(1. - abs(V.y), 3.);
       /* the mirror: the valley drawn upside down under the water */
       float spring = exp(-r*r/(34. + energy*10.)), heart = exp(-r*r/7.);
-      vec3 col = texture2DProj(mirror, vM).rgb*mix(vec3(1.3,1.38,1.55), vec3(1.05,1.6,1.55), spring);
+      /* ripples from things falling into the water: rings spreading out, bending the reflection and catching a little light */
+      vec2 bend = vec2(0.); float glint = 0.;
+      for (int i = 0; i < 4; i++){ vec4 q = ripples[i]; float life = 2.4 + q.w*1.1, age = now - q.z; if (age < 0. || age > life) continue;
+        float sc = .65 + .4*q.w; vec2 off = p - q.xy; float dd = length(off), front = age*1.8*sc, fade = q.w*(1. - age/life)*(1. - age/life);
+        float wave = sin((dd - front)*9./sc)*exp(-pow((dd - front)/((.3 + age*.25)*sc), 2.))*smoothstep(0., .25, dd)*fade;
+        bend += off/max(dd, 1e-3)*wave; glint += max(wave, 0.); }
+      for (int i = 0; i < 32; i++){ vec4 q = drips[i]; float age = now - q.z, life = 1.4 + q.w*1.4; if (age < 0. || age > life) continue;
+        vec2 off = p - q.xy; float dd = length(off), sc = .22 + .3*q.w, front = age*.9*sc + .03, fade = q.w*.7*(1. - age/life)*(1. - age/life);
+        float wave = sin((dd - front)*16./sc)*exp(-pow((dd - front)/((.1 + age*.16)*sc), 2.))*fade;
+        bend += off/max(dd, 1e-3)*wave; glint += max(wave, 0.); }
+      vec4 m = vM; m.xy += bend*.035*m.w;
+      vec3 col = texture2DProj(mirror, m).rgb*mix(vec3(1.3,1.38,1.55), vec3(1.05,1.6,1.55), spring) + vec3(.8,.87,1.)*glint*.22;
       /* soft paths of light under the star overhead and the lanterns */
       col += mix(vec3(.55,.9,1.), vec3(.8,.78,1.), glow)*streak(R, normalize(star - vW), 900., 50.)*(.3 + glow*.25 + energy*.3);
       for (int i = 0; i < 3; i++) col += vec3(1.,.76,.5)*streak(R, normalize(lamps[i] - vW), 2400., 60.)*.25;
       /* through the water: clear over the shallows, deep blue-violet further out, the spring glowing in the middle */
       float deep = smoothstep(0., 1.6, vDepth);
       vec3 body = mix(vec3(.03,.08,.12), vec3(.014,.02,.06), deep) + vec3(.16,.62,.66)*spring*.5;
-      float hide = mix(.25, .78, deep), a = fres + (1. - fres)*hide;
+      float hide = mix(.18, .52, deep), a = fres + (1. - fres)*hide;
       vec3 c = (col*fres + body*hide*(1. - fres))/a;
       /* the teal of the spring, glowing up through the water where the star's light comes down, seen from any angle */
       vec3 emit = vec3(.14,.62,.64)*(spring*.18 + heart*.12)*(1. + energy*.6 + glow*.3)*(.92 + .08*sin(t*.6));
@@ -337,7 +350,7 @@ const braziers = [];
   const plG = new THREE.BufferGeometry(); plG.setAttribute('position', new THREE.Float32BufferAttribute(pathLights.flatMap(p => [p.x, p.y+.18, p.z]), 3));
   scene.add(new THREE.Points(plG, new THREE.PointsMaterial({ size:.9, map:glowTex, color:0x78E6F0, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending })));
   BRAZIER_AT.forEach(idx => { const { p, x, z, rim } = landings[idx], out = new V3(Math.sin(p.a),0,Math.cos(p.a)), c = new V3(p.x,0,p.z).addScaledVector(out, 2);
-    const b = createBrazier(scene,new V3(c.x + out.x*.8,p.y,c.z + out.z*.8),{ seed:idx*.73, reduceMotion, pixelRatio:PIXEL }); braziers.push(b);
+    const b = createBrazier(scene,new V3(c.x + out.x*.8,p.y,c.z + out.z*.8),{ seed:idx*.73, reduceMotion }); braziers.push(b);
     b.solids.forEach(m => addMesh(m, { name:'brazier' }));
     /* a pine to one side, partway toward the corner of the landing nearest that side so it always stands on the rock */
     const side = new V3(out.z*1.4 - out.x*1.6, 0, -out.x*1.4 - out.z*1.6), k = rim.reduce((b,v) => v.dot(side) > b.dot(side) ? v : b);
@@ -516,6 +529,86 @@ function orbitPos(r, out){ const o = r.orbit, a = o.phase + T*o.speed; return ou
 
 /* bursts */
 const bursts = [];
+/* something falling into the lake: rings spread across the water and, unless motion is reduced, the water splashes up the way
+   it really does: a crown of drops thrown up and out from a ring around the impact, a jet rising from the middle a moment
+   later as the water closes in, drops of many sizes drawn with short streaks along their flight, low mist over the water and
+   a ring of foam spreading on the surface. Everything is pale and translucent, not glowing, and drops vanish where they fall
+   back in */
+const splashes = []; let rippleNext = 0;
+const overWater = (x, z) => Math.hypot(x, z) < LAKE_EDGE && groundH(x, z) < WATER_Y - .05;
+const dropMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, uniforms:{ scale:wispScale },
+  vertexShader:`attribute float size; attribute float alpha; uniform float scale; varying float vA;
+    void main(){ vA = alpha; vec4 mv = modelViewMatrix*vec4(position,1.); gl_PointSize = size*scale/-mv.z; gl_Position = projectionMatrix*mv; }`,
+  /* a drop of clear water, a small solid lens: a faint, nearly colourless body, a small highlight on top from the star overhead, and a brighter
+     crescent at the bottom where the light focuses through it */
+  fragmentShader:`varying float vA; void main(){ vec2 q = gl_PointCoord - .5; float r = length(q)*2.; if (r > 1.) discard;
+    float body = sqrt(1. - r*r)*.09*smoothstep(1., .8, r);
+    vec2 h = q - vec2(0., -.2), b = q - vec2(0., .22); float spec = exp(-dot(h, h)*130.), focus = exp(-dot(b, b)*38.)*smoothstep(1., .75, r);
+    gl_FragColor = vec4(mix(mix(vec3(.7,.76,.86), vec3(.9,.94,1.), focus), vec3(1.), spec), (body + focus*.1 + spec*.45)*vA); }` });
+/* motion trails behind the drops: brightest at the drop, fading out behind it */
+const streakMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false,
+  vertexShader:'attribute float lineA; varying float vA; void main(){ vA = lineA; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
+  fragmentShader:'varying float vA; void main(){ gl_FragColor = vec4(vec3(.78,.84,.94), vA); }' });
+/* small ripples where single drops land: real ripples in the water like the big ones (see the lake shader), only smaller and
+   quicker, kept in a ring of 32 */
+let dripNext = 0;
+/* drops from the jet, bounced and carried up rather than flung aside, are bigger and leave bigger ripples */
+function dropRipple(x, z, s, jet){ lakeMat.uniforms.drips.value[dripNext].set(x, z, T, jet ? Math.min(1.6, .8 + s*4) : Math.min(1, .35 + s*5)); dripNext = (dripNext + 1) % 32; }
+function splashLake(at, power=1){
+  lakeMat.uniforms.ripples.value[rippleNext].set(at.x, at.z, T, Math.min(2, .5 + power*.55)); rippleNext = (rippleNext + 1) % 4;
+  if (reduceMotion) return;
+  /* the crown is drops thrown up and out at random from around the impact; the jet is a single file of drops rising straight up
+     from the middle one after another, smaller toward the top, with loose drops thrown off around it */
+  const r0 = .08 + power*.2, crown = Math.round(18 + 30*power), jet = Math.round(4 + 4*power), loose = Math.round(6 + 8*power), n = crown + jet + loose;
+  const pos = new Float32Array(n*3), size = new Float32Array(n), alpha = new Float32Array(n), line = new Float32Array(n*6), drops = [];
+  for (let i=0;i<n;i++){ let p, v, wait;
+    if (i < crown){ const a = rand()*6.283, rr = r0*(.8 + rand()*.4), out = (.7 + rand()*1.5)*(.6 + power*.4), up = (1.6 + rand()*2.4)*(.6 + power*.4);
+      p = new V3(at.x + Math.cos(a)*rr, WATER_Y + .02, at.z + Math.sin(a)*rr); v = new V3(Math.cos(a)*out, up, Math.sin(a)*out); wait = rand()*.05;
+      size[i] = .05 + rand()*rand()*.18*(.5 + power*.4); }
+    else if (i < crown + jet){ const j = i - crown, f = j/Math.max(1, jet - 1);
+      p = new V3(at.x + (rand() - .5)*.03, WATER_Y + .02, at.z + (rand() - .5)*.03); v = new V3((rand() - .5)*.12, (2.6 + 2.6*f)*(.7 + power*.3), (rand() - .5)*.12); wait = .14 + (1 - f)*.16;
+      size[i] = (.19 + .08*power)*(1 - f*.45); }
+    else { /* loose drops thrown off around the jet as it rises, at random */
+      const a = rand()*6.283, rr = rand()*r0*.4, out = (.25 + rand()*.9)*(.6 + power*.3);
+      p = new V3(at.x + Math.cos(a)*rr, WATER_Y + .02, at.z + Math.sin(a)*rr); v = new V3(Math.cos(a)*out, (1.8 + rand()*2.8)*(.7 + power*.3), Math.sin(a)*out); wait = .14 + rand()*.25;
+      size[i] = (.04 + rand()*rand()*.09)*(.7 + power*.3); }
+    drops.push({ p, v, wait, on:true, s:size[i], jet:i >= crown && i < crown + jet }); }
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('size', new THREE.BufferAttribute(size, 1)); g.setAttribute('alpha', new THREE.BufferAttribute(alpha, 1));
+  const pts = new THREE.Points(g, dropMat); pts.frustumCulled = false; scene.add(pts);
+  const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.BufferAttribute(line, 3)); lg.setAttribute('lineA', new THREE.BufferAttribute(new Float32Array(n*2), 1));
+  const streaks = new THREE.LineSegments(lg, streakMat); streaks.frustumCulled = false; scene.add(streaks);
+  /* low mist over the water around the impact */
+  const M = Math.round(4 + 6*power), mp = new Float32Array(M*3), mist = [];
+  for (let i=0;i<M;i++){ const a = rand()*6.283, rr = r0*(.5 + rand()); mist.push({ p:new V3(at.x + Math.cos(a)*rr, WATER_Y + .1 + rand()*.2*power, at.z + Math.sin(a)*rr), v:new V3(Math.cos(a), .3 + rand()*.4, Math.sin(a)).multiplyScalar(.5 + power*.5) }); }
+  const mg = new THREE.BufferGeometry(); mg.setAttribute('position', new THREE.BufferAttribute(mp, 3));
+  const mistPts = new THREE.Points(mg, new THREE.PointsMaterial({ map:softTex, size:.5 + power*.35, color:0xD8EEFF, transparent:true, opacity:.22, depthWrite:false }));
+  mistPts.frustumCulled = false; scene.add(mistPts);
+  /* the foam: a soft pale ring on the water spreading from the impact */
+  const fu = { a:{value:.5} };
+  const foam = new THREE.Mesh(new THREE.CircleGeometry(1, 48).rotateX(-Math.PI/2), new THREE.ShaderMaterial({ transparent:true, depthWrite:false, uniforms:fu,
+    vertexShader:'varying vec2 vP; void main(){ vP = position.xz; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }',
+    fragmentShader:`uniform float a; varying vec2 vP;
+      void main(){ float d = length(vP), ring = exp(-pow((d - .8)/.12, 2.)) + exp(-d*d*6.)*.35; gl_FragColor = vec4(vec3(.88,.91,1.), ring*a); }` }));
+  foam.position.set(at.x, WATER_Y + .012, at.z); foam.renderOrder = 2; scene.add(foam);
+  splashes.push({ pts, streaks, drops, foam, fu, mistPts, mist, r0, age:0, power });
+}
+function updateSplashes(dt){
+  for (let i = splashes.length-1; i >= 0; i--){ const s = splashes[i]; s.age += dt;
+    const pos = s.pts.geometry.attributes.position.array, al = s.pts.geometry.attributes.alpha.array, ln = s.streaks.geometry.attributes.position.array, la = s.streaks.geometry.attributes.lineA.array; let live = 0;
+    s.drops.forEach((d, k) => {
+      if (d.on && s.age > d.wait){ d.v.y -= 9.8*1.3*dt; d.v.multiplyScalar(Math.exp(-dt*.4)); d.p.addScaledVector(d.v, dt);
+        if (d.p.y < WATER_Y){ d.on = false; if (overWater(d.p.x, d.p.z) && (d.jet || rand() < .4)) dropRipple(d.p.x, d.p.z, d.s, d.jet); } }
+      const shown = d.on && s.age > d.wait; if (shown) live++;
+      pos.set([d.p.x, d.p.y, d.p.z], k*3); al[k] = shown ? Math.min(1, (s.age - d.wait)*12) : 0;
+      const tail = shown ? .05 : 0; ln.set([d.p.x, d.p.y, d.p.z, d.p.x - d.v.x*tail, d.p.y - d.v.y*tail, d.p.z - d.v.z*tail], k*6); la[k*2] = al[k]*.18; la[k*2 + 1] = 0; });
+    s.pts.geometry.attributes.position.needsUpdate = true; s.pts.geometry.attributes.alpha.needsUpdate = true; s.streaks.geometry.attributes.position.needsUpdate = true; s.streaks.geometry.attributes.lineA.needsUpdate = true;
+    const f = Math.min(1, s.age/1.4); s.foam.scale.setScalar(s.r0 + (.9 + s.power*.5)*Math.sqrt(f)); s.fu.a.value = .45*(1 - f)*(1 - f);
+    const mp = s.mistPts.geometry.attributes.position.array, ml = Math.min(1, s.age/1.3);
+    s.mist.forEach((m, k) => { m.v.multiplyScalar(Math.exp(-dt*2.5)); m.p.addScaledVector(m.v, dt); mp.set([m.p.x, m.p.y, m.p.z], k*3); });
+    s.mistPts.geometry.attributes.position.needsUpdate = true; s.mistPts.material.opacity = .22*Math.min(1, s.age*10)*(1 - ml);
+    if (!live && s.age > 1.4){ [s.pts, s.streaks, s.foam, s.mistPts].forEach(o => scene.remove(o)); s.pts.geometry.dispose(); s.streaks.geometry.dispose(); s.foam.geometry.dispose(); s.foam.material.dispose();
+      s.mistPts.geometry.dispose(); s.mistPts.material.dispose(); splashes.splice(i,1); } }
+}
 function burst(pos, color, n=70, power=1){
   const g = new THREE.BufferGeometry(), p = new Float32Array(n*3), v = [];
   for (let i=0;i<n;i++){ p.set([pos.x,pos.y,pos.z], i*3); v.push(randUnit().multiplyScalar((3+rand()*7)*power)); }
@@ -539,22 +632,24 @@ P.pos.y = floorAt(P.pos.x, P.pos.z, groundH(P.pos.x, P.pos.z), .6, groundH(P.pos
 const SPEED = 7, GRAV = 26, JUMP = 9.6, STEP_UP = .6, ASCEND = 7.5, CEILING = 47, AIR_R = 33, FLY_SECONDS = 7.5, BODY_R = .46, HEAD = 1.7;
 function jumpPress(){ if (P.flight) return; skipIntro(); if (P.onGround){ P.vel.y = JUMP; P.onGround = false; P.jumpT = T; } else P.jumpT = T - 1; }
 function supportAt(x,z,y){ return floorAt(x, z, y, STEP_UP, groundH(x,z)); }
-function flyTo(dest){ const from = P.pos.clone(), dist = from.distanceTo(dest);
+function flyTo(dest){ P.dip = null; const from = P.pos.clone(), dist = from.distanceTo(dest);
   // Approach a higher perch from above, with room for the whole robe before reaching its edge.
   const arc = Math.max(2 + dist*.12, (dest.y - from.y)/Math.PI + HEAD + BODY_R);
   P.flight = { from, to:dest.clone(), t:0, dur:Math.min(3.6, Math.max(1.2, dist/12)), arc }; P.target = null; P.vel.set(0,0,0); }
-/* Catch a descent over open water and ease onto dry ground instead of snapping to the bank. */
-function glideToShore(){
+/* Leave the lake for dry ground: a low glide off the bank, or with a higher arc, a hop back out after touching the water. */
+function dipIn(power){ P.dip = { t:0 }; P.target = null; P.flying = false; splashLake(P.pos, power); }
+function glideToShore(arc=.35){
   const r = Math.hypot(P.pos.x, P.pos.z), angle = r > .1 ? Math.atan2(P.pos.x, P.pos.z) : camS.yaw;
   const radius = LAKE_BLOCK + .6;
   for (let i=0;i<24;i++){
     // Try the nearest bank first, then nearby directions if a rock or stair blocks the landing.
     const a = angle + (i%2 ? 1 : -1)*Math.ceil(i/2)*Math.PI/12;
-    const to = new V3(Math.sin(a)*radius, 0, Math.cos(a)*radius); to.y = groundH(to.x,to.z);
+    const to = new V3(Math.sin(a)*radius, 0, Math.cos(a)*radius), ground = groundH(to.x,to.z);
+    to.y = floorAt(to.x, to.z, ground, STEP_UP, ground).h;
     const check = { x:to.x, z:to.z };
     if (to.y < WATER_Y + .15 || pushOut(check, to.y + STEP_UP, to.y + HEAD, BODY_R)) continue;
     const from = P.pos.clone(), dist = from.distanceTo(to);
-    P.flight = { from, to, t:0, dur:Math.max(.6, dist/7), arc:.35 };
+    P.flight = { from, to, t:0, dur:Math.max(.6, dist/(arc > .5 ? 9 : 7)), arc, shore:true };
     P.target = null; P.vel.set(0,0,0); P.onGround = false; P.flying = false; P.soared = true; P.speed = 0;
     return;
   }
@@ -603,6 +698,14 @@ function updateArrows(dt){
       a.pos.addScaledVector(a.vel, dt);
       const direction = a.vel.clone().normalize(), tip = a.pos.clone().addScaledVector(direction, .5);
       const hit = collisionWorld.segmentHit(a.tip, tip);
+      if (!a.target && a.life > 0 && a.tip.y >= WATER_Y && tip.y < WATER_Y){
+        const k = (a.tip.y - WATER_Y)/(a.tip.y - tip.y), surface = a.tip.clone().lerp(tip, k);
+        // A solid met before the water takes precedence; otherwise keep the lake's splash and drag.
+        if (overWater(surface.x, surface.z) && (!hit || a.tip.distanceTo(surface) < hit.distance)){
+          splashLake(surface, Math.min(1.4, a.vel.length()/40)); a.vel.multiplyScalar(.4); a.wet = true;
+        }
+      }
+      if (a.wet) a.vel.multiplyScalar(Math.exp(-dt*2.5));
       if (hit){
         a.pos.copy(hit.point).addScaledVector(direction, -.5);
         const relic = hit.solid.relic;
@@ -720,13 +823,13 @@ canvas.addEventListener('pointerdown', e => { try { canvas.setPointerCapture(e.p
 canvas.addEventListener('pointermove', e => { pointer = { x:e.clientX, y:e.clientY, dirty:true }; if (!drag) return;
   const locked = isLocked(), dx = locked ? e.movementX : e.clientX - drag.x, dy = locked ? e.movementY : e.clientY - drag.y;
   if (!drag.moved && Math.hypot(dx,dy) > 6){ drag.moved = true; if (mode !== 'aim') canvas.classList.add('dragging'); }
-  if (drag.moved || mode === 'aim'){ const k = mode === 'aim' ? .0032 : .0055; camS.yaw -= dx*k; camS.pitch = Math.min(gaze ? 1.5 : 1.32, Math.max(-.62, camS.pitch - dy*k*.8)); drag.x = e.clientX; drag.y = e.clientY; gazeT = 9; } });
+  if (drag.moved || mode === 'aim'){ craneApproach = null; const k = mode === 'aim' ? .0032 : .0055; camS.yaw -= dx*k; camS.pitch = Math.min(gaze ? 1.5 : 1.32, Math.max(-.62, camS.pitch - dy*k*.8)); drag.x = e.clientX; drag.y = e.clientY; gazeT = 9; } });
 canvas.addEventListener('pointerleave', () => { pointer = null; });
 canvas.addEventListener('pointerup', e => { if (!drag) return; const was = drag.moved; drag = null; canvas.classList.remove('dragging'); unlockPointer();
   if (mode === 'aim'){ if (P.drawing){ P.drawing = false; if (P.draw > .12) fireManual(); else P.draw = 0; } return; }
   if (!was) clickAt(e.clientX, e.clientY); });
 canvas.addEventListener('pointercancel', () => { drag = null; P.drawing = false; canvas.classList.remove('dragging'); unlockPointer(); });
-canvas.addEventListener('wheel', e => { e.preventDefault(); camS.dist = Math.min(20, Math.max(4, camS.dist*(1 + e.deltaY*.0011))); }, { passive:false });
+canvas.addEventListener('wheel', e => { e.preventDefault(); craneApproach = null; camS.dist = Math.min(20, Math.max(4, camS.dist*(1 + e.deltaY*.0011))); }, { passive:false });
 function clickAt(cx, cy){
   ndc.set(cx/innerWidth*2-1, -(cy/innerHeight)*2+1); ray.setFromCamera(ndc, camera);
   const hits = ray.intersectObjects(pickables.concat(sky.hits), false); if (!hits.length) return;
@@ -740,7 +843,11 @@ function clickAt(cx, cy){
   const st = h.object.userData.stone && stoneAt(h.point);
   if (st){ const p = Math.abs(h.point.y - st.y) < .02 ? h.point.clone() : new V3(st.x, st.y, st.z);
     if (Math.abs(P.pos.y - st.y) < .05 && Math.hypot(P.pos.x - st.x, P.pos.z - st.z) < st.reach) P.target = p; else flyTo(p); return; }
-  const p = h.point.clone(); if (Math.abs(p.y - P.pos.y) > 2.4) flyTo(p); else P.target = p;
+  const p = h.point.clone();
+  /* the lake: the ray hits the bed under the water, so aim at the surface above it and always jump there */
+  if (p.y < WATER_Y && ray.ray.direction.y < 0){ const k = (WATER_Y - ray.ray.origin.y)/ray.ray.direction.y; p.copy(ray.ray.origin).addScaledVector(ray.ray.direction, k);
+    if (overWater(p.x, p.z)){ flyTo(p); return; } p.copy(h.point); }
+  if (Math.abs(p.y - P.pos.y) > 2.4) flyTo(p); else P.target = p;
 }
 /* which star the pointer is over, if any (checked once per frame) */
 let hoverStar = null;
@@ -765,7 +872,7 @@ function fireManual(){
   if (hit) aimPt = hit.point;
   fireArrow(from, aimPt.sub(from), 26 + 52*P.draw, null); P.draw = 0;
 }
-function setMode(m){ mode = m; document.getElementById('modeAuto').setAttribute('aria-pressed', m === 'auto'); document.getElementById('modeAim').setAttribute('aria-pressed', m === 'aim');
+function setMode(m){ craneApproach = null; mode = m; document.getElementById('modeAuto').setAttribute('aria-pressed', m === 'auto'); document.getElementById('modeAim').setAttribute('aria-pressed', m === 'aim');
   document.getElementById('cross').hidden = m !== 'aim'; canvas.classList.toggle('aiming', m === 'aim'); P.drawing = false; P.draw = 0; renderHint(); skipIntro();
   if (m === 'aim'){ if (gaze) setGaze(false); if (camS.pitch < .25) camS.pitch = .35; } }
 document.getElementById('modeAuto').addEventListener('click', () => setMode('auto'));
@@ -779,13 +886,15 @@ renderHint();
 /* looking up at the constellation: the camera tilts to the sky and every lit star is labelled */
 let gaze = false, gazeT = 0, gazePitch = -.12;
 const lookBtn = document.getElementById('lookUp');
-function setGaze(on){ if (on === gaze) return; gaze = on; skipIntro(); gazeT = 0;
+function setGaze(on){ if (on === gaze) return; craneApproach = null; gaze = on; skipIntro(); gazeT = 0;
   if (on){ gazePitch = camS.pitch; if (mode === 'aim') setMode('auto'); } else camS.pitch = Math.min(camS.pitch, gazePitch > .6 ? .2 : gazePitch);
   lookBtn.setAttribute('aria-pressed', on); lookBtn.textContent = on ? 'Back down · C' : 'Look up · C'; }
 lookBtn.addEventListener('click', () => setGaze(!gaze));
 
 /* ---------- camera ---------- */
 let intro = reduceMotion ? null : { t:0, dur:6.5, from:new V3(5, 5, 36), look:new V3(0, ORACLE_Y-4, 0) };
+let craneApproach = null;
+const glideEase = t => t*t*(3 - 2*t);
 function skipIntro(){ if (intro && intro.t < intro.dur - 1.1) intro.t = intro.dur - 1.1; }
 const camPos = new V3(), camLook = new V3(), wantPos = new V3(), wantLook = new V3();
 const cameraBoom = new CameraBoom((from, to) => collisionWorld.segmentHit(from, to, s => s.body));
@@ -809,12 +918,29 @@ followPose(); camPos.copy(intro ? intro.from : wantPos); camLook.copy(intro ? in
 function updateCamera(dt){
   if (gaze && gazeT < 2.5){ gazeT += dt; camS.pitch = lerp(camS.pitch, 1.42, 1 - Math.exp(-dt*(reduceMotion ? 30 : 2.6))); }
   followPose();
-  if (intro){ intro.t += dt; const e = ease(Math.min(1, Math.max(0, (intro.t-1.6)/(intro.dur-1.6))));
+  if (intro){
+    intro.t += dt;
+    // Begin travelling while the opening camera is still descending. Both motions share the same target.
+    if (!welcomed && intro.t >= intro.dur - 1.2) welcome(true);
+  }
+  const ride = craneApproach;
+  const riding = ride && (P.flight === ride.flight || ride.flight.t >= 1);
+  if (riding){
+    const t = Math.min(1,ride.flight.t), e = glideEase(t);
+    camS.dist = lerp(ride.fromDist,ride.toDist,e);
+    // Translate with the wanderer and dolly forward along the existing view. No orbit or lens change.
+    wantPos.copy(ride.fromCamera).add(P.pos.clone().sub(ride.fromPlayer)).addScaledVector(ride.direction,ride.fromDist - camS.dist);
+    wantLook.copy(wantPos).addScaledVector(ride.direction,ride.lookDistance);
+  }
+  if (intro){ const e = sstep(0,1,(intro.t-1.6)/(intro.dur-1.6));
     camPos.lerpVectors(intro.from, wantPos, e); camLook.lerpVectors(intro.look, wantLook, e); if (intro.t >= intro.dur){ intro = null; welcome(); } }
-  else { const k = 1 - Math.exp(-dt*(mode === 'aim' ? 14 : 7)); camPos.lerp(wantPos, k); camLook.lerp(wantLook, 1 - Math.exp(-dt*(mode === 'aim' ? 20 : 10))); }
+  else if (riding){ camPos.copy(wantPos); camLook.copy(wantLook); }
+  else { craneApproach = null; const k = 1 - Math.exp(-dt*(mode === 'aim' ? 14 : 7)); camPos.lerp(wantPos, k); camLook.lerp(wantLook, 1 - Math.exp(-dt*(mode === 'aim' ? 20 : 10))); }
+  if (riding && ride.flight.t >= 1) craneApproach = null;
   if (!intro){
-    const head = P.pos.clone().add(new V3(0,1.55,0));
-    camPos.copy(cameraBoom.constrain(head, camPos).position);
+    const head = P.pos.clone().add(new V3(0,1.55,0)), safe = cameraBoom.constrain(head, camPos).position;
+    if (riding) camLook.add(safe.clone().sub(camPos));
+    camPos.copy(safe);
   }
   heroFadeAnchor.copy(P.pos).add(new V3(0,1.35,0));
   camera.position.copy(camPos); camera.lookAt(camLook); skyGroup.position.copy(camera.position);
@@ -823,13 +949,27 @@ function updateCamera(dt){
 
 /* ---------- simulation ---------- */
 function updatePlayer(dt){
-  if (P.flight){ const f = P.flight; f.t += dt/f.dur; const t = Math.min(1,f.t), e = t<.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;
+  if (P.flight){ const f = P.flight; f.t += dt/f.dur; const t = Math.min(1,f.t), e = f.ease === 'glide' ? glideEase(t) : f.ease === 'out' ? 1 - (1-t)*(1-t) : t<.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;
     const prev = P.pos.clone(), next = new V3().lerpVectors(f.from, f.to, e); next.y += Math.sin(Math.PI*e)*f.arc;
-    const motion = collisionWorld.moveBody(prev, next, BODY_R, HEAD); P.pos.copy(motion.position);
+    // Ground approaches can step onto the actual bank or path without snagging the rounded feet.
+    const support = floorAt(next.x, next.z, prev.y, STEP_UP, groundH(next.x,next.z));
+    const glide = f.ease === 'glide' || f.shore;
+    if (glide) next.y = t >= 1 ? support.h : Math.max(next.y, support.h);
+    const motion = collisionWorld.moveBody(prev, next, BODY_R, HEAD, glide ? STEP_UP : 0); P.pos.copy(motion.position);
     const d = P.pos.clone().sub(prev); if (d.x*d.x+d.z*d.z > 1e-6) P.facing = Math.atan2(d.x,d.z);
     if (t >= 1 || motion.collided){ P.flight = null; P.vel.set(0,0,0); P.flying = false;
-      P.onGround = motion.grounded || Math.abs(supportAt(P.pos.x, P.pos.z, P.pos.y).h - P.pos.y) < .05; }
+      P.onGround = motion.grounded || Math.abs(supportAt(P.pos.x, P.pos.z, P.pos.y).h - P.pos.y) < .05;
+      if (t >= 1){
+        if (f.arrivalFacing !== undefined) P.facing = f.arrivalFacing;
+        if (overWater(P.pos.x, P.pos.z) && P.pos.y < WATER_Y + .1) dipIn(2.2);
+      }
+    }
     P.speed = 0; return; }
+  /* touching the water: a brief, shallow dip, then straight back out to the bank */
+  if (P.dip){ const d = P.dip; d.t += dt;
+    P.pos.y = WATER_Y - .12*Math.sin(Math.PI*Math.min(1, d.t/.16)); P.vel.set(0,0,0); P.onGround = true; P.speed = 0;
+    if (d.t > .12){ P.dip = null; glideToShore(1.5); if (P.flight) P.flight.ease = 'out'; }
+    return; }
   let mx = 0, mz = 0;
   const fwd = (keys.KeyW||keys.ArrowUp?1:0) - (keys.KeyS||keys.ArrowDown?1:0), side = (keys.KeyD||keys.ArrowRight?1:0) - (keys.KeyA||keys.ArrowLeft?1:0);
   if (fwd || side){ const fx = -Math.sin(camS.yaw), fz = -Math.cos(camS.yaw), rx = Math.cos(camS.yaw), rz = -Math.sin(camS.yaw); mx = fx*fwd + rx*side; mz = fz*fwd + rz*side; P.target = null; }
@@ -866,17 +1006,20 @@ function updatePlayer(dt){
   /* ceilings: platform undersides stop the head */
   if (P.vel.y > 0){ const ceil = ceilingAt(nx, nz, P.pos.y + HEAD); if (ny + HEAD > ceil){ ny = Math.max(P.pos.y, ceil - HEAD); P.vel.y = 0; } }
   const sup = floorAt(nx, nz, P.pos.y, step, groundH(nx,nz));
-  if (!sup.onPlatform && !P.flying && P.vel.y <= 0 && ny < 2 && Math.hypot(nx,nz) < LAKE_BLOCK - 1e-4){
-    glideToShore(); if (P.flight) return;
+  /* the lake: coming down onto open water (falling, flying or diving) touches the surface with a splash and hops straight back to
+     the bank; landing on the dry bank inside the lake's ring glides off it as before */
+  if (!sup.onPlatform && !P.flying && P.vel.y <= 0 && Math.hypot(nx,nz) < LAKE_BLOCK - 1e-4){
+    const water = overWater(nx, nz), surface = water ? WATER_Y : sup.h + .05;
+    if (ny <= surface){ P.pos.set(nx, Math.max(surface, sup.h), nz);
+      if (water){ dipIn(1.8 + Math.min(.6, -P.vel.y/15)); return; }
+      glideToShore(); if (P.flight) return; }
   }
   if (ny > CEILING){ ny = CEILING; P.vel.y = Math.min(P.vel.y, 0); }
   if (ny <= sup.h){ ny = sup.h; P.vel.y = 0; P.onGround = true; } else P.onGround = ny - sup.h < .05;
   if (P.onGround){ P.soared = false; P.energy = Math.min(1, P.energy + dt/1.4); }
   const motion = collisionWorld.moveBody(P.pos, new V3(nx, ny, nz), BODY_R, HEAD, step);
   P.pos.copy(motion.position);
-  for (const normal of horizontal.contacts.concat(motion.contacts)){
-    const into = P.vel.dot(normal); if (into < 0) P.vel.addScaledVector(normal, -into);
-  }
+  slideVelocity(P.vel, horizontal.contacts.concat(motion.contacts));
   P.onGround ||= motion.grounded;
   P.speed = Math.hypot(P.vel.x, P.vel.z);
   let want = null;
@@ -913,7 +1056,7 @@ function updateWorld(dt){
   shaftU.t.value = reduceMotion ? 0 : T; shaftU.hue.value.copy(oracle.light.color);
   /* the star's light breathes: slowly brighter, slowly dimmer, about every nine seconds */
   const breath = reduceMotion ? 1 : .82 + .26*(.5 - .5*Math.cos(T*.7));
-  shaftU.power.value = (.85 + L*.3 + ey*.45)*breath; lakeMat.uniforms.t.value = reduceMotion ? 0 : T; lakeMat.uniforms.energy.value = ey; lakeMat.uniforms.glow.value = L; fallMat.uniforms.t.value = T; beamMat.uniforms.t.value = T;
+  shaftU.power.value = (.85 + L*.3 + ey*.45)*breath; lakeMat.uniforms.t.value = reduceMotion ? 0 : T; lakeMat.uniforms.now.value = T; lakeMat.uniforms.energy.value = ey; lakeMat.uniforms.glow.value = L; fallMat.uniforms.t.value = T; beamMat.uniforms.t.value = T;
   if (beamState.life > 0){ beamState.life -= dt; const from = oracle.position.clone(), to = beamState.relic.pos.clone(); const dir = to.clone().sub(from), len = dir.length(); dir.normalize();
     beam.scale.set(1,len,1); beam.position.copy(from).addScaledVector(dir, len/2); beam.quaternion.setFromUnitVectors(UP, dir.clone().negate());
     beamMat.uniforms.rep.value = len/1.5; beamMat.uniforms.fade.value = Math.min(1, beamState.life/.8)*Math.min(1,(3.2-beamState.life)/.25)*1.3;
@@ -924,7 +1067,7 @@ function updateWorld(dt){
   if (!reduceMotion){ const wp = wispG.attributes.position.array; for (let i=0;i<WISP;i++){ const v = wispV[i]; wp[i*3] += Math.sin(T*v[1] + v[0])*dt*.4; wp[i*3+1] += Math.cos(T*v[1]*.7 + v[0])*dt*.25; wp[i*3+2] += Math.cos(T*v[1] + v[0]*2)*dt*.4; } wispG.attributes.position.needsUpdate = true; }
   mists.forEach(m => { m.a += m.sp*dt; m.s.position.x = Math.sin(m.a)*m.d; m.s.position.z = Math.cos(m.a)*m.d; });
   for (let i = bursts.length-1; i >= 0; i--){ const b = bursts[i]; b.life -= dt; const p = b.pts.geometry.attributes.position.array;
-    b.v.forEach((v,k) => { v.multiplyScalar(1 - dt*1.6); p[k*3] += v.x*dt; p[k*3+1] += v.y*dt; p[k*3+2] += v.z*dt; }); b.pts.geometry.attributes.position.needsUpdate = true;
+    b.v.forEach((v,k) => { v.multiplyScalar(Math.exp(-dt*1.6)); p[k*3] += v.x*dt; p[k*3+1] += v.y*dt; p[k*3+2] += v.z*dt; }); b.pts.geometry.attributes.position.needsUpdate = true;
     b.pts.material.opacity = Math.max(0, b.life/1.4); b.ring.scale.setScalar((1 + (1.4-b.life)*4)*b.power); b.ring.material.opacity = Math.max(0, b.life/1.4)*.9;
     if (b.life <= 0){ scene.remove(b.pts); scene.remove(b.ring); b.pts.geometry.dispose(); bursts.splice(i,1); } }
   braziers.forEach(b => { if (!b.lit && !P.flight && Math.hypot(P.pos.x-b.pos.x, P.pos.z-b.pos.z) < 2.8 && Math.abs(P.pos.y - b.top) < 2){ b.lit = true; litCount++; updateTracker();
@@ -959,10 +1102,9 @@ function updateTracker(){
 }
 updateTracker();
 const card = document.getElementById('card');
-let cardFor = null, introCard = null;   // introCard: where the wanderer stood when the name card opened on arrival (it closes on their first move, once)
-function hideCard(){ card.hidden = true; cardFor = null; introCard = null; }
+let cardFor = null;
+function hideCard(){ card.hidden = true; cardFor = null; }
 function renderCard(o, isRelic, withLinks){
-  introCard = null;
   card.innerHTML = `<button class="x" type="button" aria-label="Close">×</button>
     <div class="kicker"><span class="gem" style="background:${o.color};color:${o.color}"></span>${o.kicker}</div>
     <h2>${o.title || o.name}</h2>${o.meta ? `<div class="meta">${o.meta}</div>` : ''}<p>${o.body}</p>
@@ -976,13 +1118,10 @@ function renderCard(o, isRelic, withLinks){
   card.hidden = false; card.style.animation = 'none'; void card.offsetWidth; card.style.animation = ''; cardFor = o;
 }
 function showRelicCard(r){ renderCard(r, true); }
-/* the introduction lives behind Austin's name in the top bar, and opens once on arrival */
-function showAbout(){ if (openRelic) sendBack(openRelic); renderCard(ABOUT, false); }
-document.getElementById('brand').addEventListener('click', () => cardFor === ABOUT && !card.hidden ? hideCard() : showAbout());
+/* Austin's name returns the wanderer to the crane; the card follows the paper's unfolding. */
+document.getElementById('brand').addEventListener('click', goToCrane);
 let welcomed = false;
-function welcome(){ if (welcomed) return; welcomed = true; if (!cardFor && !openRelic){ renderCard(ABOUT, false); introCard = P.pos.clone(); } }
-/* the name card that greets a new visitor steps aside as soon as they first move, so they meet it again at the crane */
-function closeIntroCard(){ if (introCard && (P.pos.distanceTo(introCard) > .3 || P.flight)) hideCard(); }
+function welcome(overlap=false){ if (!welcomed) goToCrane({ overlap }); }
 /* ---------- the note: the crane flies toward you and opens into a large sheet of paper to write on ---------- */
 const letter = document.getElementById('letter'), letterForm = document.getElementById('letterForm'), letterMsg = document.getElementById('letterMsg');
 const letterFrom = document.getElementById('letterFrom'), letterStatus = document.getElementById('letterStatus'), letterSend = document.getElementById('letterSend');
@@ -992,9 +1131,33 @@ function openLetter(){ if (writing || bird.busy) return; writing = true; cardBef
   const f = camera.getWorldDirection(new V3()); bird.setWriting(true, camera.position.clone().addScaledVector(f, 2.4).add(new V3(0, -.12, 0)));
   letterStatus.textContent = ''; document.body.classList.add('writing'); }
 function closeLetter(){ if (!writing) return; writing = false; letter.hidden = true; document.body.classList.remove('writing'); bird.setWriting(false); canvas.focus({ preventScroll:true });
-  if (cardBeforeNote === ABOUT && card.hidden) renderCard(ABOUT, false); cardBeforeNote = null; }
-/* walk over to the crane (fly up if it is far above or below) */
-function goToCrane(){ const to = new V3(CRANE_LANTERN.x - 1.2, 0, CRANE_LANTERN.z + 1.0); to.y = groundH(to.x, to.z); if (Math.abs(to.y - P.pos.y) > 2.4) flyTo(to); else P.target = to; }
+  if (cardBeforeNote === ABOUT) craneCardPending = byBird; cardBeforeNote = null; }
+/* Approach the crane in a straight glide, keeping the current view while the camera gently dollies in. */
+function goToCrane({ overlap=false }={}){
+  if (craneApproach && P.flight === craneApproach.flight){
+    if (writing) closeLetter(); if (openRelic) sendBack(openRelic); if (!card.hidden) hideCard();
+    craneCardPending = true; return;
+  }
+  const yaw = camS.yaw, pitch = camS.pitch;
+  if (!overlap) intro = null; welcomed = true;
+  if (openRelic) sendBack(openRelic); if (writing) closeLetter();
+  if (!card.hidden) hideCard(); if (gaze) setGaze(false); if (mode === 'aim') setMode('auto');
+  P.drawing = false; P.draw = 0; P.auto = null; P.target = null; P.vel.set(0,0,0); P.flying = P.soared = false;
+  const to = new V3(CRANE_LANTERN.x - 1.2, 0, CRANE_LANTERN.z + 1.0); to.y = groundH(to.x, to.z);
+  const travel = !byBird && P.pos.distanceTo(to) > .35;
+  camS.yaw = yaw; camS.pitch = pitch;
+  if (travel && !reduceMotion){
+    flyTo(to); P.flight.dur = Math.min(4,Math.max(1.8,P.pos.distanceTo(to)/12)); P.flight.arc = 0; P.flight.ease = 'glide'; P.onGround = false;
+    const fromCamera = (overlap ? wantPos : camPos).clone(), look = overlap ? wantLook : camLook;
+    craneApproach = { flight:P.flight, fromCamera, fromPlayer:P.pos.clone(), direction:look.clone().sub(fromCamera).normalize(), lookDistance:look.distanceTo(fromCamera), fromDist:camS.dist, toDist:Math.min(camS.dist,5.8) };
+  }
+  else {
+    craneApproach = null; P.flight = null; P.dip = null;
+    if (travel){ P.pos.copy(to); P.onGround = true; camS.dist = Math.min(camS.dist,5.8); }
+    if (reduceMotion){ followPose(); camPos.copy(wantPos); camLook.copy(wantLook); }
+  }
+  craneCardPending = true;
+}
 document.getElementById('letterClose').addEventListener('click', closeLetter);
 letter.addEventListener('click', e => { if (e.target === letter) closeLetter(); });
 letter.addEventListener('keydown', e => { if (e.key === 'Escape'){ e.stopPropagation(); closeLetter(); } });
@@ -1006,17 +1169,23 @@ letterForm.addEventListener('submit', async e => { e.preventDefault(); if (lette
   try { const res = await fetch(NOTE.endpoint, { method:'POST', headers:{ 'Content-Type':'application/json', Accept:'application/json' }, body:JSON.stringify({ name, message }) });
     if (!res.ok) throw new Error(res.status);
     letterMsg.value = ''; writing = false; letter.hidden = true; document.body.classList.remove('writing'); bird.send(); showToast(NOTE.sent);
-    if (cardBeforeNote === ABOUT && card.hidden) renderCard(ABOUT, false); cardBeforeNote = null; }
+    if (cardBeforeNote === ABOUT) craneCardPending = byBird; cardBeforeNote = null; }
   catch { letterStatus.textContent = NOTE.failed; }
   letterSend.disabled = false; letterSend.textContent = NOTE.send; });
-/* walking up to the crane unfolds it above its lantern and opens the name card; the writing sheet appears once the paper
-   has come close; a quiet line on the paper itself hints that it can be written on */
-let byBird = false;
+/* Show the name card halfway through the crane's unfolding, once per visit. Leaving closes it immediately;
+   the small distance margin keeps the paper from folding and reopening at the edge of the visit. */
+let byBird = false, craneCardPending = false;
 function updateBird(dt){
-  closeIntroCard(); bird.update(dt, T, camera);
   const d = Math.hypot(P.pos.x - CRANE_LANTERN.x, P.pos.z - CRANE_LANTERN.z), level = Math.abs(P.pos.y - groundH(CRANE_LANTERN.x, CRANE_LANTERN.z)) < 3;
-  if (!byBird && welcomed && d < 3 && level && !P.flight){ byBird = true; bird.setNear(true); if (!openRelic && !writing && (card.hidden || cardFor === ABOUT)) renderCard(ABOUT, false); }
-  else if (byBird && (d > 5.5 || !level)){ byBird = false; bird.setNear(false); }
+  const near = welcomed && level && !P.flight && d < (byBird ? 3.6 : 3);
+  if (near !== byBird){
+    byBird = near; bird.setNear(near); craneCardPending = near;
+    if (!near && cardFor === ABOUT) hideCard();
+  }
+  bird.update(dt, T, camera);
+  if (byBird && craneCardPending && bird.cardReady && !writing && !openRelic && (card.hidden || cardFor === ABOUT)){
+    renderCard(ABOUT, false); craneCardPending = false;
+  }
   if (writing && letter.hidden && bird.ready){ letter.hidden = false; letterMsg.focus({ preventScroll:true }); }
 }
 const cross = document.getElementById('cross'), crossRing = document.getElementById('crossRing');
@@ -1067,19 +1236,23 @@ document.querySelectorAll('[data-placeholder]').forEach(a => a.addEventListener(
 let last = performance.now();
 function simulate(dt){
   T += dt;
-  updateWorld(dt); updateRelics(dt); updateBird(dt); collisionWorld.updateDynamic();
-  updatePlayer(dt); updateHero(dt); updateArrows(dt); updateCamera(dt); updateHover();
+  updateWorld(dt); updateRelics(dt); collisionWorld.updateDynamic();
+  updatePlayer(dt); updateHero(dt); updateArrows(dt); updateSplashes(dt); updateCamera(dt);
+  updateBird(dt); collisionWorld.updateDynamic(); updateHover();
   sky.update(dt, T, camera, { showAll:gaze, hover:hoverStar, focus:openRelic });
   updateLabels(); updateCross(); updateStamina();
 }
+/* everything advances by real elapsed seconds, never per frame: a slow frame is simulated in steps of at most 50 ms so the world
+   keeps real time below 20 fps, and a long gap (a hidden tab) is capped at a quarter second instead of fast-forwarding */
 function frame(now){
-  const dt = Math.max(0, Math.min(.05, (now-last)/1000)); last = now;
-  simulate(dt); reflectLake(); renderer.render(scene, camera); requestAnimationFrame(frame);
+  let left = Math.max(0, Math.min(.25, (now-last)/1000)); last = now;
+  while (left > 1e-4){ const dt = Math.min(.05, left); simulate(dt); left -= dt; }
+  reflectLake(); renderer.render(scene, camera); requestAnimationFrame(frame);
 }
 RELICS.forEach(r => { if (r.state === 'orbit') orbitPos(r, r.pos); });
 requestAnimationFrame(frame);
 setTimeout(() => oracleSay(LINES.intro), reduceMotion ? 200 : 2000);
-if (!intro) setTimeout(welcome, 600);
+if (!intro) welcome();
 
 /* dev-only handle for poking at the scene from the browser console; stripped from production builds */
 if (import.meta.env.DEV) window.__valley = { P, camS, RELICS, sky, oracle, world, colliders, collisionWorld, bird, braziers, openLetter, closeLetter, summon, setGaze, scene, camera, renderer, keys, fireArrow, arrows, flyTo,
