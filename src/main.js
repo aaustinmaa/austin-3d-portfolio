@@ -1057,11 +1057,6 @@ function updatePlayer(dt){
   const k = 1 - Math.exp(-dt*(P.onGround ? 14 : P.soared ? 6 : 4)); P.vel.x = lerp(P.vel.x, mx*spd, k); P.vel.z = lerp(P.vel.z, mz*spd, k);
   let nx = P.pos.x + P.vel.x*dt, nz = P.pos.z + P.vel.z*dt; const nr = Math.hypot(nx,nz);
   const lim = P.onGround ? WORLD_R : AIR_R; if (nr > lim){ nx *= lim/nr; nz *= lim/nr; }
-  const s0 = supportAt(nx, nz, P.pos.y);
-  // Stop a step into the water at the bank; never project a fall from the lake's interior onto this circle.
-  if (!s0.onPlatform && P.pos.y < 2 && nr < LAKE_BLOCK && Math.hypot(P.pos.x,P.pos.z) >= LAKE_BLOCK - 1e-4){
-    const s = LAKE_BLOCK/nr; nx *= s; nz *= s; P.target = null;
-  }
   /* The full airborne body meets the rendered faces; only walking gets a step allowance. */
   const step = P.onGround ? STEP_UP : 0;
   const horizontal = collisionWorld.moveBody(P.pos, new V3(nx, P.pos.y, nz), BODY_R, HEAD, step);
@@ -1090,13 +1085,10 @@ function updatePlayer(dt){
   /* ceilings: platform undersides stop the head */
   if (P.vel.y > 0){ const ceil = ceilingAt(nx, nz, P.pos.y + HEAD); if (ny + HEAD > ceil){ ny = Math.max(P.pos.y, ceil - HEAD); P.vel.y = 0; } }
   const sup = floorAt(nx, nz, P.pos.y, step, groundH(nx,nz));
-  /* the lake: coming down onto open water (falling, flying or diving) touches the surface with a splash and hops straight back to
-     the bank; landing on the dry bank inside the lake's ring glides off it as before */
-  if (!sup.onPlatform && !P.flying && P.vel.y <= 0 && Math.hypot(nx,nz) < LAKE_BLOCK - 1e-4){
-    const water = overWater(nx, nz), surface = water ? WATER_Y : sup.h + .05;
-    if (ny <= surface){ P.pos.set(nx, Math.max(surface, sup.h), nz);
-      if (water){ dipIn(1.8 + Math.min(.6, -P.vel.y/15)); return; }
-      glideToShore(); if (P.flight) return; }
+  /* The rendered bank stays walkable, including during low jumps. Only touching open water splashes and returns to shore. */
+  if (!sup.onPlatform && !P.flying && P.vel.y <= 0 && overWater(nx,nz) && ny <= WATER_Y){
+    P.pos.set(nx, Math.max(WATER_Y, sup.h), nz);
+    dipIn(1.8 + Math.min(.6, -P.vel.y/15)); return;
   }
   if (ny > CEILING){ ny = CEILING; P.vel.y = Math.min(P.vel.y, 0); }
   if (ny <= sup.h){ ny = sup.h; P.vel.y = 0; P.onGround = true; } else P.onGround = ny - sup.h < .05;

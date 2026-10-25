@@ -44,6 +44,8 @@ Foreground rocks, trees and other scenery may naturally obscure the wanderer. Th
 
 Manual aim selects points ahead of the bow so scenery behind the wanderer cannot turn an arrow backward. Arrows start at the bow and collide with scenery along their actual path.
 
+The lake's bank follows the rendered terrain, so walking, low jumps and low flight can cross it freely. Touching open water triggers a splash and a hop back to dry ground.
+
 Each brazier is a plain faceted stone bowl on an eight-sided stem, in the same basalt as the wish pillars, with no rings or ornament. It holds a golden fire that matches the valley's champagne-gold accents, never orange-red and never blue or violet. A volumetric shader shapes a single flame rising from glowing coals: a full, rounded base that fills the bowl and tapers to one pointed tip, its edge rippling and its tip flickering; the flame is dense, with a glaring white-hot heart that runs through gold to soft amber gold at the edges. The bowl hides the fire below its rim from every angle. Now and then a spark lifts off, beneath a soft halo and flickering local light. Lighting a brazier grows the flame up from the coals; with reduced motion the fire and lighting stay steady and no sparks rise.
 
 ## Project layout
