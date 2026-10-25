@@ -470,7 +470,8 @@ const beamFrag = `uniform float t; uniform float fade; uniform float rep; unifor
    The same light spreads over more width as it falls, so it is densest and whitest under the star and thins to cyan over the
    water, gathering a little where it lands. Its colour is the star's own (hue), leaning to violet in the outer layer (veil).
    It breathes slowly brighter and dimmer (see updateWorld), and broad swells of light flow down it from the star to the water,
-   with a fainter counter-current drifting up */
+   with a fainter counter-current drifting up. Like the Oracle's glass, the light carries a soft blue-violet nebula that flows
+   down with it (colour only, so the cone keeps its clean shape), and crystal glints flash inside it (shaftGlints) */
 const shaftU = { t:{value:0}, power:{value:1}, hue:{value:C('#9FE8FF')}, veil:{value:C('#9484FF')} };
 { const top = ORACLE_Y - 3, h = top - WATER_Y;
   /* closed at the bottom, just under the water, so lines of sight that leave through the water still draw the light down to it */
@@ -478,6 +479,10 @@ const shaftU = { t:{value:0}, power:{value:1}, hue:{value:C('#9FE8FF')}, veil:{v
     uniforms:shaftU,
     vertexShader:'varying vec3 vW; void main(){ vec4 w = modelMatrix*vec4(position,1.); vW = w.xyz; gl_Position = projectionMatrix*viewMatrix*w; }',
     fragmentShader:`uniform float t; uniform float power; uniform vec3 hue; uniform vec3 veil; varying vec3 vW;
+      float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7)))*43758.5453); }
+      float noise(vec2 p){ vec2 i = floor(p), u = fract(p); u = u*u*(3. - 2.*u);
+        return mix(mix(hash(i), hash(i + vec2(1., 0.)), u.x), mix(hash(i + vec2(0., 1.)), hash(i + vec2(1.)), u.x), u.y); }
+      float fbm(vec2 p){ return noise(p)*.57 + noise(p*2.03 + 7.)*.28 + noise(p*4.1 - 3.)*.15; }
       void main(){ vec3 d = normalize(vW - cameraPosition); vec2 o = cameraPosition.xz, k = d.xz; float kk = max(dot(k, k), 1e-6);
         /* the closest pass to the axis, but no further than where the line of sight enters the water */
         float s0 = -dot(o, k)/kk, sw = d.y < -1e-4 ? (${WATER_Y.toFixed(2)} - cameraPosition.y)/d.y : 1e9, s = min(s0, sw);
@@ -495,10 +500,44 @@ const shaftU = { t:{value:0}, power:{value:1}, hue:{value:C('#9FE8FF')}, veil:{v
         vec3 tint = mix(vec3(.96,.98,1.), hue, smoothstep(0., .85, f)*.8), mist = mix(hue, veil, .55);
         float down = .5 + .5*sin(6.2832*(f*1.8 - t*.3)), up = .5 + .5*sin(6.2832*(f*2.7 + t*.05) + 1.3);
         float swell = .4 + 1.25*pow(down, 3.) + .1*up;
+        /* the nebula: clouds across the beam (offset from the axis as a share of its width) and down its length, drifting
+           down with the light; it shifts the colour between ice blue and violet and barely touches the brightness */
+        float x = (o.x*k.y - o.y*k.x)/sqrt(kk)/rOut;
+        vec2 q = vec2(x*1.8, f*4.5 - t*.16);
+        float cloud = fbm(q + fbm(q*1.7 + vec2(t*.02, -t*.1))*1.2), violet = smoothstep(.36, .72, fbm(q*.8 + vec2(9. - t*.015, -t*.05)));
+        vec3 flow = mix(mix(vec3(.6,.8,1.), hue, .35), vec3(.62,.45,1.), violet);
+        float nebK = smoothstep(.04, .35, f)*(1. - foot*.6);
+        tint = mix(tint, flow*(.6 + .9*cloud), .8*nebK); mist = mix(mist, mix(veil, flow, .5)*(.7 + .6*cloud), .7*nebK);
         vec3 c = (tint*inner*.36 + mist*outer*.17)*spread*gather*swell*along*power;
         c *= smoothstep(.8, 3., length(o));   /* fade if the camera is inside the light */
         gl_FragColor = vec4(c, 1.); }` }));   /* additive blending scales by alpha, so alpha 1 adds the light as shaded */
-  m.position.y = WATER_Y - .3 + (h + .3)/2; m.renderOrder = 3; scene.add(m); }
+  m.position.y = WATER_Y - .3 + (h + .3)/2; m.renderOrder = 3; scene.add(m);
+  /* crystal glints inside the light, drawn like the Oracle's: thin four-point stars that mostly rest unseen and flash
+     briefly, ice white, blue or violet, drifting slowly down with the light (a private seed keeps the valley's layout) */
+  let sd = 53; const r = () => (sd = sd*16807 % 2147483647)/2147483647;
+  const N = 420, gp = new Float32Array(N*3);
+  for (let i=0;i<N;i++){ gp[i*3] = r(); gp[i*3+1] = r()*6.2832; gp[i*3+2] = Math.sqrt(r()); }
+  const gg = new THREE.BufferGeometry(); gg.setAttribute('position', new THREE.BufferAttribute(gp, 3));
+  const glints = new THREE.Points(gg, new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, fog:false, uniforms:shaftU,
+    vertexShader:`uniform float t; uniform float power; uniform vec3 hue; uniform vec3 veil; varying float vI; varying vec3 vCol; varying float vA;
+      void main(){ float seed = position.x*91.7 + position.y*13.1, h = fract(seed*.37);
+        float f = fract(position.x + t*(.25 + fract(seed)*.35)/${h.toFixed(1)});   /* 0 under the star, 1 at the water */
+        float rad = mix(.7, 4.6, f)*position.z, a = position.y + t*.03;
+        vec4 mv = modelViewMatrix*vec4(cos(a)*rad, ${top.toFixed(1)} - f*${h.toFixed(1)}, sin(a)*rad, 1.);
+        float flash = pow(.5 + .5*sin(t*(1.1 + fract(seed*3.1)*2.4) + seed*6.2832), 12.);
+        vI = (.08 + flash*1.7)*smoothstep(0., .06, f)*smoothstep(1., .92, f)*(1. - position.z*.45)*power;
+        vCol = h < .4 ? mix(hue, vec3(1.), .6) : h < .75 ? mix(hue, vec3(.75,.85,1.), .4) : mix(veil, vec3(1.), .25);
+        vA = fract(seed*.71)*.5 - .25;
+        gl_PointSize = vI < .03 ? 0. : clamp((1. + flash*2.)*${(PIXEL*330).toFixed(1)}/max(1., -mv.z), 1., ${(PIXEL*44).toFixed(1)});
+        gl_Position = projectionMatrix*mv; }`,
+    fragmentShader:`varying float vI; varying vec3 vCol; varying float vA;
+      void main(){ vec2 p = gl_PointCoord - .5; float cs = cos(vA), sn = sin(vA); p = mat2(cs, -sn, sn, cs)*p;
+        float ray = exp(-abs(p.x)*70.)*exp(-abs(p.y)*6.) + exp(-abs(p.y)*70.)*exp(-abs(p.x)*6.);
+        vec2 dg = mat2(.7071, -.7071, .7071, .7071)*p;
+        float diag = (exp(-abs(dg.x)*90.)*exp(-abs(dg.y)*14.) + exp(-abs(dg.y)*90.)*exp(-abs(dg.x)*14.))*.4;
+        float core = exp(-dot(p, p)*800.), a = (ray + diag + core*1.5)*min(vI, 1.4);
+        gl_FragColor = vec4(mix(vCol, vec3(1.), min(1., core + ray*.3)), a); }` }));   /* additive blending scales by alpha */
+  glints.frustumCulled = false; glints.renderOrder = 3; scene.add(glints); }
 const beamMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide, fog:false,
   uniforms:{ t:{value:0}, fade:{value:0}, rep:{value:30}, col:{value:C('#BFF6FF')} }, vertexShader:beamVert, fragmentShader:beamFrag });
 const beam = new THREE.Mesh(new THREE.CylinderGeometry(.12,.45,1,12,1,true), beamMat); beam.visible = false; scene.add(beam);
