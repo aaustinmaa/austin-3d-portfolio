@@ -41,10 +41,10 @@ export function createOracle(scene, { y, main, reduceMotion }) {
     for (let i = travellers.length - 1; i >= 0; i--) {
       const tr = travellers[i]; tr.t += dt / 1.5; const e = Math.min(1, tr.t), k = e * e * (3 - 2 * e);
       bez(tr.head.position, tr.p0, tr.p1, tr.p2.copy(group.position), k);
-      // Keep the original trail spacing at 60 Hz: each mote lags by 1/30 second,
+      // Preserve the original spacing at 200 FPS: two updates become a fixed 10 ms lag,
       // sampled on the same timed path instead of storing one position per render.
       tr.tail.forEach((s, j) => {
-        const age = Math.max(0,tr.t*1.5-j/30), lag = tr.t*1.5-age, progress = Math.min(1,age/1.5);
+        const age = Math.max(0,tr.t*1.5-j*.01), lag = tr.t*1.5-age, progress = Math.min(1,age/1.5);
         tr.p2.copy(group.position); tr.p2.y = y + Math.sin((T-lag)*.23)*.12;
         bez(s.position,tr.p0,tr.p1,tr.p2,progress*progress*(3-2*progress));
       });

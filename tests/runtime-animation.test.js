@@ -54,7 +54,7 @@ test('a returning paper crane uses the time left after its delivery animation', 
   }
 });
 
-test('Oracle light trails keep their elapsed-time shape at different frame rates', () => {
+test('Oracle light trails preserve the original 200 FPS spacing at different frame rates', () => {
   const pose = fps => {
     const scene = new Scene(), oracle = createOracle(scene,{ y:18,main:[],reduceMotion:false });
     oracle.sendLight(new Vector3(30,2,5),'#CFF6FF',noop);
@@ -62,7 +62,15 @@ test('Oracle light trails keep their elapsed-time shape at different frame rates
     return scene.children.filter(s => s.isSprite).map(s => s.position.clone());
   };
   const expected = pose(1/10); assert.equal(expected.length,23);
-  for (const fps of [15,30,60,144,240]){
+  // The last mote used to select history[21*2]. At 200 updates/s it follows
+  // the head by 210 ms, independently of the rate used to render this test.
+  const sampleTime = 1-42/200, progress = sampleTime/1.5, k = progress*progress*(3-2*progress);
+  const origin = new Vector3(30,2,5), control = origin.clone().lerp(new Vector3(0,18,0),.25);
+  control.y = 2+(18-2)*.8;
+  const endpoint = new Vector3(0,18+Math.sin(sampleTime*.23)*.12,0);
+  const legacyTail = origin.multiplyScalar((1-k)**2).addScaledVector(control,2*(1-k)*k).addScaledVector(endpoint,k*k);
+  assert.ok(expected.at(-1).distanceTo(legacyTail)<1e-9);
+  for (const fps of [15,30,60,144,200,240]){
     const actual = pose(fps);
     actual.forEach((position,i) => assert.ok(position.distanceTo(expected[i])<1e-9,`tail ${i} at ${fps} Hz`));
   }

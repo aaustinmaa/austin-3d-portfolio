@@ -12,8 +12,8 @@ const renderer=new THREE.WebGLRenderer({canvas:document.querySelector('canvas'),
 const camera=new THREE.PerspectiveCamera(42,1,.1,500);camera.position.set(0,3,48);
 const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=!reduced;controls.dampingFactor=.08;controls.minDistance=22;controls.maxDistance=110;
 // r128's controls also update inside pointer handlers. Measure every call so extra input events
-// cannot add extra damping steps; .08 at 60 Hz defines the original decay rate per second.
-const dampingRate=-60*Math.log1p(-.08), updateControls=controls.update.bind(controls);
+// cannot add extra damping steps; .08 at 200 FPS defines the reference decay rate per second.
+const dampingRate=-200*Math.log1p(-.08), updateControls=controls.update.bind(controls);
 let controlsBefore=performance.now();
 controls.update=()=>{
   const now=performance.now(),dt=document.hidden?0:Math.max(0,(now-controlsBefore)/1000);controlsBefore=now;
