@@ -94,9 +94,11 @@ export function buildOracleDesign({ main, reduceMotion }) {
   // sort by radius: outermost first behind the core, last in front of it.
   const PREMUL = { transparent: true, depthWrite: false, fog: false, side: THREE.FrontSide, blending: THREE.CustomBlending,
     blendEquation: THREE.AddEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor };
-  function layered(parent, geo, make, shell) {
+  // The near pass also carries the solid's collision triangles (both passes share one geometry).
+  function layered(parent, geo, make, shell, isSolid = true) {
     for (const hemi of [-1, 1]) {
       const mesh = new THREE.Mesh(geo, make(hemi)); mesh.renderOrder = hemi > 0 ? 60 + shell : 24 - shell; parent.add(mesh);
+      if (isSolid && hemi > 0) solid(mesh);
     }
   }
   const tilted = (path, tilt) => { const e = new THREE.Euler(...tilt), p = new THREE.Vector3(); return path.map(q => p.set(...q).applyEuler(e).toArray()); };
@@ -398,7 +400,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
   }
   medallions.setAttribute('position', new THREE.Float32BufferAttribute(mPos, 3));
   medallions.setAttribute('origin', new THREE.Float32BufferAttribute(mOrigin, 3)); medallions.setIndex(mIndex);
-  layered(frame, medallions, medallionMaterial, 4.6);
+  layered(frame, medallions, medallionMaterial, 4.6, false);
   frame.children.forEach(m => { if (m.geometry === medallions) m.frustumCulled = false; });
 
   // The jewel spans a little over a third of the globe, so the armillary reads
@@ -446,7 +448,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
     const g = withEdges(geo); edgeDistances(g);
     for (const side of [THREE.BackSide, THREE.FrontSide]) {
       const surface = new THREE.Mesh(g, coreMaterial(side, i, i < 2));
-      surface.renderOrder = side === THREE.BackSide ? 30 + i : 45 - i; holder.add(surface);
+      surface.renderOrder = side === THREE.BackSide ? 30 + i : 45 - i; surface.userData.solid = side === THREE.FrontSide; holder.add(surface);
     }
     const edges = new THREE.EdgesGeometry(geo, 1).attributes.position, paths = [];
     for (let j = 0; j < edges.count; j += 2) paths.push([[edges.getX(j), edges.getY(j), edges.getZ(j)], [edges.getX(j + 1), edges.getY(j + 1), edges.getZ(j + 1)]]);
