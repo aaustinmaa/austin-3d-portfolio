@@ -5,9 +5,9 @@ import { withEdges, rhombicTriacontahedron } from './polyhedra.js';
 // Fixed analytic lights shared by the glass, the metal and the glints. They live
 // in world space, so every highlight stays on its own surface as the hoops turn.
 const LIGHTS = 'const vec3 KEY=vec3(-.5514,.7018,.4511),FILL=vec3(.654,.1811,.7345),UNDER=vec3(-.4015,-.6324,-.6625);';
-// The Oracle's light (bloom, glints, glitter) starts at just over half strength
-// in the dark valley and reaches full strength as the relics are restored.
-const WAKE = 'float wake(float p){return mix(.55,1.,clamp(p,0.,1.));}';
+// The Oracle's light (bloom, glints, glitter) is dim in the dark valley and
+// grows clearly with each restored relic, a little past its old full strength.
+const WAKE = 'float wake(float p){return mix(.3,1.1,clamp(p,0.,1.));}';
 const NOISE = `float hash1(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
   float noise2(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
     return mix(mix(hash1(i),hash1(i+vec2(1.,0.)),f.x),mix(hash1(i+vec2(0.,1.)),hash1(i+vec2(1.)),f.x),f.y);}
@@ -84,7 +84,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
       void main(){vec2 p=(vUv-.5)*2.;float feather=pow(max(0.,1.-dot(p,p)),2.);
         vec2 drift=vec2(t*.012,-t*.008);float n=cloud(p*3.2+drift+cloud(p*2.-drift)*1.6);
         float w=smoothstep(.22,.78,n);vec3 col=mix(vec3(.18,.2,.34),vec3(.2,.3,.47),w);
-        gl_FragColor=vec4(col,feather*w*(.28+power*.025));}`
+        gl_FragColor=vec4(col,feather*w*(.2+power*.12));}`
   }));
   mist.frustumCulled = false; group.add(mist);
 
@@ -252,16 +252,19 @@ export function buildOracleDesign({ main, reduceMotion }) {
           vec4 glass=nebula(n,v,band*.45+offset*7.,t);vec3 col=glass.rgb;float alpha=glass.a;
           float discA,discB,ma=medal(slotU.x,band.y,discA)*outer,mb=medal(slotU.y,band.y,discB)*outer;
           col=mix(col,vec3(.02,.03,.08),(discA+discB)*outer*.6);alpha=mix(alpha,.85,(discA+discB)*outer);
-          float lip=max(1.-smoothstep(.12,.3,vFace),faceK*smoothstep(aa,0.,edge-.028));
-          float stripe=faceK*smoothstep(aa,0.,abs(edge-.15)-.011);
-          float glyph=texture2D(map,vec2(vUv.x*2.,vUv.y)).a*faceK*mix(.55,1.,outer);
-          float g=clamp(max(max(lip,stripe),max(glyph*.9,max(ma,mb))),0.,1.);
+          // A hairline of metal at each face's edge, like the core's lips; the
+          // pinstripe and inscriptions are only half metal, so glass shows through.
+          float lip=faceK*smoothstep(aa,0.,edge-.028);
+          float stripe=faceK*smoothstep(aa,0.,abs(edge-.15)-.011)*.5;
+          float glyph=texture2D(map,vec2(vUv.x*2.,vUv.y)).a*faceK*mix(.55,1.,outer)*.5;
+          float g=clamp(max(max(lip,stripe),max(glyph,max(ma,mb))),0.,1.);
           float leaf=smoothstep(.2,.85,noise2(vec2(vUv.x*circ*1.4+offset*9.,edge*4.)));
           vec3 gc=metal(n,v,leaf)*(1.+energy*.2+restored*.12)+vec3(1.,.99,.97)*glitter(band/.09+offset*13.,n,v,.18)*3.*wake(power);
           col=mix(col,gc,g);alpha=mix(alpha,1.,g);
           float fleck=glitter(band/.06+31.,n,v,.03)*faceK*(1.-g);
           vec3 glow=slotColA*ma*(slotLit.x*1.1+slotFlash.x*1.6)+slotColB*mb*(slotLit.y*1.1+slotFlash.y*1.6)
-            +(slotColA*discA*slotFlash.x+slotColB*discB*slotFlash.y)*outer*.35;
+            +(slotColA*discA*slotFlash.x+slotColB*discB*slotFlash.y)*outer*.35
+            +vec3(.4,.55,1.)*(wake(power)-.3)*.12*(1.-g);
           gl_FragColor=vec4(col*alpha+vec3(.96,.97,1.)*fleck*2.5*wake(power)+glow,alpha);}`
     });
   }
@@ -423,7 +426,7 @@ export function buildOracleDesign({ main, reduceMotion }) {
         col=mix(col,mc,lip);alpha=mix(alpha,1.,lip);
         float fleck=glitter(f/.06+31.+shell,n,v,.03)*(1.-lip),heat=exp(-length(vP)*.55);
         if(!gl_FrontFacing)alpha*=.6;
-        gl_FragColor=vec4(col*alpha+vec3(.6,.73,1.)*heat*(1.1+energy*.3+power*.1)*(1.-lip)+vec3(.96,.97,1.)*fleck*2.5*wake(power),alpha);}`
+        gl_FragColor=vec4(col*alpha+vec3(.6,.73,1.)*heat*(.55+power*.85+energy*.3)*(1.-lip)+vec3(.96,.97,1.)*fleck*2.5*wake(power),alpha);}`
   });
   // Distance from each point to its solid's true edges, so a lip keeps one
   // width on every facet however that facet is split into triangles.
@@ -519,9 +522,11 @@ export function buildOracleDesign({ main, reduceMotion }) {
       s.ring.u.slotLit.value.setComponent(s.k, s.lit); s.ring.u.slotFlash.value.setComponent(s.k, s.flash);
     });
     rings.forEach(r => { r.u.restored.value = r.slots.reduce((sum, s) => sum + s.lit, 0) / (r.slots.length || 1) + finale * .5; });
-    const wake = .55 + .45 * Math.min(1, p);
-    heartGlow.material.opacity = .32 * (.7 + .3 * wake) + speak * .05 + flash * .05; heartRays.material.opacity = .2 * wake;
-    haze.material.opacity = .28 + p * .025; aura.material.opacity = .15 + p * .02 + speak * .02;
+    // The heart, its haze and aura brighten and widen as the relics return.
+    const lit = Math.min(1, p);
+    heartGlow.material.opacity = .2 + lit * .22 + speak * .05 + flash * .05; heartGlow.scale.setScalar(7 + lit * 3.5);
+    heartPoint.material.opacity = .6 + lit * .25; heartRays.material.opacity = .08 + lit * .22;
+    haze.material.opacity = .2 + p * .16; aura.material.opacity = .1 + p * .12 + speak * .02;
   }
   return { group, update, receive(relic) { const s = slots.find(x => x.relic === relic); if (s) { s.target = 1; s.flash = 1; } }, bloom() { slots.forEach(s => s.flash = 1); } };
 }
