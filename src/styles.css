@@ -125,6 +125,8 @@ body.writing .dock,body.writing .modes,body.writing .hint,body.writing .tracker,
 .cross .t1{left:50%;top:-8px;width:1.5px;height:8px}.cross .t2{left:50%;bottom:-8px;width:1.5px;height:8px}
 .cross .t3{top:50%;left:-8px;height:1.5px;width:8px}.cross .t4{top:50%;right:-8px;height:1.5px;width:8px}
 .cross.full .ring{border-color:var(--gold);box-shadow:0 0 14px rgba(226,190,122,.6)}
+.cross.blocked .ring{border-color:var(--gold)}
+.aim-impact{position:fixed;z-index:3;pointer-events:none;color:var(--gold);font:11px var(--f-mono);white-space:nowrap;transform:translate(-4px,-50%);text-shadow:0 1px 4px #000,0 0 6px #000}
 .stamina{position:fixed;left:0;top:0;width:30px;height:30px;z-index:3;pointer-events:none;will-change:transform}
 .stamina circle{fill:none;stroke-width:3.2}
 .stamina .bg{stroke:rgba(228,236,244,.16)}

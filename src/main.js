@@ -6,8 +6,9 @@ import { rand, hash, vnoise, fbm, sstep, lerp, ease, C, mixHex, randUnit } from 
 import { radialTex, glowTex, softTex, runeTex } from './textures.js';
 import { ABOUT, RELICS, INTENTS, FALLBACK, SKILLS, LINES, FINALE, NOTE, starLine } from './content.js';
 import { collisionWorld, colliders, addMesh, floorAt, ceilingAt, pushOut, slideVelocity } from './colliders.js';
-import { guidedRelic, relicArrowHit, relicAimPoint } from './relic-targeting.js';
+import { guidedRelic, relicArrowHit } from './relic-targeting.js';
 import { flightPoint, flightBlocked, planFlight } from './flight-path.js';
+import { resolveBowAim } from './bow-aim.js';
 import { createOracle } from './oracle.js';
 import { createConstellation } from './constellation.js';
 import { buildForm } from './relics.js';
@@ -870,14 +871,12 @@ function touchStar(s, asked){
   oracleSay(starLine(s.skill, used.map(r => r.name), used.filter(r => !r.discovered).length));
 }
 function autoShoot(r){ if (P.auto || P.flight) return; P.auto = { r, t:0 }; P.target = null; }
-function fireManual(){
+function manualAim(){
   const from = bowWorld(); ray.setFromCamera(ndc.set(0,0), camera);
-  let aimPt = camera.position.clone().addScaledVector(ray.ray.direction, 140);
-  const hit = collisionWorld.rayHit(camera.position, ray.ray.direction, 140, s => s.arrows);
-  if (hit) aimPt = hit.point;
-  const relicAim = relicAimPoint(ray.ray, RELICS, hit ? hit.distance : 140);
-  if (relicAim) aimPt = relicAim.point;
-  fireArrow(from, aimPt.sub(from), 26 + 52*P.draw, null); P.draw = 0;
+  return { from, ...resolveBowAim(collisionWorld,ray.ray,from,RELICS) };
+}
+function fireManual(){
+  const aim = manualAim(); fireArrow(aim.from,aim.direction,26 + 52*P.draw,null); P.draw = 0;
 }
 function setMode(m){ craneApproach = null; mode = m; document.getElementById('modeAuto').setAttribute('aria-pressed', m === 'auto'); document.getElementById('modeAim').setAttribute('aria-pressed', m === 'aim');
   document.getElementById('cross').hidden = m !== 'aim'; canvas.classList.toggle('aiming', m === 'aim'); P.drawing = false; P.draw = 0; renderHint(); skipIntro();
@@ -1224,7 +1223,17 @@ function updateStamina(){
 const flyBtn = document.getElementById('flyBtn');
 flyBtn.addEventListener('pointerdown', e => { e.preventDefault(); flyBtn.setPointerCapture(e.pointerId); jumpPress(); keys.Space = true; flyBtn.classList.add('on'); });
 ['pointerup','pointercancel'].forEach(t => flyBtn.addEventListener(t, () => { keys.Space = false; flyBtn.classList.remove('on'); }));
-function updateCross(){ if (mode !== 'aim') return; crossRing.style.transform = `scale(${(1.35 - P.draw*.75).toFixed(3)})`; cross.classList.toggle('full', P.draw >= .98); }
+const aimImpact = document.getElementById('aimImpact'); aimImpact.textContent = `× ${LINES.shotBlocked}`;
+function updateCross(){
+  aimImpact.hidden = true; if (mode !== 'aim') return;
+  crossRing.style.transform = `scale(${(1.35 - P.draw*.75).toFixed(3)})`; cross.classList.toggle('full', P.draw >= .98);
+  const aim = manualAim(), hit = aim.obstruction;
+  const projected = hit && hit.point.clone().project(camera);
+  const offset = projected && Math.hypot(projected.x*innerWidth/2,projected.y*innerHeight/2);
+  const blocked = !!(hit && hit.distance < 6 && hit.point.distanceTo(aim.point) > .15 && projected.z > -1 && projected.z < 1 && offset > 18);
+  cross.classList.toggle('blocked',blocked);
+  if (blocked){ aimImpact.hidden = false; aimImpact.style.left = `${(projected.x*.5+.5)*innerWidth}px`; aimImpact.style.top = `${(-projected.y*.5+.5)*innerHeight}px`; }
+}
 const toastEl = document.getElementById('toast'); let toastT;
 function showToast(t){ toastEl.textContent = t; toastEl.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => toastEl.hidden = true, 3200); }
 
@@ -1280,6 +1289,6 @@ setTimeout(() => oracleSay(LINES.intro), reduceMotion ? 200 : 2000);
 if (!intro) welcome();
 
 /* dev-only handle for poking at the scene from the browser console; stripped from production builds */
-if (import.meta.env.DEV) window.__valley = { P, camS, RELICS, sky, oracle, world, colliders, collisionWorld, bird, braziers, stones, openLetter, closeLetter, summon, setGaze, scene, camera, renderer, keys, fireArrow, arrows, flyTo,
+if (import.meta.env.DEV) window.__valley = { P, camS, RELICS, sky, oracle, world, colliders, collisionWorld, bird, braziers, stones, openLetter, closeLetter, summon, setGaze, scene, camera, renderer, keys, fireArrow, fireManual, manualAim, arrows, flyTo,
   cameraDebug(){ return { intro:intro && intro.t, position:camPos.toArray(), desired:wantPos.toArray() }; },
   step(n=60, dt=1/60){ for (let i=0;i<n;i++) simulate(dt); reflectLake(); renderer.render(scene, camera); } };
