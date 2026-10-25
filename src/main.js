@@ -471,7 +471,7 @@ const beamFrag = `uniform float t; uniform float fade; uniform float rep; unifor
    water, gathering a little where it lands. Its colour is the star's own (hue), leaning to violet in the outer layer (veil).
    It breathes slowly brighter and dimmer (see updateWorld), and broad swells of light flow down it from the star to the water,
    with a fainter counter-current drifting up. Like the Oracle's glass, the light carries a soft blue-violet nebula that flows
-   down with it (colour only, so the cone keeps its clean shape), and crystal glints flash inside it (shaftGlints) */
+   down with it (colour only, so the cone keeps its clean shape), and crystalline glitter and rare star glints sparkle inside it */
 const shaftU = { t:{value:0}, power:{value:1}, hue:{value:C('#9FE8FF')}, veil:{value:C('#9484FF')} };
 { const top = ORACLE_Y - 3, h = top - WATER_Y;
   /* closed at the bottom, just under the water, so lines of sight that leave through the water still draw the light down to it */
@@ -500,43 +500,57 @@ const shaftU = { t:{value:0}, power:{value:1}, hue:{value:C('#9FE8FF')}, veil:{v
         vec3 tint = mix(vec3(.96,.98,1.), hue, smoothstep(0., .85, f)*.8), mist = mix(hue, veil, .55);
         float down = .5 + .5*sin(6.2832*(f*1.8 - t*.3)), up = .5 + .5*sin(6.2832*(f*2.7 + t*.05) + 1.3);
         float swell = .4 + 1.25*pow(down, 3.) + .1*up;
-        /* the nebula: clouds across the beam (offset from the axis as a share of its width) and down its length, drifting
-           down with the light; it shifts the colour between ice blue and violet and barely touches the brightness */
+        /* the nebula: slow veils across the beam (offset from the axis as a share of its width), drawn long down its length
+           and drifting down with the light; they move the colour between ice blue and violet and barely touch the brightness */
         float x = (o.x*k.y - o.y*k.x)/sqrt(kk)/rOut;
-        vec2 q = vec2(x*1.8, f*4.5 - t*.16);
-        float cloud = fbm(q + fbm(q*1.7 + vec2(t*.02, -t*.1))*1.2), violet = smoothstep(.36, .72, fbm(q*.8 + vec2(9. - t*.015, -t*.05)));
-        vec3 flow = mix(mix(vec3(.6,.8,1.), hue, .35), vec3(.62,.45,1.), violet);
-        float nebK = smoothstep(.04, .35, f)*(1. - foot*.6);
-        tint = mix(tint, flow*(.6 + .9*cloud), .8*nebK); mist = mix(mist, mix(veil, flow, .5)*(.7 + .6*cloud), .7*nebK);
-        vec3 c = (tint*inner*.36 + mist*outer*.17)*spread*gather*swell*along*power;
+        vec2 q = vec2(x*2.3, f*1.7 - t*.07);
+        float cloud = fbm(q + vec2(fbm(q*1.3 + vec2(t*.015, -t*.05)), fbm(q*1.1 - 4.))*.9);
+        float violet = smoothstep(.4, .75, fbm(vec2(x*1.6 + 9., f*1.2 - t*.045)));
+        vec3 flow = mix(mix(vec3(.66,.86,1.), hue, .3), vec3(.66,.52,1.), violet);
+        float nebK = smoothstep(.04, .3, f)*(1. - foot*.6);
+        tint = mix(tint, flow*(.88 + .3*cloud), .6*nebK); mist = mix(mist, mix(veil, flow, .45)*(.9 + .25*cloud), .55*nebK);
+        /* a spectral profile: a fine white-hot core inside the ice body, and a faint luminous sheath at the cone's edge where the
+           light turns violet, so the beam reads as a crafted column of light rather than a haze */
+        float core = exp(-pow(dist/(rIn*.38), 2.))*(1. - foot);
+        float sheath = exp(-pow((qo - .9)/.08, 2.))*(1. - foot)*(.6 + .4*violet);
+        vec3 c = (tint*inner*.34 + mist*outer*.14)*spread*gather*swell*along*power;
+        c += (vec3(.97,.99,1.)*core*.22*(.7 + .3*swell) + mix(vec3(.62,.8,1.), vec3(.7,.55,1.), .4 + .6*f)*sheath*.07)*spread*gather*along*power;
         c *= smoothstep(.8, 3., length(o));   /* fade if the camera is inside the light */
         gl_FragColor = vec4(c, 1.); }` }));   /* additive blending scales by alpha, so alpha 1 adds the light as shaded */
   m.position.y = WATER_Y - .3 + (h + .3)/2; m.renderOrder = 3; scene.add(m);
-  /* crystal glints inside the light, drawn like the Oracle's: thin four-point stars that mostly rest unseen and flash
-     briefly, ice white, blue or violet, drifting slowly down with the light (a private seed keeps the valley's layout) */
+  /* crystalline light inside the beam, drawn like the Oracle's glints: a fine glitter of tiny points, gathered toward the
+     axis and twinkling softly, and a few larger four-point stars that flash rarely and slowly, all drifting down with the
+     light (a private seed keeps the valley's shared layout) */
   let sd = 53; const r = () => (sd = sd*16807 % 2147483647)/2147483647;
-  const N = 420, gp = new Float32Array(N*3);
-  for (let i=0;i<N;i++){ gp[i*3] = r(); gp[i*3+1] = r()*6.2832; gp[i*3+2] = Math.sqrt(r()); }
-  const gg = new THREE.BufferGeometry(); gg.setAttribute('position', new THREE.BufferAttribute(gp, 3));
+  const FINE = 720, HERO = 56, N = FINE + HERO, gp = new Float32Array(N*3), tier = new Float32Array(N);
+  for (let i=0;i<N;i++){ const hero = i >= FINE; gp[i*3] = r(); gp[i*3+1] = r()*6.2832; gp[i*3+2] = Math.pow(r(), hero ? .8 : 1.2); tier[i] = hero ? 1 : 0; }
+  const gg = new THREE.BufferGeometry(); gg.setAttribute('position', new THREE.BufferAttribute(gp, 3)); gg.setAttribute('tier', new THREE.BufferAttribute(tier, 1));
   const glints = new THREE.Points(gg, new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, fog:false, uniforms:shaftU,
-    vertexShader:`uniform float t; uniform float power; uniform vec3 hue; uniform vec3 veil; varying float vI; varying vec3 vCol; varying float vA;
-      void main(){ float seed = position.x*91.7 + position.y*13.1, h = fract(seed*.37);
-        float f = fract(position.x + t*(.25 + fract(seed)*.35)/${h.toFixed(1)});   /* 0 under the star, 1 at the water */
-        float rad = mix(.7, 4.6, f)*position.z, a = position.y + t*.03;
+    vertexShader:`attribute float tier; uniform float t; uniform float power; uniform vec3 hue; uniform vec3 veil; varying float vI; varying vec3 vCol; varying float vA; varying float vTier;
+      void main(){ float seed = position.x*91.7 + position.y*13.1, c = fract(seed*.37); vTier = tier;
+        float f = fract(position.x + t*(.18 + fract(seed)*.3)/${h.toFixed(1)});   /* 0 under the star, 1 at the water */
+        float rad = mix(.8, 5.2, f)*position.z, a = position.y + t*.025;
         vec4 mv = modelViewMatrix*vec4(cos(a)*rad, ${top.toFixed(1)} - f*${h.toFixed(1)}, sin(a)*rad, 1.);
-        float flash = pow(.5 + .5*sin(t*(1.1 + fract(seed*3.1)*2.4) + seed*6.2832), 12.);
-        vI = (.08 + flash*1.7)*smoothstep(0., .06, f)*smoothstep(1., .92, f)*(1. - position.z*.45)*power;
-        vCol = h < .4 ? mix(hue, vec3(1.), .6) : h < .75 ? mix(hue, vec3(.75,.85,1.), .4) : mix(veil, vec3(1.), .25);
-        vA = fract(seed*.71)*.5 - .25;
-        gl_PointSize = vI < .03 ? 0. : clamp((1. + flash*2.)*${(PIXEL*330).toFixed(1)}/max(1., -mv.z), 1., ${(PIXEL*44).toFixed(1)});
+        float phase = sin(t*(tier > .5 ? .35 + fract(seed*3.1)*.5 : .9 + fract(seed*3.1)*1.6) + seed*6.2832);
+        float flash = tier > .5 ? pow(.5 + .5*phase, 22.) : .25 + .75*pow(.5 + .5*phase, 5.);
+        float edge = smoothstep(0., .06, f)*smoothstep(1., .92, f)*(1. - position.z*.55);
+        vI = (tier > .5 ? flash*1.6 : flash*.7)*edge*power;
+        vCol = c < .55 ? vec3(.92,.96,1.) : c < .85 ? mix(hue, vec3(1.), .45) : mix(veil, vec3(1.), .35);
+        vA = fract(seed*.71)*.4 - .2;
+        float size = tier > .5 ? (1.4 + flash*2.6)*${(PIXEL*330).toFixed(1)} : (.35 + flash*.35)*${(PIXEL*260).toFixed(1)};
+        gl_PointSize = vI < .02 ? 0. : clamp(size/max(1., -mv.z), 1., ${(PIXEL*56).toFixed(1)});
         gl_Position = projectionMatrix*mv; }`,
-    fragmentShader:`varying float vI; varying vec3 vCol; varying float vA;
+    fragmentShader:`varying float vI; varying vec3 vCol; varying float vA; varying float vTier;
       void main(){ vec2 p = gl_PointCoord - .5; float cs = cos(vA), sn = sin(vA); p = mat2(cs, -sn, sn, cs)*p;
-        float ray = exp(-abs(p.x)*70.)*exp(-abs(p.y)*6.) + exp(-abs(p.y)*70.)*exp(-abs(p.x)*6.);
+        float core = exp(-dot(p, p)*(vTier > .5 ? 900. : 70.));
+        float ray = exp(-abs(p.x)*80.)*exp(-abs(p.y)*4.5) + exp(-abs(p.y)*80.)*exp(-abs(p.x)*4.5);
         vec2 dg = mat2(.7071, -.7071, .7071, .7071)*p;
-        float diag = (exp(-abs(dg.x)*90.)*exp(-abs(dg.y)*14.) + exp(-abs(dg.y)*90.)*exp(-abs(dg.x)*14.))*.4;
-        float core = exp(-dot(p, p)*800.), a = (ray + diag + core*1.5)*min(vI, 1.4);
-        gl_FragColor = vec4(mix(vCol, vec3(1.), min(1., core + ray*.3)), a); }` }));   /* additive blending scales by alpha */
+        float diag = (exp(-abs(dg.x)*110.)*exp(-abs(dg.y)*16.) + exp(-abs(dg.y)*110.)*exp(-abs(dg.x)*16.))*.3;
+        float halo = exp(-dot(p, p)*40.)*.12;
+        float a = vTier > .5 ? (ray + diag + halo + core*1.6)*min(vI, 1.5) : core*vI;
+        /* the hero stars' horizontal rays lean ice blue and their vertical ones violet, a faint spectral split */
+        vec3 tintRay = mix(vec3(.7,.88,1.), vec3(.78,.66,1.), step(abs(p.x), abs(p.y)));
+        gl_FragColor = vec4(mix(vTier > .5 ? mix(vCol, tintRay, .35) : vCol, vec3(1.), min(1., core)), a); }` }));   /* additive blending scales by alpha */
   glints.frustumCulled = false; glints.renderOrder = 3; scene.add(glints); }
 const beamMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, side:THREE.DoubleSide, fog:false,
   uniforms:{ t:{value:0}, fade:{value:0}, rep:{value:30}, col:{value:C('#BFF6FF')} }, vertexShader:beamVert, fragmentShader:beamFrag });
