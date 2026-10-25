@@ -902,18 +902,25 @@ followPose(); camPos.copy(intro ? intro.from : wantPos); camLook.copy(intro ? in
 function updateCamera(dt){
   if (gaze && gazeT < 2.5){ gazeT += dt; camS.pitch = lerp(camS.pitch, 1.42, 1 - Math.exp(-dt*(reduceMotion ? 30 : 2.6))); }
   followPose();
+  if (intro){
+    intro.t += dt;
+    // Begin travelling while the opening camera is still descending. Both motions share the same target.
+    if (!welcomed && intro.t >= intro.dur - 1.2) welcome(true);
+  }
   const ride = craneApproach;
-  if (ride && (P.flight === ride.flight || ride.flight.t >= 1)){
+  const riding = ride && (P.flight === ride.flight || ride.flight.t >= 1);
+  if (riding){
     const t = Math.min(1,ride.flight.t), e = glideEase(t);
     camS.dist = lerp(ride.fromDist,ride.toDist,e);
     // Translate with the wanderer and dolly forward along the existing view. No orbit or lens change.
-    camPos.copy(ride.fromCamera).add(P.pos.clone().sub(ride.fromPlayer)).addScaledVector(ride.direction,ride.fromDist - camS.dist);
-    camLook.copy(camPos).addScaledVector(ride.direction,30);
-    if (t >= 1) craneApproach = null;
+    wantPos.copy(ride.fromCamera).add(P.pos.clone().sub(ride.fromPlayer)).addScaledVector(ride.direction,ride.fromDist - camS.dist);
+    wantLook.copy(wantPos).addScaledVector(ride.direction,ride.lookDistance);
   }
-  else if (intro){ intro.t += dt; const e = sstep(0,1,(intro.t-1.6)/(intro.dur-1.6));
+  if (intro){ const e = sstep(0,1,(intro.t-1.6)/(intro.dur-1.6));
     camPos.lerpVectors(intro.from, wantPos, e); camLook.lerpVectors(intro.look, wantLook, e); if (intro.t >= intro.dur){ intro = null; welcome(); } }
+  else if (riding){ camPos.copy(wantPos); camLook.copy(wantLook); }
   else { craneApproach = null; const k = 1 - Math.exp(-dt*(mode === 'aim' ? 14 : 7)); camPos.lerp(wantPos, k); camLook.lerp(wantLook, 1 - Math.exp(-dt*(mode === 'aim' ? 20 : 10))); }
+  if (riding && ride.flight.t >= 1) craneApproach = null;
   camera.position.copy(camPos); camera.lookAt(camLook); skyGroup.position.copy(camera.position);
   const fov = mode === 'aim' ? baseFov - 6 - P.draw*12 : gaze ? baseFov + 14 : baseFov; if (Math.abs(camera.fov - fov) > .05){ camera.fov = lerp(camera.fov, fov, 1 - Math.exp(-dt*8)); camera.updateProjectionMatrix(); }
 }
@@ -1076,7 +1083,7 @@ function showRelicCard(r){ renderCard(r, true); }
 /* Austin's name returns the wanderer to the crane; the card follows the paper's unfolding. */
 document.getElementById('brand').addEventListener('click', goToCrane);
 let welcomed = false;
-function welcome(){ if (!welcomed) goToCrane(); }
+function welcome(overlap=false){ if (!welcomed) goToCrane({ overlap }); }
 /* ---------- the note: the crane flies toward you and opens into a large sheet of paper to write on ---------- */
 const letter = document.getElementById('letter'), letterForm = document.getElementById('letterForm'), letterMsg = document.getElementById('letterMsg');
 const letterFrom = document.getElementById('letterFrom'), letterStatus = document.getElementById('letterStatus'), letterSend = document.getElementById('letterSend');
@@ -1088,13 +1095,13 @@ function openLetter(){ if (writing || bird.busy) return; writing = true; cardBef
 function closeLetter(){ if (!writing) return; writing = false; letter.hidden = true; document.body.classList.remove('writing'); bird.setWriting(false); canvas.focus({ preventScroll:true });
   if (cardBeforeNote === ABOUT) craneCardPending = byBird; cardBeforeNote = null; }
 /* Approach the crane in a straight glide, keeping the current view while the camera gently dollies in. */
-function goToCrane(){
+function goToCrane({ overlap=false }={}){
   if (craneApproach && P.flight === craneApproach.flight){
     if (writing) closeLetter(); if (openRelic) sendBack(openRelic); if (!card.hidden) hideCard();
     craneCardPending = true; return;
   }
   const yaw = camS.yaw, pitch = camS.pitch;
-  intro = null; welcomed = true;
+  if (!overlap) intro = null; welcomed = true;
   if (openRelic) sendBack(openRelic); if (writing) closeLetter();
   if (!card.hidden) hideCard(); if (gaze) setGaze(false); if (mode === 'aim') setMode('auto');
   P.drawing = false; P.draw = 0; P.auto = null; P.target = null; P.vel.set(0,0,0); P.flying = P.soared = false;
@@ -1103,7 +1110,8 @@ function goToCrane(){
   camS.yaw = yaw; camS.pitch = pitch;
   if (travel && !reduceMotion){
     flyTo(to); P.flight.dur = Math.min(4,Math.max(1.8,P.pos.distanceTo(to)/12)); P.flight.arc = 0; P.flight.ease = 'glide'; P.onGround = false;
-    craneApproach = { flight:P.flight, fromCamera:camPos.clone(), fromPlayer:P.pos.clone(), direction:camLook.clone().sub(camPos).normalize(), fromDist:camS.dist, toDist:Math.min(camS.dist,5.8) };
+    const fromCamera = (overlap ? wantPos : camPos).clone(), look = overlap ? wantLook : camLook;
+    craneApproach = { flight:P.flight, fromCamera, fromPlayer:P.pos.clone(), direction:look.clone().sub(fromCamera).normalize(), lookDistance:look.distanceTo(fromCamera), fromDist:camS.dist, toDist:Math.min(camS.dist,5.8) };
   }
   else {
     craneApproach = null; P.flight = null; P.dip = null;
