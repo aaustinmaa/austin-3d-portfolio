@@ -42,7 +42,7 @@ Solid boundaries come from the rendered triangles: terrain, path stones, boulder
 
 Foreground rocks, trees and other scenery may naturally obscure the wanderer. They do not pull the camera closer, raise it or fade the character to keep the wanderer visible. Terrain clearance, manual zoom, aiming and the intentional crane-approach dolly still apply.
 
-Each brazier holds a golden fire that matches the valley's champagne-gold accents, never orange-red and never blue or violet. A volumetric shader shapes three uneven tongues that rise from glowing coals in a sooty bowl, sway and fray into licks; its temperature runs from warm white at the heart through gold to soft amber gold at the edges. The bowl hides the fire below its rim from every angle. Now and then a spark lifts off, beneath a soft halo and flickering local light. Lighting a brazier grows the flame up from the coals; with reduced motion the fire and lighting stay steady and no sparks rise.
+Each brazier holds a golden fire that matches the valley's champagne-gold accents, never orange-red and never blue or violet. A volumetric shader shapes three uneven tongues that rise from glowing coals in a sooty bowl, sway and fray into licks; the flame is dense, with a glaring white-hot heart that runs through gold to soft amber gold at the edges. The bowl hides the fire below its rim from every angle. Now and then a spark lifts off, beneath a soft halo and flickering local light. Lighting a brazier grows the flame up from the coals; with reduced motion the fire and lighting stay steady and no sparks rise.
 
 ## Project layout
 

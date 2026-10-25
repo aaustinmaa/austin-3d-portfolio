@@ -31,7 +31,7 @@ const noiseGLSL = `
 
 // Integrate light through a volume, so the fire has depth from every angle. A broad base on the coals
 // splits into three uneven tongues; noise streams up through them and frays the tips into licks.
-// Temperature sets the colour, all in the valley's champagne gold: warm white at the heart, gold through
+// Temperature sets the colour, all in the valley's champagne gold: white-hot at the heart, gold through
 // the body and soft amber gold at the edges, never orange or red.
 const plumeVertex = `varying vec3 vWorld;
   void main(){ vec4 p = modelMatrix*vec4(position,1.); vWorld = p.xyz;
@@ -44,8 +44,8 @@ const plumeFragment = `
   ${noiseGLSL}
   vec3 ramp(float k){
     vec3 c = mix(vec3(.82,.5,.16),vec3(1.,.74,.3),smoothstep(0.,.35,k));
-    c = mix(c,vec3(1.,.87,.52),smoothstep(.3,.72,k));
-    return mix(c,vec3(1.,.96,.82),smoothstep(.75,1.,k));
+    c = mix(c,vec3(1.,.88,.55),smoothstep(.3,.65,k));
+    return mix(c,vec3(1.,.98,.93),smoothstep(.62,.95,k));
   }
   // One tongue: 1 on its axis, 0 at its frayed edge. It narrows, sways and burns out toward its tip.
   float tongue(vec3 q, vec2 at, float H, float R, float ph, float t, float n){
@@ -65,8 +65,9 @@ const plumeFragment = `
     f = max(f,tongue(q,rot*vec2(.12,-.08),(1. + sin(t*2.6 + 4.)*.1)*grow,.18,seed + 4.,t,n));
     if(f<=0.) return vec4(0.);
     // The coals feed it a deeper glow; it burns hottest a little above them.
-    float h = q.y/(1.22*grow), feed = smoothstep(0.,.2,q.y);
-    return vec4(ramp(clamp(f*1.3*(1.-h*.55)*(.55 + .45*feed),0.,1.)),smoothstep(0.,.18,f)*(.55 + .65*feed)*(1.2 - h*.7)*(.65 + .7*n));
+    float h = q.y/(1.22*grow), feed = smoothstep(0.,.2,q.y), heat = clamp(f*1.8*(1.-h*.5)*(.6 + .4*feed),0.,1.);
+    // A dense body with a white-hot heart brighter than the screen can show, so it glares like a real flame.
+    return vec4(ramp(heat) + vec3(1.,.96,.88)*smoothstep(.6,1.,heat)*1.6,smoothstep(0.,.07,f)*(.6 + .6*feed)*(1.25 - h*.6)*(.85 + .3*n));
   }
   void main(){
     vec3 ro = cameraPosition - base, rd = normalize(vWorld - cameraPosition);
@@ -85,7 +86,7 @@ const plumeFragment = `
     vec3 sum = vec3(0.); float trans = 1.;
     for(int i=0;i<32;i++){
       vec4 e = flame(ro + rd*(enter + (float(i)+jitter)*stepSize),t,grow,rot);
-      sum += trans*e.rgb*e.a*stepSize*2.6; trans *= exp(-e.a*stepSize*2.2);
+      sum += trans*e.rgb*e.a*stepSize*4.; trans *= exp(-e.a*stepSize*5.);
     }
     gl_FragColor = vec4(sum*strength,1.);
   }`;
@@ -171,6 +172,9 @@ export function createBrazier(scene, position, { seed=0, reduceMotion=false, pix
   // A soft gold glow around the rising fire, like the Oracle's champagne light.
   const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xFFD38A, transparent:true, opacity:0, depthWrite:false, blending:THREE.AdditiveBlending }));
   halo.position.y = 1.75; halo.scale.set(1.6,1.6,1); root.add(halo);
+  // A tight white glare over the heart of the flame.
+  const glare = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xFFF2D6, transparent:true, opacity:0, depthWrite:false, blending:THREE.AdditiveBlending }));
+  glare.position.y = 1.52; glare.scale.set(.85,1.05,1); root.add(glare);
   const light = new THREE.PointLight(0xFFCF8A,0,6,2); light.position.y = 1.85; root.add(light);
   const b = { root, solids, pos:root.position.clone(), top:position.y, lit:false, ignition:0, light, plume,
     update(dt,time){
@@ -180,8 +184,8 @@ export function createBrazier(scene, position, { seed=0, reduceMotion=false, pix
       const flicker = 1 + Math.sin(t*7.3)*.05 + Math.sin(t*13.1 + 1.3)*.035 + Math.sin(t*2.9 + .4)*.03;
       uniforms.time.value = coals.material.uniforms.time.value = reduceMotion ? 0 : time;
       uniforms.strength.value = coals.material.uniforms.strength.value = strength;
-      plume.visible = halo.visible = strength>0; sparks.visible = strength>0 && !reduceMotion;
-      halo.material.opacity = strength*flicker*.13;
+      plume.visible = halo.visible = glare.visible = strength>0; sparks.visible = strength>0 && !reduceMotion;
+      halo.material.opacity = strength*flicker*.13; glare.material.opacity = strength*flicker*.32;
       light.intensity = strength*flicker*.9;
     },
   };
