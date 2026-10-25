@@ -1127,7 +1127,7 @@ function openLetter(){ if (writing || bird.busy) return; writing = true; cardBef
   letterStatus.textContent = ''; document.body.classList.add('writing'); }
 function closeLetter(){ if (!writing) return; writing = false; letter.hidden = true; document.body.classList.remove('writing'); bird.setWriting(false); canvas.focus({ preventScroll:true });
   if (cardBeforeNote === ABOUT) craneCardPending = byBird; cardBeforeNote = null; }
-/* Approach the crane in a straight glide, keeping the current view while the camera gently dollies in. */
+/* Follow the line from the wanderer to the crane, stopping short while still facing along that same line. */
 function goToCrane({ overlap=false }={}){
   if (craneApproach && P.flight === craneApproach.flight){
     if (writing) closeLetter(); if (openRelic) sendBack(openRelic); if (!card.hidden) hideCard();
@@ -1138,17 +1138,23 @@ function goToCrane({ overlap=false }={}){
   if (openRelic) sendBack(openRelic); if (writing) closeLetter();
   if (!card.hidden) hideCard(); if (gaze) setGaze(false); if (mode === 'aim') setMode('auto');
   P.drawing = false; P.draw = 0; P.auto = null; P.target = null; P.vel.set(0,0,0); P.flying = P.soared = false;
-  const to = new V3(CRANE_LANTERN.x - 1.2, 0, CRANE_LANTERN.z + 1.0); to.y = groundH(to.x, to.z);
-  const travel = !byBird && P.pos.distanceTo(to) > .35;
+  const toward = new V3(CRANE_LANTERN.x - P.pos.x, 0, CRANE_LANTERN.z - P.pos.z);
+  if (toward.lengthSq() < 1e-6) toward.set(0,0,-1);
+  toward.normalize();
+  const to = new V3(CRANE_LANTERN.x, 0, CRANE_LANTERN.z).addScaledVector(toward,-1.8); to.y = groundH(to.x, to.z);
+  const arrivalFacing = Math.atan2(toward.x,toward.z);
+  const travel = P.pos.distanceTo(to) > .35;
   camS.yaw = yaw; camS.pitch = pitch;
   if (travel && !reduceMotion){
     flyTo(to); P.flight.dur = Math.min(4,Math.max(1.8,P.pos.distanceTo(to)/12)); P.flight.arc = 0; P.flight.ease = 'glide'; P.onGround = false;
+    P.flight.arrivalFacing = P.facing = arrivalFacing;
     const fromCamera = (overlap ? wantPos : camPos).clone(), look = overlap ? wantLook : camLook;
     craneApproach = { flight:P.flight, fromCamera, fromPlayer:P.pos.clone(), direction:look.clone().sub(fromCamera).normalize(), lookDistance:look.distanceTo(fromCamera), fromDist:camS.dist, toDist:Math.min(camS.dist,5.8) };
   }
   else {
     craneApproach = null; P.flight = null; P.dip = null;
     if (travel){ P.pos.copy(to); P.onGround = true; camS.dist = Math.min(camS.dist,5.8); }
+    P.facing = arrivalFacing;
     if (reduceMotion){ followPose(); camPos.copy(wantPos); camLook.copy(wantLook); }
   }
   craneCardPending = true;
