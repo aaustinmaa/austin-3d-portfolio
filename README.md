@@ -40,6 +40,8 @@ Light the four braziers on the spiral stairs to wake a hidden seventh relic. The
 
 Solid boundaries come from the rendered triangles: terrain, path stones, boulders, cliff faces, pillar shafts and caps, stair undersides, tree tiers, lanterns and hollow brazier bowls. Moving relics, Oracle glass and folding paper update their boundaries with their animation. Walking, manual flight and click-to-fly all check the same geometry; an obstructed flight stops safely, and higher perches are approached from above. Both drawn and guided arrows stop at the first surface, with the tip on that surface. The camera also checks these boundaries. Auras, flames, particles, grass and the lake's reflection remain non-solid.
 
+Camera obstruction uses one head anchor and probes the lens edges as well as its centre. Near low obstacles it tries a slightly higher view to retain a comfortable distance, holding that view until there is room to return. When space forces the lens close, the wanderer fades before its head fills the screen. Cloth keeps its opaque depth and lining, and the lake's reflected view calculates its own fade distance.
+
 Each brazier has a hollow metal bowl, glowing coals, curling flame tongues and sparse rising embers. Ice-blue cores fade through cyan into blue-violet tips, with matching coals, embers and local light. Ignition eases in beneath a restrained cool halo. With reduced motion, the fire and light stay steady and embers stop drifting.
 
 ## Project layout
@@ -56,6 +58,7 @@ src/hero.js           The wanderer (a small doll in a thin robe and draped hood)
 src/braziers.js       Stair braziers: hollow bowls, coals, procedural flames, embers and local lighting
 src/paperbird.js      The paper crane by the stair: Austin's name card, unfolding into paper visitors can write a note on
 src/colliders.js      Render-mesh collision trees for standing, body movement, ceilings, camera and arrow hits
+src/camera-rig.js     Camera clearance, stable raised views and near-camera character fading
 src/content.js        Everything visitors read: relic text, skills, the Oracle's lines and answers
 src/noise.js          Seeded random and value noise (the valley is identical on every visit)
 src/textures.js       Canvas-drawn textures: glows, rays, runes, sigils, dials, paper, fabric weave

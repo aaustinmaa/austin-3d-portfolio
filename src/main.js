@@ -6,6 +6,7 @@ import { rand, hash, vnoise, fbm, sstep, lerp, ease, C, mixHex, randUnit } from 
 import { radialTex, glowTex, softTex, runeTex } from './textures.js';
 import { ABOUT, RELICS, INTENTS, FALLBACK, SKILLS, LINES, FINALE, NOTE, starLine } from './content.js';
 import { collisionWorld, colliders, addMesh, floorAt, ceilingAt, pushOut } from './colliders.js';
+import { CameraBoom, installNearCameraFade } from './camera-rig.js';
 import { createOracle } from './oracle.js';
 import { createConstellation } from './constellation.js';
 import { buildForm } from './relics.js';
@@ -528,6 +529,8 @@ function burst(pos, color, n=70, power=1){
 /* ---------- the wanderer ---------- */
 collisionWorld.build();
 const H = buildHero(scene), hero = H.root;
+const heroFadeAnchor = new V3();
+installNearCameraFade(hero, heroFadeAnchor);
 
 /* ---------- player ---------- */
 const P = { pos:new V3(0,0,21.5), vel:new V3(), onGround:true, facing:Math.PI, target:null, flight:null, walk:0, speed:0, draw:0, drawing:false, auto:null,
@@ -785,6 +788,7 @@ lookBtn.addEventListener('click', () => setGaze(!gaze));
 let intro = reduceMotion ? null : { t:0, dur:6.5, from:new V3(5, 5, 36), look:new V3(0, ORACLE_Y-4, 0) };
 function skipIntro(){ if (intro && intro.t < intro.dur - 1.1) intro.t = intro.dur - 1.1; }
 const camPos = new V3(), camLook = new V3(), wantPos = new V3(), wantLook = new V3();
+const cameraBoom = new CameraBoom((from, to) => collisionWorld.segmentHit(from, to, s => s.body));
 function followPose(){
   const aim = mode === 'aim';
   const head = P.pos.clone().add(new V3(0, 1.55, 0));
@@ -796,10 +800,9 @@ function followPose(){
   const dist = aim ? 4.4 : gaze ? Math.min(camS.dist, 6) : camS.dist;
   let d = dist; for (let k=0;k<12;k++){ const p = pivot.clone().addScaledVector(Lp, -d); const g = groundH(p.x,p.z); if (p.y > g + .35 && Math.hypot(p.x,p.z) < 42) break; d *= .82; }
   wantPos.copy(pivot).addScaledVector(Lp, -d);
-  const obstruction = collisionWorld.segmentHit(pivot, wantPos, s => s.body);
-  if (obstruction) wantPos.copy(pivot).addScaledVector(Lp, -Math.max(.25, obstruction.distance - .25));
   /* stay above the grass tops so blades never fill the view */
   if (wantPos.y < groundH(wantPos.x, wantPos.z) + .95) wantPos.y = groundH(wantPos.x, wantPos.z) + .95;
+  wantPos.copy(cameraBoom.resolve(head, wantPos).position);
   wantLook.copy(pivot).addScaledVector(L, 30);
 }
 followPose(); camPos.copy(intro ? intro.from : wantPos); camLook.copy(intro ? intro.look : wantLook);
@@ -810,9 +813,10 @@ function updateCamera(dt){
     camPos.lerpVectors(intro.from, wantPos, e); camLook.lerpVectors(intro.look, wantLook, e); if (intro.t >= intro.dur){ intro = null; welcome(); } }
   else { const k = 1 - Math.exp(-dt*(mode === 'aim' ? 14 : 7)); camPos.lerp(wantPos, k); camLook.lerp(wantLook, 1 - Math.exp(-dt*(mode === 'aim' ? 20 : 10))); }
   if (!intro){
-    const pivot = P.pos.clone().add(new V3(0,1.55,0)), obstruction = collisionWorld.segmentHit(pivot, camPos, s => s.body);
-    if (obstruction){ const d = camPos.clone().sub(pivot).normalize(); camPos.copy(pivot).addScaledVector(d, Math.max(.1, obstruction.distance - .25)); }
+    const head = P.pos.clone().add(new V3(0,1.55,0));
+    camPos.copy(cameraBoom.constrain(head, camPos).position);
   }
+  heroFadeAnchor.copy(P.pos).add(new V3(0,1.35,0));
   camera.position.copy(camPos); camera.lookAt(camLook); skyGroup.position.copy(camera.position);
   const fov = mode === 'aim' ? baseFov - 6 - P.draw*12 : gaze ? baseFov + 14 : baseFov; if (Math.abs(camera.fov - fov) > .05){ camera.fov = lerp(camera.fov, fov, 1 - Math.exp(-dt*8)); camera.updateProjectionMatrix(); }
 }
@@ -1069,7 +1073,7 @@ function simulate(dt){
   updateLabels(); updateCross(); updateStamina();
 }
 function frame(now){
-  const dt = Math.min(.05, (now-last)/1000); last = now;
+  const dt = Math.max(0, Math.min(.05, (now-last)/1000)); last = now;
   simulate(dt); reflectLake(); renderer.render(scene, camera); requestAnimationFrame(frame);
 }
 RELICS.forEach(r => { if (r.state === 'orbit') orbitPos(r, r.pos); });
@@ -1079,4 +1083,5 @@ if (!intro) setTimeout(welcome, 600);
 
 /* dev-only handle for poking at the scene from the browser console; stripped from production builds */
 if (import.meta.env.DEV) window.__valley = { P, camS, RELICS, sky, oracle, world, colliders, collisionWorld, bird, braziers, openLetter, closeLetter, summon, setGaze, scene, camera, renderer, keys, fireArrow, arrows, flyTo,
+  cameraDebug(){ return { intro:intro && intro.t, position:camPos.toArray(), desired:wantPos.toArray(), lift:cameraBoom.lift }; },
   step(n=60, dt=1/60){ for (let i=0;i<n;i++) simulate(dt); reflectLake(); renderer.render(scene, camera); } };
