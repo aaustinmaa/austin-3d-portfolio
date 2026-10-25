@@ -6,7 +6,6 @@ import { rand, hash, vnoise, fbm, sstep, lerp, ease, C, mixHex, randUnit } from 
 import { radialTex, glowTex, softTex, runeTex } from './textures.js';
 import { ABOUT, RELICS, INTENTS, FALLBACK, SKILLS, LINES, FINALE, NOTE, starLine } from './content.js';
 import { collisionWorld, colliders, addMesh, floorAt, ceilingAt, pushOut, slideVelocity } from './colliders.js';
-import { CameraBoom, installNearCameraFade } from './camera-rig.js';
 import { createOracle } from './oracle.js';
 import { createConstellation } from './constellation.js';
 import { buildForm } from './relics.js';
@@ -622,8 +621,6 @@ function burst(pos, color, n=70, power=1){
 /* ---------- the wanderer ---------- */
 collisionWorld.build();
 const H = buildHero(scene), hero = H.root;
-const heroFadeAnchor = new V3();
-installNearCameraFade(hero, heroFadeAnchor);
 
 /* ---------- player ---------- */
 const P = { pos:new V3(0,0,21.5), vel:new V3(), onGround:true, facing:Math.PI, target:null, flight:null, walk:0, speed:0, draw:0, drawing:false, auto:null,
@@ -897,7 +894,6 @@ let craneApproach = null;
 const glideEase = t => t*t*(3 - 2*t);
 function skipIntro(){ if (intro && intro.t < intro.dur - 1.1) intro.t = intro.dur - 1.1; }
 const camPos = new V3(), camLook = new V3(), wantPos = new V3(), wantLook = new V3();
-const cameraBoom = new CameraBoom((from, to) => collisionWorld.segmentHit(from, to, s => s.body));
 function followPose(){
   const aim = mode === 'aim';
   const head = P.pos.clone().add(new V3(0, 1.55, 0));
@@ -911,7 +907,7 @@ function followPose(){
   wantPos.copy(pivot).addScaledVector(Lp, -d);
   /* stay above the grass tops so blades never fill the view */
   if (wantPos.y < groundH(wantPos.x, wantPos.z) + .95) wantPos.y = groundH(wantPos.x, wantPos.z) + .95;
-  wantPos.copy(cameraBoom.resolve(head, wantPos).position);
+  // Foreground solids may hide the wanderer. Keep the chosen framing instead of pulling the lens toward the head.
   wantLook.copy(pivot).addScaledVector(L, 30);
 }
 followPose(); camPos.copy(intro ? intro.from : wantPos); camLook.copy(intro ? intro.look : wantLook);
@@ -937,12 +933,6 @@ function updateCamera(dt){
   else if (riding){ camPos.copy(wantPos); camLook.copy(wantLook); }
   else { craneApproach = null; const k = 1 - Math.exp(-dt*(mode === 'aim' ? 14 : 7)); camPos.lerp(wantPos, k); camLook.lerp(wantLook, 1 - Math.exp(-dt*(mode === 'aim' ? 20 : 10))); }
   if (riding && ride.flight.t >= 1) craneApproach = null;
-  if (!intro){
-    const head = P.pos.clone().add(new V3(0,1.55,0)), safe = cameraBoom.constrain(head, camPos).position;
-    if (riding) camLook.add(safe.clone().sub(camPos));
-    camPos.copy(safe);
-  }
-  heroFadeAnchor.copy(P.pos).add(new V3(0,1.35,0));
   camera.position.copy(camPos); camera.lookAt(camLook); skyGroup.position.copy(camera.position);
   const fov = mode === 'aim' ? baseFov - 6 - P.draw*12 : gaze ? baseFov + 14 : baseFov; if (Math.abs(camera.fov - fov) > .05){ camera.fov = lerp(camera.fov, fov, 1 - Math.exp(-dt*8)); camera.updateProjectionMatrix(); }
 }
@@ -1256,5 +1246,5 @@ if (!intro) welcome();
 
 /* dev-only handle for poking at the scene from the browser console; stripped from production builds */
 if (import.meta.env.DEV) window.__valley = { P, camS, RELICS, sky, oracle, world, colliders, collisionWorld, bird, braziers, openLetter, closeLetter, summon, setGaze, scene, camera, renderer, keys, fireArrow, arrows, flyTo,
-  cameraDebug(){ return { intro:intro && intro.t, position:camPos.toArray(), desired:wantPos.toArray(), lift:cameraBoom.lift }; },
+  cameraDebug(){ return { intro:intro && intro.t, position:camPos.toArray(), desired:wantPos.toArray() }; },
   step(n=60, dt=1/60){ for (let i=0;i<n;i++) simulate(dt); reflectLake(); renderer.render(scene, camera); } };

@@ -38,9 +38,9 @@ Requires Node 18 or newer.
 
 Light the four braziers on the spiral stairs to wake a hidden seventh relic. The wish pillars' caps, boulders, stair stones and the brazier landings can all be stood on; click a pillar to fly up onto it. The wanderer starts gliding toward the paper crane while the opening camera is still descending. The camera blends directly into following and moving closer, forming one continuous shot without stopping between the descent and zoom in. Austin's name card appears halfway through the unfolding and closes when you leave. Clicking Austin's name in the top bar flies back to the crane and reopens the card. With reduced motion, the arrival and unfolding happen immediately.
 
-Solid boundaries come from the rendered triangles: terrain, path stones, boulders, cliff faces, pillar shafts and caps, stair undersides, tree tiers, lanterns and hollow brazier bowls. Moving relics, Oracle glass and folding paper update their boundaries with their animation. Walking, manual flight and click-to-fly all check the same geometry; an obstructed flight stops safely, and higher perches are approached from above. Both drawn and guided arrows stop at the first surface, with the tip on that surface. The camera also checks these boundaries. Auras, flames, particles, grass and the lake's reflection remain non-solid.
+Solid boundaries come from the rendered triangles: terrain, path stones, boulders, cliff faces, pillar shafts and caps, stair undersides, tree tiers, lanterns and hollow brazier bowls. Moving relics, Oracle glass and folding paper update their boundaries with their animation. Walking, manual flight and click-to-fly all check the same geometry; an obstructed flight stops safely, and higher perches are approached from above. Both drawn and guided arrows stop at the first surface, with the tip on that surface. Auras, flames, particles, grass and the lake's reflection remain non-solid.
 
-Camera obstruction uses one head anchor and probes the lens edges as well as its centre. Near low obstacles it tries a slightly higher view to retain a comfortable distance, holding that view until there is room to return. When space forces the lens close, the wanderer fades before its head fills the screen. Cloth keeps its opaque depth and lining, and the lake's reflected view calculates its own fade distance.
+Foreground rocks, trees and other scenery may naturally obscure the wanderer. They do not pull the camera closer, raise it or fade the character to keep the wanderer visible. Terrain clearance, manual zoom, aiming and the intentional crane-approach dolly still apply.
 
 Each brazier holds a rising fire made of soft light, using the same cream and honey palette as the path and carried lanterns. Three uneven tongues curl upward from a bright base and dissolve into wisps, with a diffuse halo, a faint pool inside the bowl and gentle local lighting. A volumetric shader gives the light depth without a solid surface. Ignition eases in; with reduced motion the fire and lighting stay steady.
 
@@ -57,8 +57,7 @@ src/relics.js         The seven relic models (faceted, with soft auras) and how 
 src/hero.js           The wanderer (a small doll in a thin robe and draped hood), its bow and lantern, and their animation
 src/braziers.js       Stair braziers: hollow bowls, rising volumetric fire, lantern glows and local lighting
 src/paperbird.js      The paper crane by the stair: Austin's name card, unfolding into paper visitors can write a note on
-src/colliders.js      Render-mesh collision trees for standing, body movement, ceilings, camera and arrow hits
-src/camera-rig.js     Camera clearance, stable raised views and near-camera character fading
+src/colliders.js      Render-mesh collision trees for standing, body movement, ceilings and arrow hits
 src/content.js        Everything visitors read: relic text, skills, the Oracle's lines and answers
 src/noise.js          Seeded random and value noise (the valley is identical on every visit)
 src/textures.js       Canvas-drawn textures: glows, rays, runes, sigils, dials, paper, fabric weave
