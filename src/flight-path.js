@@ -1,6 +1,12 @@
 import { Vector3 } from 'three';
 
 export function flightPoint(flight, progress, out=new Vector3()){
+  if (flight.points){
+    const distance = progress*flight.length, stops = flight.distances;
+    let i=1; while (i<stops.length-1&&stops[i]<distance) i++;
+    if (flight.points.length===1) return out.copy(flight.points[0]);
+    return out.lerpVectors(flight.points[i-1],flight.points[i],(distance-stops[i-1])/Math.max(1e-8,stops[i]-stops[i-1]));
+  }
   if (flight.cruise !== undefined){
     // When already against a wall, rise vertically before travelling across it, then descend onto the perch.
     if (progress < .2) return out.copy(flight.from).setY(flight.from.y + (flight.cruise-flight.from.y)*progress/.2);
@@ -15,6 +21,16 @@ export function flightPoint(flight, progress, out=new Vector3()){
   out.y += arch*flight.arc;
   if (flight.bend) out.addScaledVector(flight.bend, arch);
   return out;
+}
+
+// Visit every crossed corner, even in a slow frame, rather than cutting diagonally through a wall.
+export function flightStops(flight, before, after){
+  const points=[];
+  if (flight.points) for (let i=1;i<flight.points.length;i++){
+    const progress=flight.distances[i]/Math.max(flight.length,1e-8);
+    if (progress>before&&progress<after) points.push(flight.points[i]);
+  }
+  points.push(flightPoint(flight,after)); return points;
 }
 
 // A supporting face touching the feet is normal. Only a meaningful displacement blocks travel.

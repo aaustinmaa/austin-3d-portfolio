@@ -18,7 +18,7 @@ test('scenery between the camera and bow cannot turn an arrow back toward the ca
   assert.ok(oldPoint.clone().sub(bow).dot(ray.direction)<0);
   const aim = resolveBowAim(world,ray,bow,[]);
   assert.ok(aim.direction.dot(ray.direction)>.99);
-  assert.equal(aim.obstruction,null);
+  assert.equal(world.segmentHit(bow,aim.point),null);
 });
 
 test('a camera inside a pillar still aims forward from the bow', () => {
@@ -31,8 +31,9 @@ test('a pillar edge on the bow path remains solid even when the centre camera ra
   const world = worldWith([.4,4,.4],v(-.98,1,-1));
   assert.equal(world.rayHit(ray.origin,ray.direction,140),null);
   const aim = resolveBowAim(world,ray,bow,[]);
-  assert.ok(aim.obstruction && aim.obstruction.distance<2);
-  assert.ok(aim.obstruction.point.distanceTo(aim.point)>100);
+  const hit = world.segmentHit(bow,aim.point);
+  assert.ok(hit && hit.distance<2);
+  assert.ok(hit.point.distanceTo(aim.point)>100);
 });
 
 test('surfaces ahead remain accurate targets and relic assistance ignores targets behind the bow', () => {

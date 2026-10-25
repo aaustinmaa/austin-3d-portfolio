@@ -10,7 +10,5 @@ export function resolveBowAim(world, ray, from, relics, range=140){
   const relic = relicAimPoint(ray,relics,surfaceDepth,near);
   const point = relic ? relic.point : surface ? surface.point : ray.at(far,new Vector3());
   const direction = point.clone().sub(from).normalize();
-  // The bow can meet a pillar edge before the camera's crosshair point. Keep that physical hit.
-  const obstruction = world.segmentHit(from,point);
-  return { point, direction, obstruction };
+  return { point, direction };
 }
