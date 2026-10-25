@@ -6,6 +6,7 @@ import { rand, hash, vnoise, fbm, sstep, lerp, ease, C, mixHex, randUnit } from 
 import { radialTex, glowTex, softTex, runeTex } from './textures.js';
 import { ABOUT, RELICS, INTENTS, FALLBACK, SKILLS, LINES, FINALE, NOTE, starLine } from './content.js';
 import { collisionWorld, colliders, addMesh, floorAt, ceilingAt, pushOut, slideVelocity } from './colliders.js';
+import { guidedRelic, relicArrowHit, relicAimPoint } from './relic-targeting.js';
 import { createOracle } from './oracle.js';
 import { createConstellation } from './constellation.js';
 import { buildForm } from './relics.js';
@@ -515,8 +516,7 @@ const sealMatBase = new THREE.MeshBasicMaterial({ map:runeTex, transparent:true,
 const hitMat = new THREE.MeshBasicMaterial({ visible:false });
 RELICS.forEach(r => {
   r.group = new THREE.Group(); scene.add(r.group); r.model = buildForm(r); r.group.add(r.model);
-  addMesh(r.model, { name:'relic', dynamic:true, relic:r, stand:false,
-    filter:m => !m.material.isShaderMaterial && m.material.blending !== THREE.AdditiveBlending });
+  // Relics are intangible; their generous interaction targets never enter the physical collision world.
   r.seal = new THREE.Group(); r.group.add(r.seal);
   [[1.55,.0],[1.75,1.1],[1.4,-1.0]].forEach(([R,tilt],i) => { const m = sealMatBase.clone(); m.color = C(r.color).lerp(C('#FFFFFF'), .25); m.opacity = .85;
     const band = new THREE.Mesh(new THREE.CylinderGeometry(R,R,.34,9,1,true), m); band.rotation.set(tilt,0,tilt*.6); band.userData.spd = (i%2 ? -1 : 1)*(.6+i*.25); r.seal.add(band); });
@@ -692,9 +692,14 @@ function updateArrows(dt){
     if (!a.stuck){
       if (a.target){ const want = a.target.pos.clone().sub(a.pos); want.normalize().multiplyScalar(Math.max(50, a.vel.length())); a.vel.lerp(want, Math.min(1, dt*(6 + a.age*10))); }
       else a.vel.y -= 6*dt;
-      a.pos.addScaledVector(a.vel, dt);
+      const from = a.pos.clone(); a.pos.addScaledVector(a.vel, dt);
       const direction = a.vel.clone().normalize(), tip = a.pos.clone().addScaledVector(direction, .5);
       const hit = collisionWorld.segmentHit(a.tip, tip);
+      const relicHit = relicArrowHit(from, a.pos, RELICS, a.target);
+      // Compare travel fractions: solid geometry is measured at the tip, relic tolerance at the shaft centre.
+      const travel = from.distanceTo(a.pos), tipTravel = a.tip.distanceTo(tip);
+      const reachesRelic = relicHit && (!hit || relicHit.distance/Math.max(travel,1e-8) < hit.distance/Math.max(tipTravel,1e-8));
+      const guidedArrival = a.target && a.age > 2.5 && guidedRelic(a.target) && !hit;
       if (!a.target && a.life > 0 && a.tip.y >= WATER_Y && tip.y < WATER_Y){
         const k = (a.tip.y - WATER_Y)/(a.tip.y - tip.y), surface = a.tip.clone().lerp(tip, k);
         // A solid met before the water takes precedence; otherwise keep the lake's splash and drag.
@@ -703,18 +708,16 @@ function updateArrows(dt){
         }
       }
       if (a.wet) a.vel.multiplyScalar(Math.exp(-dt*2.5));
-      if (hit){
+      if (reachesRelic || guidedArrival){
+        hitRelic(reachesRelic ? relicHit.relic : a.target, reachesRelic ? relicHit.point : a.pos); a.life = 0;
+      } else if (hit){
         a.pos.copy(hit.point).addScaledVector(direction, -.5);
-        const relic = hit.solid.relic;
-        if (relic && relic.state === 'orbit'){ hitRelic(relic, hit.point); a.life = 0; }
-        else {
-          a.stuck = true; a.target = null; a.life = Math.min(a.life + 4, 7); a.tipS.material.opacity = .5;
-          if (hit.solid.dynamic){
-            const inverse = hit.object.matrixWorld.clone().invert();
-            a.attachment = { object:hit.object, position:a.pos.clone().applyMatrix4(inverse), direction:direction.clone().transformDirection(inverse) };
-          }
-          burst(hit.point, C('#9FF2FF'), 14, .25);
+        a.stuck = true; a.target = null; a.life = Math.min(a.life + 4, 7); a.tipS.material.opacity = .5;
+        if (hit.solid.dynamic){
+          const inverse = hit.object.matrixWorld.clone().invert();
+          a.attachment = { object:hit.object, position:a.pos.clone().applyMatrix4(inverse), direction:direction.clone().transformDirection(inverse) };
         }
+        burst(hit.point, C('#9FF2FF'), 14, .25);
       }
       a.tip.copy(tip);
       a.g.position.copy(a.pos); a.g.quaternion.setFromUnitVectors(ZAX, direction);
@@ -867,6 +870,8 @@ function fireManual(){
   let aimPt = camera.position.clone().addScaledVector(ray.ray.direction, 140);
   const hit = collisionWorld.rayHit(camera.position, ray.ray.direction, 140, s => s.arrows);
   if (hit) aimPt = hit.point;
+  const relicAim = relicAimPoint(ray.ray, RELICS, hit ? hit.distance : 140);
+  if (relicAim) aimPt = relicAim.point;
   fireArrow(from, aimPt.sub(from), 26 + 52*P.draw, null); P.draw = 0;
 }
 function setMode(m){ craneApproach = null; mode = m; document.getElementById('modeAuto').setAttribute('aria-pressed', m === 'auto'); document.getElementById('modeAim').setAttribute('aria-pressed', m === 'aim');
