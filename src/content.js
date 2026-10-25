@@ -102,6 +102,7 @@ export function starLine(skill, names, sealed){
 
 // The Oracle's own lines.
 export const LINES = {
+  flightBlocked: "There isn't a clear route to land there. Try another spot.",
   intro: "I am the light of this valley, broken into six relics. Each holds a piece of Austin's work. Click one and your bow will bring it down, draw the bow yourself with F, or name one and I'll call it.",
   asleep: "That relic is still asleep beneath the lake. Light the four braziers on the stairs and it will wake.",
   woke: "The lake has given up its relic. Shoot it down, or press 7.",
