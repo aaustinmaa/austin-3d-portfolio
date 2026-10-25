@@ -31,7 +31,8 @@ const noiseGLSL = `
 
 // Integrate light through a volume, so the fire has depth from every angle. A broad base on the coals
 // splits into three uneven tongues; noise streams up through them and frays the tips into licks.
-// Temperature sets the colour: cream at the heart, honey through the body, amber at the edges.
+// Temperature sets the colour, all in the valley's champagne gold: warm white at the heart, gold through
+// the body and soft amber gold at the edges, never orange or red.
 const plumeVertex = `varying vec3 vWorld;
   void main(){ vec4 p = modelMatrix*vec4(position,1.); vWorld = p.xyz;
     gl_Position = projectionMatrix*viewMatrix*p; }`;
@@ -42,9 +43,9 @@ const plumeFragment = `
   const vec3 LO = vec3(${plumeBox.min.toArray()}), HI = vec3(${plumeBox.max.toArray()});
   ${noiseGLSL}
   vec3 ramp(float k){
-    vec3 c = mix(vec3(.55,.17,.05),vec3(1.,.52,.15),smoothstep(0.,.35,k));
-    c = mix(c,vec3(1.,.8,.48),smoothstep(.3,.7,k));
-    return mix(c,vec3(1.,.95,.82),smoothstep(.68,1.,k));
+    vec3 c = mix(vec3(.82,.5,.16),vec3(1.,.74,.3),smoothstep(0.,.35,k));
+    c = mix(c,vec3(1.,.87,.52),smoothstep(.3,.72,k));
+    return mix(c,vec3(1.,.96,.82),smoothstep(.75,1.,k));
   }
   // One tongue: 1 on its axis, 0 at its frayed edge. It narrows, sways and burns out toward its tip.
   float tongue(vec3 q, vec2 at, float H, float R, float ph, float t, float n){
@@ -65,7 +66,7 @@ const plumeFragment = `
     if(f<=0.) return vec4(0.);
     // The coals feed it a deeper glow; it burns hottest a little above them.
     float h = q.y/(1.22*grow), feed = smoothstep(0.,.2,q.y);
-    return vec4(ramp(clamp(f*1.45*(1.-h*.55)*(.55 + .45*feed),0.,1.)),smoothstep(0.,.18,f)*(.55 + .65*feed)*(1.2 - h*.7)*(.65 + .7*n));
+    return vec4(ramp(clamp(f*1.3*(1.-h*.55)*(.55 + .45*feed),0.,1.)),smoothstep(0.,.18,f)*(.55 + .65*feed)*(1.2 - h*.7)*(.65 + .7*n));
   }
   void main(){
     vec3 ro = cameraPosition - base, rd = normalize(vWorld - cameraPosition);
@@ -115,7 +116,7 @@ const coalFragment = `
     float heat = 1. - smoothstep(0.,.95,length(vXZ)/.38);
     float pulse = .6 + .4*sin(time*(.6 + id*1.3) + id*6.283);
     float glow = (smoothstep(.45,1.,id)*(.2 + .8*lump*lump)*pulse + crack*.45*id)*heat*heat*strength;
-    gl_FragColor = vec4(vec3(.045,.038,.05)*(.4 + lump*.9) + vec3(1.,.38,.1)*glow*1.3 + vec3(1.,.78,.48)*glow*glow*glow*.8,1.);
+    gl_FragColor = vec4(vec3(.045,.038,.05)*(.4 + lump*.9) + vec3(1.,.6,.24)*glow*1.2 + vec3(1.,.88,.6)*glow*glow*glow*.8,1.);
     #include <fog_fragment>
   }`;
 
@@ -140,7 +141,7 @@ const sparkVertex = `attribute float seed; uniform float time; uniform float off
     gl_Position = projectionMatrix*mv;
   }`;
 const sparkFragment = `varying float vAlpha;
-  void main(){ float d = length(gl_PointCoord-.5); gl_FragColor = vec4(vec3(1.,.74,.4)*(1.-smoothstep(.1,.5,d))*vAlpha,1.); }`;
+  void main(){ float d = length(gl_PointCoord-.5); gl_FragColor = vec4(vec3(1.,.86,.55)*(1.-smoothstep(.1,.5,d))*vAlpha,1.); }`;
 
 export function createBrazier(scene, position, { seed=0, reduceMotion=false, pixelRatio=1 }={}){
   const root = new THREE.Group(); root.name = 'brazier'; root.position.copy(position); scene.add(root);
@@ -167,10 +168,10 @@ export function createBrazier(scene, position, { seed=0, reduceMotion=false, pix
     uniforms:{ time:uniforms.time, strength:uniforms.strength, offset:{value:seed*3.1}, px:{value:pixelRatio} },
     vertexShader:sparkVertex, fragmentShader:sparkFragment, transparent:true, depthWrite:false, blending:THREE.AdditiveBlending,
   })); root.add(sparks);
-  // Match the path and carried lanterns' cream / honey glow, concentrated around the rising fire.
-  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xFFB86B, transparent:true, opacity:0, depthWrite:false, blending:THREE.AdditiveBlending }));
+  // A soft gold glow around the rising fire, like the Oracle's champagne light.
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xFFD38A, transparent:true, opacity:0, depthWrite:false, blending:THREE.AdditiveBlending }));
   halo.position.y = 1.75; halo.scale.set(1.6,1.6,1); root.add(halo);
-  const light = new THREE.PointLight(0xFFB070,0,6,2); light.position.y = 1.85; root.add(light);
+  const light = new THREE.PointLight(0xFFCF8A,0,6,2); light.position.y = 1.85; root.add(light);
   const b = { root, solids, pos:root.position.clone(), top:position.y, lit:false, ignition:0, light, plume,
     update(dt,time){
       b.ignition = b.lit ? Math.min(1,b.ignition + dt*1.6) : 0;
