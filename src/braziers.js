@@ -40,8 +40,8 @@ const plumeFragment = `
     c = mix(c,vec3(1.,.88,.55),smoothstep(.3,.65,k));
     return mix(c,vec3(1.,.98,.93),smoothstep(.62,.95,k));
   }
-  // One flame, 1 on its axis and 0 at its edge. It narrows to a single tip, sways more toward the top,
-  // and noise rising through it ripples the edge and breaks the tip into flickering licks.
+  // One flame, 1 on its axis and 0 at its edge. A full, rounded base fills the bowl and narrows to a
+  // single tip that sways; noise rising through it ripples the edge and breaks the tip into licks.
   vec4 flame(vec3 p, float t, float grow){
     vec3 q = p - vec3(0.,FLOOR,0.);
     if(q.y<=0. || (p.y<RIM && length(p.xz)>.35 + q.y*.55)) return vec4(0.);
@@ -50,7 +50,7 @@ const plumeFragment = `
     vec3 s = vec3(q.x*4.,q.y*3. - t*2.8,q.z*4.);
     float n = noise(s)*.6 + noise(s*2.2 + vec3(3.1,-t*1.6,7.7))*.4;
     vec2 sway = vec2(sin(t*1.9 + seed + q.y*2.6),cos(t*1.5 + seed + q.y*2.1))*.06*h*h;
-    float f = 1. - length(q.xz - sway)/(.3*pow(1.-h,.65)) - (n-.45)*(.3 + .7*h);
+    float f = 1. - length(q.xz - sway)/(.44*pow(1.-h,.5 + h)) - (n-.45)*(.3 + .7*h);
     f *= 1. - smoothstep(.7,1.,h + n*.2);
     if(f<=0.) return vec4(0.);
     // The coals feed it a deeper glow; it burns hottest a little above them.
@@ -162,7 +162,7 @@ export function createBrazier(scene, position, { seed=0, reduceMotion=false, pix
   halo.position.y = 1.75; halo.scale.set(1.6,1.6,1); root.add(halo);
   // A tight white glare over the heart of the flame.
   const glare = new THREE.Sprite(new THREE.SpriteMaterial({ map:glowTex, color:0xFFF2D6, transparent:true, opacity:0, depthWrite:false, blending:THREE.AdditiveBlending }));
-  glare.position.y = 1.52; glare.scale.set(.85,1.05,1); root.add(glare);
+  glare.position.y = 1.48; glare.scale.set(1.05,1.05,1); root.add(glare);
   const light = new THREE.PointLight(0xFFCF8A,0,6,2); light.position.y = 1.85; root.add(light);
   const b = { root, solids, pos:root.position.clone(), top:position.y, lit:false, ignition:0, light, plume,
     update(dt,time){
