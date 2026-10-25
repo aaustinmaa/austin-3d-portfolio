@@ -151,14 +151,17 @@ export function createConstellation(scene, { skills, relics, labelsEl, reduceMot
     let dirtyS = false, dirtyE = false;
     stars.forEach((s, i) => {
       const want = s.on && clock >= s.at ? 1 : 0, hiWant = want && s.relics.includes(current) ? 1 : 0;
-      s.lit += (want - s.lit)*ease(3); s.hi += (hiWant - s.hi)*ease(2.5); s.pulse = Math.max(0, s.pulse - dt*.8);
+      const activeDt = Math.max(0,Math.min(dt,clock-s.at));
+      s.lit += (want - s.lit)*(reduceMotion ? 1 : 1-Math.exp(-activeDt*3));
+      s.hi += (hiWant - s.hi)*(reduceMotion ? 1 : 1-Math.exp(-(hiWant ? activeDt : dt)*2.5)); s.pulse = Math.max(0, s.pulse - dt*.8);
       const v = s.lit + s.pulse*.8 + (hover === s ? .35 : 0);
       if (Math.abs(v - aLit[i]) > .002 || Math.abs(s.hi - aHi[i]) > .002){ aLit[i] = v; aHi[i] = s.hi; dirtyS = true; } });
     edges.forEach((e, k) => {
       if (e.start !== Infinity && e.prog < 1){ const p = e.dur ? Math.min(1, Math.max(0, (clock - e.start)/e.dur)) : (clock >= e.start ? 1 : 0);
         if (p !== e.prog){ e.prog = p; aProg.fill(p, k*4, k*4 + 4); dirtyE = true; } }
       const h = e.hi + ((e.relics.includes(current) ? 1 : 0) - e.hi)*ease(2.5);
-      if (Math.abs(h - e.hi) > .002){ e.hi = h; aEHi.fill(h, k*4, k*4 + 4); dirtyE = true; } });
+      e.hi = h;
+      if (Math.abs(h - aEHi[k*4]) > .002){ aEHi.fill(h, k*4, k*4 + 4); dirtyE = true; } });
     if (dirtyS){ sg.attributes.aLit.needsUpdate = true; sg.attributes.aHi.needsUpdate = true; }
     if (dirtyE){ lg.attributes.aProg.needsUpdate = true; lg.attributes.aHi.needsUpdate = true; }
 

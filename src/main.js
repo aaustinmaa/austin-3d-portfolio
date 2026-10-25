@@ -16,6 +16,9 @@ import { buildForm } from './relics.js';
 import { buildHero, animateHero } from './hero.js';
 import { createPaperBird } from './paperbird.js';
 import { createBrazier } from './braziers.js';
+import { advanceTime, exponentialMotion } from './animation-time.js';
+import { dampedMotion, acceleratedMotion, dampedAcceleration } from './motion-time.js';
+import { arrowWaterEntry, sampleArrowMotion } from './arrow-motion.js';
 
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const V3 = THREE.Vector3, UP = new V3(0,1,0), ZAX = new V3(0,0,1);
@@ -418,6 +421,7 @@ const grassU = { t:{ value:0 }, glow:{ value:0 } };
 /* a few fireflies drifting over the meadows, blinking slowly; they keep their distance from the wanderer */
 const WISP = 150, wispG = new THREE.BufferGeometry(), wispP = new Float32Array(WISP*3), wispPh = new Float32Array(WISP), wispV = [];
 for (let i=0;i<WISP;i++){ const a=rand()*6.283, d=10+Math.sqrt(rand())*20; wispP.set([Math.sin(a)*d, .6+rand()*6, Math.cos(a)*d], i*3); wispPh[i] = rand()*40; wispV.push([rand()*6.28, .2+rand()*.5]); }
+const wispOrigin = wispP.slice();
 wispG.setAttribute('position', new THREE.BufferAttribute(wispP,3)); wispG.setAttribute('ph', new THREE.BufferAttribute(wispPh,1));
 const wispMat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, uniforms:{ t:{value:0}, glow:{value:.45}, scale:wispScale, hero:{value:new V3()} },
   vertexShader:`attribute float ph; uniform float t; uniform float scale; uniform vec3 hero; varying float vA; varying float vW;
@@ -651,7 +655,10 @@ function updateSplashes(dt){
   for (let i = splashes.length-1; i >= 0; i--){ const s = splashes[i]; s.age += dt;
     const pos = s.pts.geometry.attributes.position.array, al = s.pts.geometry.attributes.alpha.array, ln = s.streaks.geometry.attributes.position.array, la = s.streaks.geometry.attributes.lineA.array; let live = 0;
     s.drops.forEach((d, k) => {
-      if (d.on && s.age > d.wait){ d.v.y -= 9.8*1.3*dt; d.v.multiplyScalar(Math.exp(-dt*.4)); d.p.addScaledVector(d.v, dt);
+      if (d.on && s.age > d.wait){
+        const active = Math.min(dt, s.age - d.wait);
+        const x = dampedAcceleration(d.v.x, 0, .4, active), y = dampedAcceleration(d.v.y, -9.8*1.3, .4, active), z = dampedAcceleration(d.v.z, 0, .4, active);
+        d.p.add(new V3(x.distance, y.distance, z.distance)); d.v.set(x.velocity, y.velocity, z.velocity);
         if (d.p.y < WATER_Y){ d.on = false; if (overWater(d.p.x, d.p.z) && (d.jet || rand() < .4)) dropRipple(d.p.x, d.p.z, d.s, d.jet); } }
       const shown = d.on && s.age > d.wait; if (shown) live++;
       pos.set([d.p.x, d.p.y, d.p.z], k*3); al[k] = shown ? Math.min(1, (s.age - d.wait)*12) : 0;
@@ -659,7 +666,8 @@ function updateSplashes(dt){
     s.pts.geometry.attributes.position.needsUpdate = true; s.pts.geometry.attributes.alpha.needsUpdate = true; s.streaks.geometry.attributes.position.needsUpdate = true; s.streaks.geometry.attributes.lineA.needsUpdate = true;
     const f = Math.min(1, s.age/1.4); s.foam.scale.setScalar(s.r0 + (.9 + s.power*.5)*Math.sqrt(f)); s.fu.a.value = .45*(1 - f)*(1 - f);
     const mp = s.mistPts.geometry.attributes.position.array, ml = Math.min(1, s.age/1.3);
-    s.mist.forEach((m, k) => { m.v.multiplyScalar(Math.exp(-dt*2.5)); m.p.addScaledVector(m.v, dt); mp.set([m.p.x, m.p.y, m.p.z], k*3); });
+    const { decay, integral } = exponentialMotion(dt, 2.5);
+    s.mist.forEach((m, k) => { m.p.addScaledVector(m.v, integral); m.v.multiplyScalar(decay); mp.set([m.p.x, m.p.y, m.p.z], k*3); });
     s.mistPts.geometry.attributes.position.needsUpdate = true; s.mistPts.material.opacity = .22*Math.min(1, s.age*10)*(1 - ml);
     if (!live && s.age > 1.4){ [s.pts, s.streaks, s.foam, s.mistPts].forEach(o => scene.remove(o)); s.pts.geometry.dispose(); s.streaks.geometry.dispose(); s.foam.geometry.dispose(); s.foam.material.dispose();
       s.mistPts.geometry.dispose(); s.mistPts.material.dispose(); splashes.splice(i,1); } }
@@ -720,9 +728,8 @@ function glideToShore(arc=.35){
 /* ---------- arrows: guided arrows fly to their relic; drawn arrows stick in whatever they meet ---------- */
 const arrows = [];
 const ARROW_TRAIL_POINTS = 14;
-// Match the original trail at a fixed 200 FPS reference: 14 samples span 13 frame intervals.
-// Keep this reference fixed so slower frames or a different display cannot stretch the tail.
-const ARROW_TRAIL_SECONDS = (ARROW_TRAIL_POINTS - 1)/200;
+// The tail always spans 65 ms; the vertex count controls only its smoothness.
+const ARROW_TRAIL_SECONDS = .065;
 const arrowShaft = new THREE.CylinderGeometry(.018,.018,1,5).rotateX(Math.PI/2);
 const fletchGeo = new THREE.ConeGeometry(.05,.14,3).rotateX(-Math.PI/2).translate(0,0,-.46);
 function bowWorld(){ return hero.localToWorld(H.bow.position.clone()); }
@@ -751,41 +758,56 @@ function updateArrowTrail(a){
   }
   attr.needsUpdate = true;
 }
+// Resolve one uninterrupted segment before advancing to the next medium.
+function advanceArrowSegment(a, next){
+  const from = a.pos.clone(), direction = next.velocity.clone().normalize();
+  const hit = collisionWorld.segmentHit(a.tip, next.tip);
+  const relicHit = relicArrowHit(from, next.position, RELICS, a.target);
+  // Compare travel fractions: solid geometry is measured at the tip, relic tolerance at the shaft centre.
+  const travel = from.distanceTo(next.position), tipTravel = a.tip.distanceTo(next.tip);
+  const reachesRelic = relicHit && (!hit || relicHit.distance/Math.max(travel,1e-8) < hit.distance/Math.max(tipTravel,1e-8));
+  const guidedArrival = a.target && a.age > 2.5 && guidedRelic(a.target) && !hit;
+  a.pos.copy(next.position); a.vel.copy(next.velocity); a.tip.copy(next.tip);
+  if (reachesRelic || guidedArrival){
+    hitRelic(reachesRelic ? relicHit.relic : a.target, reachesRelic ? relicHit.point : a.pos); a.life = 0;
+    return true;
+  }
+  if (!hit) return false;
+  a.pos.copy(hit.point).addScaledVector(direction, -.5); a.tip.copy(hit.point);
+  a.stuck = true; a.target = null; a.life = Math.min(a.life + 4, 7); a.tipS.material.opacity = .5;
+  if (hit.solid.dynamic){
+    const inverse = hit.object.matrixWorld.clone().invert();
+    a.attachment = { object:hit.object, position:a.pos.clone().applyMatrix4(inverse), direction:direction.clone().transformDirection(inverse) };
+  }
+  burst(hit.point, C('#9FF2FF'), 14, .25);
+  return true;
+}
 function updateArrows(dt){
   for (let i = arrows.length-1; i >= 0; i--){
     const a = arrows[i]; a.life -= dt; a.age += dt;
     if (!a.stuck){
-      if (a.target){ const want = a.target.pos.clone().sub(a.pos); want.normalize().multiplyScalar(Math.max(50, a.vel.length())); a.vel.lerp(want, Math.min(1, dt*(6 + a.age*10))); }
-      else a.vel.y -= 6*dt;
-      const from = a.pos.clone(); a.pos.addScaledVector(a.vel, dt);
-      const direction = a.vel.clone().normalize(), tip = a.pos.clone().addScaledVector(direction, .5);
-      const hit = collisionWorld.segmentHit(a.tip, tip);
-      const relicHit = relicArrowHit(from, a.pos, RELICS, a.target);
-      // Compare travel fractions: solid geometry is measured at the tip, relic tolerance at the shaft centre.
-      const travel = from.distanceTo(a.pos), tipTravel = a.tip.distanceTo(tip);
-      const reachesRelic = relicHit && (!hit || relicHit.distance/Math.max(travel,1e-8) < hit.distance/Math.max(tipTravel,1e-8));
-      const guidedArrival = a.target && a.age > 2.5 && guidedRelic(a.target) && !hit;
-      if (!a.target && a.life > 0 && a.tip.y >= WATER_Y && tip.y < WATER_Y){
-        const k = (a.tip.y - WATER_Y)/(a.tip.y - tip.y), surface = a.tip.clone().lerp(tip, k);
-        // A solid met before the water takes precedence; otherwise keep the lake's splash and drag.
-        if (overWater(surface.x, surface.z) && (!hit || a.tip.distanceTo(surface) < hit.distance)){
-          splashLake(surface, Math.min(1.4, a.vel.length()/40)); a.vel.multiplyScalar(.4); a.wet = true;
+      if (a.target){
+        const want = a.target.pos.clone().sub(a.pos).normalize().multiplyScalar(Math.max(50, a.vel.length()));
+        const rate = 6 + (a.age - dt/2)*10;
+        const x = dampedMotion(a.vel.x, want.x, rate, dt), y = dampedMotion(a.vel.y, want.y, rate, dt), z = dampedMotion(a.vel.z, want.z, rate, dt);
+        const position = a.pos.clone().add(new V3(x.distance, y.distance, z.distance)), velocity = new V3(x.velocity, y.velocity, z.velocity);
+        advanceArrowSegment(a,{ position, velocity, tip:position.clone().addScaledVector(velocity.clone().normalize(),.5) });
+      }
+      else {
+        const entry = !a.wet && a.life > 0 ? arrowWaterEntry(a.pos,a.vel,dt,WATER_Y) : null;
+        if (entry && overWater(entry.tip.x,entry.tip.z)){
+          // Anything met before the surface wins. Only an unobstructed entry makes a splash.
+          if (!advanceArrowSegment(a,entry)){
+            splashLake(entry.tip,Math.min(1.4,entry.velocity.length()/40));
+            a.trailHistory.push({ time:a.age-dt+entry.time, pos:a.pos.clone() });
+            a.wet = true; a.vel.multiplyScalar(.4);
+            advanceArrowSegment(a,sampleArrowMotion(a.pos,a.vel,dt-entry.time,2.5));
+          }
+        } else {
+          advanceArrowSegment(a,sampleArrowMotion(a.pos,a.vel,dt,a.wet ? 2.5 : 0));
         }
       }
-      if (a.wet) a.vel.multiplyScalar(Math.exp(-dt*2.5));
-      if (reachesRelic || guidedArrival){
-        hitRelic(reachesRelic ? relicHit.relic : a.target, reachesRelic ? relicHit.point : a.pos); a.life = 0;
-      } else if (hit){
-        a.pos.copy(hit.point).addScaledVector(direction, -.5);
-        a.stuck = true; a.target = null; a.life = Math.min(a.life + 4, 7); a.tipS.material.opacity = .5;
-        if (hit.solid.dynamic){
-          const inverse = hit.object.matrixWorld.clone().invert();
-          a.attachment = { object:hit.object, position:a.pos.clone().applyMatrix4(inverse), direction:direction.clone().transformDirection(inverse) };
-        }
-        burst(hit.point, C('#9FF2FF'), 14, .25);
-      }
-      a.tip.copy(tip);
-      a.g.position.copy(a.pos); a.g.quaternion.setFromUnitVectors(ZAX, direction);
+      a.g.position.copy(a.pos); a.g.quaternion.setFromUnitVectors(ZAX, a.vel.clone().normalize());
       updateArrowTrail(a);
     } else {
       if (a.attachment){ const { object, position, direction } = a.attachment;
@@ -1054,8 +1076,10 @@ function updatePlayer(dt){
   else if (P.target){ mx = P.target.x - P.pos.x; mz = P.target.z - P.pos.z; if (Math.hypot(mx,mz) < .25){ P.target = null; mx = mz = 0; P.vel.x = P.vel.z = 0; } }
   const ml = Math.hypot(mx,mz); if (ml > 0){ mx/=ml; mz/=ml; }
   const spd = SPEED * (mode === 'aim' ? (P.drawing ? .35 : .6) : 1) * (P.flying ? 1.2 : 1);
-  const k = 1 - Math.exp(-dt*(P.onGround ? 14 : P.soared ? 6 : 4)); P.vel.x = lerp(P.vel.x, mx*spd, k); P.vel.z = lerp(P.vel.z, mz*spd, k);
-  let nx = P.pos.x + P.vel.x*dt, nz = P.pos.z + P.vel.z*dt; const nr = Math.hypot(nx,nz);
+  const rate = P.onGround ? 14 : P.soared ? 6 : 4;
+  const x = dampedMotion(P.vel.x, mx*spd, rate, dt), z = dampedMotion(P.vel.z, mz*spd, rate, dt);
+  P.vel.x = x.velocity; P.vel.z = z.velocity;
+  let nx = P.pos.x + x.distance, nz = P.pos.z + z.distance; const nr = Math.hypot(nx,nz);
   const lim = P.onGround ? WORLD_R : AIR_R; if (nr > lim){ nx *= lim/nr; nz *= lim/nr; }
   /* The full airborne body meets the rendered faces; only walking gets a step allowance. */
   const step = P.onGround ? STEP_UP : 0;
@@ -1076,12 +1100,14 @@ function updatePlayer(dt){
       } }
   const dive = keys.ShiftLeft || keys.ShiftRight;
   P.flying = !!keys.Space && !P.onGround && (T - P.jumpT > .2) && P.energy > .005;
-  if (P.flying){ P.soared = true; P.vel.y = lerp(P.vel.y, ASCEND, 1 - Math.exp(-dt*5)); P.energy = Math.max(0, P.energy - dt/FLY_SECONDS); }
+  let vertical;
+  if (P.flying){ P.soared = true; vertical = dampedMotion(P.vel.y, ASCEND, 5, dt); P.energy = Math.max(0, P.energy - dt/FLY_SECONDS); }
   else {
-    P.vel.y -= GRAV*dt*(dive ? 1.6 : 1);
-    if (!P.onGround && !dive){ if (mode === 'aim' && P.drawing) P.vel.y = Math.max(P.vel.y, -1.1); else if (P.soared) P.vel.y = Math.max(P.vel.y, -5); }
+    const terminal = !P.onGround && !dive ? (mode === 'aim' && P.drawing ? -1.1 : P.soared ? -5 : -Infinity) : -Infinity;
+    vertical = acceleratedMotion(P.vel.y, -GRAV*(dive ? 1.6 : 1), dt, terminal);
   }
-  let ny = P.pos.y + P.vel.y*dt;
+  P.vel.y = vertical.velocity;
+  let ny = P.pos.y + vertical.distance;
   /* ceilings: platform undersides stop the head */
   if (P.vel.y > 0){ const ceil = ceilingAt(nx, nz, P.pos.y + HEAD); if (ny + HEAD > ceil){ ny = Math.max(P.pos.y, ceil - HEAD); P.vel.y = 0; } }
   const sup = floorAt(nx, nz, P.pos.y, step, groundH(nx,nz));
@@ -1102,7 +1128,7 @@ function updatePlayer(dt){
   if (mode === 'aim') want = camS.yaw + Math.PI;
   else if (P.auto){ const d = P.auto.r.pos.clone().sub(P.pos); want = Math.atan2(d.x, d.z); }
   else if (P.speed > .3) want = Math.atan2(P.vel.x, P.vel.z);
-  if (want !== null){ let d = want - P.facing; d = Math.atan2(Math.sin(d), Math.cos(d)); P.facing += d*Math.min(1, dt*12); }
+  if (want !== null){ let d = want - P.facing; d = Math.atan2(Math.sin(d), Math.cos(d)); P.facing += d*(-Math.expm1(-dt*12)); }
   if (P.auto){ P.auto.t += dt; P.draw = Math.min(1, P.auto.t/.42);
     if (P.auto.t > .48){ const r = P.auto.r; const from = bowWorld(); fireArrow(from, r.pos.clone().sub(from), 48, r); P.auto = null; P.draw = 0; } }
   else if (P.drawing) P.draw = Math.min(1, P.draw + dt/.85);
@@ -1140,10 +1166,15 @@ function updateWorld(dt){
   wispMat.uniforms.t.value = T; wispMat.uniforms.glow.value = .45 + L*.55; wispMat.uniforms.hero.value.copy(P.pos); heroU.value.copy(P.pos); starU.t.value = T; starU.glow.value = L;
   bandMat.opacity = .5 + L*.35 + Math.sin(T*1.3)*.05;
   lightPointMats.forEach(m => { m.uniforms.t.value = T; m.uniforms.glow.value = m.userData.base + L*(1 - m.userData.base); }); grassU.t.value = reduceMotion ? 0 : T; grassU.glow.value = .08 + L*.3;
-  if (!reduceMotion){ const wp = wispG.attributes.position.array; for (let i=0;i<WISP;i++){ const v = wispV[i]; wp[i*3] += Math.sin(T*v[1] + v[0])*dt*.4; wp[i*3+1] += Math.cos(T*v[1]*.7 + v[0])*dt*.25; wp[i*3+2] += Math.cos(T*v[1] + v[0]*2)*dt*.4; } wispG.attributes.position.needsUpdate = true; }
+  if (!reduceMotion){ const wp = wispG.attributes.position.array; for (let i=0;i<WISP;i++){ const [phase, speed] = wispV[i];
+    wp[i*3] = wispOrigin[i*3] + (Math.cos(phase) - Math.cos(T*speed + phase))*.4/speed;
+    wp[i*3+1] = wispOrigin[i*3+1] + (Math.sin(T*speed*.7 + phase) - Math.sin(phase))*.25/(speed*.7);
+    wp[i*3+2] = wispOrigin[i*3+2] + (Math.sin(T*speed + phase*2) - Math.sin(phase*2))*.4/speed;
+  } wispG.attributes.position.needsUpdate = true; }
   mists.forEach(m => { m.a += m.sp*dt; m.s.position.x = Math.sin(m.a)*m.d; m.s.position.z = Math.cos(m.a)*m.d; });
   for (let i = bursts.length-1; i >= 0; i--){ const b = bursts[i]; b.life -= dt; const p = b.pts.geometry.attributes.position.array;
-    b.v.forEach((v,k) => { v.multiplyScalar(Math.exp(-dt*1.6)); p[k*3] += v.x*dt; p[k*3+1] += v.y*dt; p[k*3+2] += v.z*dt; }); b.pts.geometry.attributes.position.needsUpdate = true;
+    const { decay, integral } = exponentialMotion(dt, 1.6);
+    b.v.forEach((v,k) => { p[k*3] += v.x*integral; p[k*3+1] += v.y*integral; p[k*3+2] += v.z*integral; v.multiplyScalar(decay); }); b.pts.geometry.attributes.position.needsUpdate = true;
     b.pts.material.opacity = Math.max(0, b.life/1.4); b.ring.scale.setScalar((1 + (1.4-b.life)*4)*b.power); b.ring.material.opacity = Math.max(0, b.life/1.4)*.9;
     if (b.life <= 0){ scene.remove(b.pts); scene.remove(b.ring); b.pts.geometry.dispose(); bursts.splice(i,1); } }
   braziers.forEach(b => { if (!b.lit && !P.flight && Math.hypot(P.pos.x-b.pos.x, P.pos.z-b.pos.z) < 2.8 && Math.abs(P.pos.y - b.top) < 2){ b.lit = true; litCount++; updateTracker();
@@ -1288,12 +1319,14 @@ function showToast(t){ toastEl.textContent = t; toastEl.hidden = false; clearTim
 /* ---------- the Oracle's voice (scripted for the prototype) ---------- */
 function match(q){ const s = q.toLowerCase(); return INTENTS.find(it => it.k.some(k => /^[a-z]+$/.test(k) && k.length <= 3 ? new RegExp(`\\b${k}\\b`).test(s) : s.includes(k))) || FALLBACK; }
 const logEl = document.getElementById('log'), eyeEl = document.getElementById('eye');
+const ORACLE_CHARACTERS_PER_SECOND = 156.25;
 function addMsg(who, text){ const d = document.createElement('div'); d.className = 'msg ' + who; if (who === 'oracle') d.innerHTML = '<span class="who">The Oracle</span><span class="txt"></span>'; else d.textContent = text;
   logEl.appendChild(d); while (logEl.children.length > 8) logEl.firstChild.remove(); logEl.scrollTop = logEl.scrollHeight; return d; }
-function oracleSay(text){ if (!text) return; const d = addMsg('oracle'), span = d.querySelector('.txt'); oracleState.target = 1; eyeEl.classList.add('busy'); oracle.speakPulse(); let i = 0;
+function oracleSay(text){ if (!text) return; const d = addMsg('oracle'), span = d.querySelector('.txt'); oracleState.target = 1; eyeEl.classList.add('busy'); oracle.speakPulse(); const startsAt = performance.now() + 480;
   const done = () => { span.textContent = text; oracleState.target = 0; eyeEl.classList.remove('busy'); logEl.scrollTop = logEl.scrollHeight; };
   if (reduceMotion){ done(); return; }
-  const step = () => { i += 2 + Math.floor(Math.random()*2); span.textContent = text.slice(0,i); logEl.scrollTop = logEl.scrollHeight; if (i < text.length) setTimeout(step, 16); else done(); }; setTimeout(step, 480); }
+  const step = () => { const count = Math.floor(Math.max(0, performance.now() - startsAt)*ORACLE_CHARACTERS_PER_SECOND/1000);
+    span.textContent = text.slice(0,count); logEl.scrollTop = logEl.scrollHeight; if (count < text.length) requestAnimationFrame(step); else done(); }; setTimeout(step, 480); }
 const RELIC_WORDS = RELICS.map(r => r.name.toLowerCase());
 function ask(q){ q = q.trim(); if (!q) return;
   /* a skill named without a relic: answer from the constellation */
@@ -1316,6 +1349,7 @@ document.querySelectorAll('[data-placeholder]').forEach(a => a.addEventListener(
 
 /* ---------- loop ---------- */
 let last = performance.now();
+document.addEventListener('visibilitychange', () => { last = performance.now(); });
 function simulate(dt){
   T += dt;
   updateWorld(dt); updateRelics(dt); collisionWorld.updateDynamic();
@@ -1324,11 +1358,12 @@ function simulate(dt){
   sky.update(dt, T, camera, { showAll:gaze, hover:hoverStar, focus:openRelic });
   updateLabels(); updateCross(); updateStamina();
 }
-/* everything advances by real elapsed seconds, never per frame: a slow frame is simulated in steps of at most 50 ms so the world
-   keeps real time below 20 fps, and a long gap (a hidden tab) is capped at a quarter second instead of fast-forwarding */
+/* Active animation follows elapsed seconds, including very slow frames. The 50 ms bound only keeps collision
+   queries local; no elapsed remainder is discarded. Hidden tabs pause and resume from a fresh timestamp. */
+function advance(seconds){ advanceTime(seconds,simulate); }
 function frame(now){
-  let left = Math.max(0, Math.min(.25, (now-last)/1000)); last = now;
-  while (left > 1e-4){ const dt = Math.min(.05, left); simulate(dt); left -= dt; }
+  const elapsed = document.hidden ? 0 : Math.max(0, (now-last)/1000); last = now;
+  advance(elapsed);
   reflectLake(); renderer.render(scene, camera); requestAnimationFrame(frame);
 }
 RELICS.forEach(r => { if (r.state === 'orbit') orbitPos(r, r.pos); });
@@ -1339,4 +1374,4 @@ if (!intro) welcome();
 /* dev-only handle for poking at the scene from the browser console; stripped from production builds */
 if (import.meta.env.DEV) window.__valley = { P, camS, RELICS, sky, oracle, world, colliders, collisionWorld, bird, braziers, stones, openLetter, closeLetter, summon, setGaze, scene, camera, renderer, keys, fireArrow, fireManual, manualAim, arrows, flyTo,
   cameraDebug(){ return { intro:intro && intro.t, position:camPos.toArray(), desired:wantPos.toArray() }; },
-  step(n=60, dt=1/60){ for (let i=0;i<n;i++) simulate(dt); reflectLake(); renderer.render(scene, camera); } };
+  advance(seconds=1){ advance(seconds); reflectLake(); renderer.render(scene, camera); } };

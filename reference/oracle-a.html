@@ -11,6 +11,15 @@ const scene=new THREE.Scene();scene.background=new THREE.Color('#070b1b');
 const renderer=new THREE.WebGLRenderer({canvas:document.querySelector('canvas'),antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,1.75));
 const camera=new THREE.PerspectiveCamera(42,1,.1,500);camera.position.set(0,3,48);
 const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=!reduced;controls.dampingFactor=.08;controls.minDistance=22;controls.maxDistance=110;
+// r128's controls also update inside pointer handlers. Measure every call so extra input events
+// cannot add extra damping steps; .08 at 60 Hz defines the original decay rate per second.
+const dampingRate=-60*Math.log1p(-.08), updateControls=controls.update.bind(controls);
+let controlsBefore=performance.now();
+controls.update=()=>{
+  const now=performance.now(),dt=document.hidden?0:Math.max(0,(now-controlsBefore)/1000);controlsBefore=now;
+  controls.dampingFactor=-Math.expm1(-dampingRate*dt);
+  return updateControls();
+};
 const main=['#9FE8FF','#F4A8CD','#F4D58D','#A9B5FF','#D6B8FF','#A8E8CF'].map(color=>({color}));
 const oracle=createOracle(scene,{y:0,main,reduceMotion:reduced});let power=0,target=0,speaking=false,t=0,far=false;
 const states=['rest','speak','partial','complete'];function state(id){speaking=id==='speak';states.forEach(s=>document.getElementById(s).setAttribute('aria-pressed',String(s===id)));}
@@ -22,6 +31,18 @@ document.getElementById('valley').onclick=()=>{far=!far;camera.position.set(0,fa
 document.getElementById('reduced').onclick=()=>location.href=location.pathname+(reduced?'':'?reduced');
 document.getElementById('reference').onclick=()=>{document.querySelector('aside').hidden=!document.querySelector('aside').hidden;};
 function resize(){renderer.setSize(innerWidth,innerHeight,false);camera.aspect=innerWidth/innerHeight;camera.fov=innerWidth<innerHeight?60:42;camera.updateProjectionMatrix();}addEventListener('resize',resize);resize();
-let before=performance.now();function frame(now){const dt=Math.min((now-before)/1000,.05);before=now;t+=dt;power+=(target-power)*(1-Math.exp(-dt));oracle.update(dt,t,{power,speak:speaking?.5+.2*Math.sin(t*2):0});controls.update();renderer.render(scene,camera);requestAnimationFrame(frame);}requestAnimationFrame(frame);
+let before=performance.now();
+document.addEventListener('visibilitychange',()=>{before=controlsBefore=performance.now();});
+function frame(now){
+  const elapsed=document.hidden?0:Math.max(0,(now-before)/1000);before=now;
+  // Keep the full visible duration, even below 20 FPS; subdividing only bounds simulation steps.
+  const steps=Math.ceil(elapsed/.05);
+  for(let i=0;i<steps;i++){
+    const dt=elapsed/steps;t+=dt;power+=(target-power)*(-Math.expm1(-dt));
+    oracle.update(dt,t,{power,speak:speaking?.5+.2*Math.sin(t*2):0});
+  }
+  controls.update();renderer.render(scene,camera);requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
 setInterval(()=>{const ok=renderer.info.programs.every(p=>p.diagnostics?.runnable!==false);document.getElementById('status').textContent=`${reduced?'REDUCED MOTION':'LIVE'} · ${renderer.info.render.calls} DRAW CALLS · ${ok?'SHADERS OK':'SHADER ERROR'}`;},1000);
 </script></body></html>

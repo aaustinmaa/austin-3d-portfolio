@@ -24,7 +24,8 @@ export function createOracle(scene, { y, main, reduceMotion }) {
     for (let i = 0; i < 22; i++) tail.push(sprite(glowTex, color, .8 * (1 - i / 22), 4.2 * (1 - i / 26), scene));
     const p0 = from.clone(), p2 = group.position.clone(), p1 = p0.clone().lerp(p2, .25);
     p1.y = p0.y + (p2.y - p0.y) * .8;
-    travellers.push({ head, tail, p0, p1, p2, t: 0, hist: [], onArrive });
+    head.position.copy(p0); tail.forEach(s => s.position.copy(p0));
+    travellers.push({ head, tail, p0, p1, p2, t: 0, onArrive });
   }
   const bez = (out, a, b, c, t) => out.set(0, 0, 0).addScaledVector(a, (1 - t) ** 2).addScaledVector(b, 2 * (1 - t) * t).addScaledVector(c, t * t);
   function update(dt, T, { power, speak }) {
@@ -40,8 +41,13 @@ export function createOracle(scene, { y, main, reduceMotion }) {
     for (let i = travellers.length - 1; i >= 0; i--) {
       const tr = travellers[i]; tr.t += dt / 1.5; const e = Math.min(1, tr.t), k = e * e * (3 - 2 * e);
       bez(tr.head.position, tr.p0, tr.p1, tr.p2.copy(group.position), k);
-      tr.hist.unshift(tr.head.position.clone()); if (tr.hist.length > 44) tr.hist.pop();
-      tr.tail.forEach((s, j) => { const h = tr.hist[Math.min(tr.hist.length - 1, j * 2)]; if (h) s.position.copy(h); });
+      // Keep the original trail spacing at 60 Hz: each mote lags by 1/30 second,
+      // sampled on the same timed path instead of storing one position per render.
+      tr.tail.forEach((s, j) => {
+        const age = Math.max(0,tr.t*1.5-j/30), lag = tr.t*1.5-age, progress = Math.min(1,age/1.5);
+        tr.p2.copy(group.position); tr.p2.y = y + Math.sin((T-lag)*.23)*.12;
+        bez(s.position,tr.p0,tr.p1,tr.p2,progress*progress*(3-2*progress));
+      });
       if (tr.t >= 1) {
         scene.remove(tr.head); tr.head.material.dispose();
         tr.tail.forEach(s => { scene.remove(s); s.material.dispose(); });
