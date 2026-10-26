@@ -20,6 +20,8 @@ npm run preview    # serve the production build locally
 
 Requires Node 18 or newer.
 
+Animation uses elapsed seconds throughout. Visible slow frames keep their full duration, with collision queries split into steps of at most 50 ms; hidden tabs pause the scene clock. Movement, gravity, particle drag and cloth springs integrate time directly. Paper folds consume one shared timeline across stages, and light trails sample a fixed duration of their paths. The development handle `window.__valley.advance(seconds)` advances the scene by time.
+
 ## Controls
 
 | Input | Action |

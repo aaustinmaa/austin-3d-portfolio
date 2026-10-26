@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { glowTex } from './textures.js';
+import { advanceTimeline, timelineTimeAt, timelineValueAt } from './animation-time.js';
 
 // The paper crane at the corner where the path turns up to the stone stair: a folded crane perched on the roof of the
 // last lantern on the right. It stands for Austin's name card. Walking up to it makes it rise and come undone the way a
@@ -236,8 +237,7 @@ export function createPaperBird(scene, { perch, star, hint, reduceMotion }){
      the square base and the base tipping and parting its layers take their time, and the last opening out is quick
      (the other way round when it folds back up) */
   const SWAP = .3, KS = [0, SWAP, .51, .7, 1], SECS = [.4, .35, .05, .23], REFOLD = SECS.reduce((a, b) => a + b);
-  const rate = (k, up) => { let i = 0; while (i < 3 && (up ? k >= KS[i+1] : k > KS[i+1])) i++; return (KS[i+1] - KS[i])/SECS[i]; };
-  const kAt = t => { for (let i=0;i<4;i++){ if (t < SECS[i]) return KS[i] + (KS[i+1] - KS[i])*t/SECS[i]; t -= SECS[i]; } return 1; };
+  const kAt = t => timelineValueAt(t,KS,SECS);
   const CARD_K = kAt(REFOLD*.5);   // halfway through the timed unfolding, whose stages have different speeds
   const refoldK = t => kAt(Math.max(0, REFOLD - t));
   function pose(k, light){
@@ -263,11 +263,23 @@ export function createPaperBird(scene, { perch, star, hint, reduceMotion }){
         const fy = faceYaw(); group.rotation.set(-.3*fly, fy + wrapA(Math.atan2(s.x - at.x, s.z - at.z) - fy)*span(away, F, F + .7), 0); pose(refoldK(away), 0); }
       else { group.position.copy(rest); group.rotation.set(0, REST_YAW, 0); group.scale.setScalar(Math.max(.001, back)); light(camera); pose(0, 0); }
       glow.position.copy(group.position); glow.scale.setScalar(1.2); glow.material.opacity = away < F + 2.8 ? .4*(1 - fly) : .14*back;
-      if (back >= 1){ away = -1; k = 0; z = 0; writing = false; group.scale.setScalar(1); }
-      return; }
-    const wantK = near || writing ? 1 : 0, step = reduceMotion ? 1 : dt*rate(k, wantK > k), wantZ = writing && k > .99 ? 1 : 0;
-    if (z > 0 || wantZ > 0) z += Math.sign(wantZ - z)*Math.min(Math.abs(wantZ - z), reduceMotion ? 1 : dt/1.2);
-    else { if (k === 0 && wantK > 0) chooseSide(); k += Math.sign(wantK - k)*Math.min(Math.abs(wantK - k), step); }
+      if (back < 1) return;
+      dt = reduceMotion ? 0 : Math.max(0,away-(F+3.8));
+      away = -1; k = 0; z = 0; writing = false; group.scale.setScalar(1);
+    }
+    const wantK = near || writing ? 1 : 0;
+    if (k === 0 && wantK > 0) chooseSide();
+    if (reduceMotion){ k = wantK; z = writing ? 1 : 0; }
+    else {
+      let remaining = Math.max(0,dt);
+      // Returning the sheet, folding it and bringing it close share one elapsed-time budget.
+      if (!writing && z > 0){ const needed = z*1.2, used = Math.min(remaining,needed); z = used === needed ? 0 : z-used/1.2; remaining -= used; }
+      if (z === 0){
+        const needed = Math.abs(timelineTimeAt(wantK,KS,SECS)-timelineTimeAt(k,KS,SECS));
+        const used = Math.min(remaining,needed); k = advanceTimeline(k,wantK,used,KS,SECS); remaining -= used;
+      }
+      if (writing && k === 1) z = Math.min(1,z+remaining/1.2);
+    }
     /* the crane rises off its lantern and turns its folds toward you; once open, the sheet can come close */
     const lift = span(k, 0, KS[2]), zz = smooth(z), idle = k === 0 && !reduceMotion;
     group.position.lerpVectors(rest, above, lift).lerp(close, zz);

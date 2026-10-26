@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { glowTex, fabricTex } from './textures.js';
+import { advanceDampedSpring } from './animation-time.js';
 
 // A small, legless wanderer in a thin woven robe and a softly folded hood. The cloth hangs from the shoulders;
 // only the loose hem, cuffs and rear hood tip respond to motion. The shadowed face, lantern and golden bow stay familiar.
@@ -200,7 +201,8 @@ export function buildHero(scene){
 const measured = new V3(), panelDrift = new V3(), clothQ = new THREE.Quaternion(), neckAnchor = new V3(), neckInverse = new THREE.Matrix4();
 const sleeveMatrix = new THREE.Matrix4(), sleeveInverse = new THREE.Matrix4(), shoulderPoint = new V3(), shoulderControl = new V3(), shoulderBulge = new V3();
 function updateClothMotion(h, s){
-  const m = h.motion, dt = clamp(s.dt, .0001, .05), yaw = h.root.rotation.y;
+  const m = h.motion, dt = Math.max(0,s.dt), yaw = h.root.rotation.y;
+  if (!dt) return;
   measured.subVectors(h.root.position, m.previous);
   const continuous = m.ready && measured.length() < Math.max(1.5, dt*35);
   if (continuous) measured.divideScalar(dt).clampLength(0, 18); else measured.set(0,0,0);
@@ -211,15 +213,12 @@ function updateClothMotion(h, s){
   }
   m.speed += (measured.length() - m.speed)*(1 - Math.exp(-dt*8));
   m.goal.copy(measured).multiplyScalar(-.006); m.goal.y *= .35;
-  const turnGoal = -turnRate*.011, steps = Math.ceil(dt/.008), step = dt/steps;
-  for (let i=0;i<steps;i++){
-    m.velocity.x += ((m.goal.x-m.offset.x)*85 - m.velocity.x*13)*step;
-    m.velocity.y += ((m.goal.y-m.offset.y)*85 - m.velocity.y*13)*step;
-    m.velocity.z += ((m.goal.z-m.offset.z)*85 - m.velocity.z*13)*step;
-    m.offset.addScaledVector(m.velocity, step);
-    m.turnVelocity += ((turnGoal-m.turn)*100 - m.turnVelocity*14)*step;
-    m.turn += m.turnVelocity*step;
+  for (const axis of ['x','y','z']){
+    const spring = advanceDampedSpring(m.offset[axis],m.velocity[axis],m.goal[axis],85,13,dt);
+    m.offset[axis] = spring.position; m.velocity[axis] = spring.velocity;
   }
+  const turn = advanceDampedSpring(m.turn,m.turnVelocity,-turnRate*.011,100,14,dt);
+  m.turn = turn.position; m.turnVelocity = turn.velocity;
 }
 
 /* Recompute lighting on the deformed surface. Weld normals at the coincident ends of closed grid rows. */
