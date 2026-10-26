@@ -7,8 +7,7 @@ import { radialTex, glowTex, softTex, runeTex } from './textures.js';
 import { ABOUT, RELICS, INTENTS, FALLBACK, SKILLS, LINES, FINALE, NOTE, starLine } from './content.js';
 import { collisionWorld, colliders, addMesh, floorAt, ceilingAt, pushOut, slideVelocity } from './colliders.js';
 import { guidedRelic, relicArrowHit } from './relic-targeting.js';
-import { flightPoint, flightStops, flightBlocked, planFlight } from './flight-path.js';
-import { Navigator } from './navigation.js';
+import { flightPoint, flightStops, flightBlocked } from './flight-path.js';
 import { resolveBowAim } from './bow-aim.js';
 import { createOracle } from './oracle.js';
 import { createConstellation } from './constellation.js';
@@ -691,20 +690,16 @@ const P = { pos:new V3(0,0,21.5), vel:new V3(), onGround:true, facing:Math.PI, t
   energy:1, flying:false, soared:false, jumpT:-9, stall:0 };
 P.pos.y = floorAt(P.pos.x, P.pos.z, groundH(P.pos.x, P.pos.z), .6, groundH(P.pos.x, P.pos.z)).h;
 const SPEED = 7, GRAV = 26, JUMP = 9.6, STEP_UP = .6, ASCEND = 7.5, CEILING = 47, AIR_R = 33, FLY_SECONDS = 7.5, BODY_R = .46, HEAD = 1.7;
-const navigator = new Navigator(collisionWorld,{ground:groundH,water:overWater,waterY:WATER_Y,radius:BODY_R,height:HEAD,extent:AIR_R,ceiling:CEILING});
-let routeRequest=0;
-function jumpPress(){ if (P.pendingRoute){ routeRequest++; P.pendingRoute=false; } if (P.flight?.navigation) P.flight=null; if (P.flight) return; skipIntro(); if (P.onGround){ P.vel.y = JUMP; P.onGround = false; P.jumpT = T; } else P.jumpT = T - 1; }
+function jumpPress(){ if (P.flight) return; skipIntro(); if (P.onGround){ P.vel.y = JUMP; P.onGround = false; P.jumpT = T; } else P.jumpT = T - 1; }
 function supportAt(x,z,y){ return floorAt(x, z, y, STEP_UP, groundH(x,z)); }
-function flyTo(dest, { groundGlide=false, walk=false }={}){
+function flyTo(dest, { groundGlide=false }={}){
   const from = P.pos.clone(), to = dest.clone();
-  if (!overWater(to.x,to.z)) to.y = floorAt(to.x,to.z,to.y,.25,to.y).h;
-  const request=++routeRequest; P.pendingRoute=false; P.dip=null; P.target=null; P.flying=false; P.vel.set(0,0,0);
-  if (groundGlide){ P.flight={from,to,t:0,dur:1,arc:0}; return true; }
-  P.flight=null; P.pendingRoute=true;
-  return navigator.planAsync(from,to,{walk},()=>request!==routeRequest).then(route=>{
-    if (!route||request!==routeRequest) return false;
-    P.pendingRoute=false; P.flight=route; P.onGround=!!route.walk; return true;
-  });
+  P.dip=null; P.target=null; P.flying=false; P.vel.set(0,0,0);
+  if (groundGlide){ to.y=floorAt(to.x,to.z,to.y,.25,to.y).h; P.flight={from,to,t:0,dur:1,arc:0}; return true; }
+  const distance=from.distanceTo(to);
+  // Directly animate the original arc, without planning or in-flight body collision.
+  P.flight={from,to,t:0,dur:Math.min(3.6,Math.max(1.2,distance/12)),arc:2+distance*.12,legacy:true};
+  P.onGround=false; return true;
 }
 /* Leave the lake for dry ground: a low glide off the bank, or with a higher arc, a hop back out after touching the water. */
 function dipIn(power){ P.dip = { t:0 }; P.target = null; P.flying = false; splashLake(P.pos, power); }
@@ -926,16 +921,16 @@ function clickAt(cx, cy){
   if (h.object.userData.star){ touchStar(h.object.userData.star); return; }
   if (h.object.userData.perch){ flyTo(h.object.userData.perch); return; }
   if (h.object.userData.bird){ if (byBird) openLetter(); else goToCrane(); return; }
-  /* Land near a stone's centre so the whole body fits; a click on the stone already underfoot can still walk to that point. */
+  /* Original click behavior: walk on the same stone, otherwise fly to the clicked top or its centre. */
   const st = h.object.userData.stone && stoneAt(h.point);
   if (st){ const p = Math.abs(h.point.y - st.y) < .02 ? h.point.clone() : new V3(st.x, st.y, st.z);
-    if (Math.abs(P.pos.y - st.y) < .05 && Math.hypot(P.pos.x - st.x, P.pos.z - st.z) < st.reach) flyTo(p,{walk:true});
-    else flyTo(new V3(st.x,st.y,st.z)); return; }
+    if (Math.abs(P.pos.y - st.y) < .05 && Math.hypot(P.pos.x - st.x, P.pos.z - st.z) < st.reach) P.target=p;
+    else flyTo(p); return; }
   const p = h.point.clone();
   /* the lake: the ray hits the bed under the water, so aim at the surface above it and always jump there */
   if (p.y < WATER_Y && ray.ray.direction.y < 0){ const k = (WATER_Y - ray.ray.origin.y)/ray.ray.direction.y; p.copy(ray.ray.origin).addScaledVector(ray.ray.direction, k);
     if (overWater(p.x, p.z)){ flyTo(p); return; } p.copy(h.point); }
-  flyTo(p,{walk:Math.abs(p.y-P.pos.y)<=2.4});
+  if (Math.abs(p.y-P.pos.y)>2.4) flyTo(p); else P.target=p;
 }
 /* which star the pointer is over, if any (checked once per frame) */
 let hoverStar = null;
@@ -1030,14 +1025,16 @@ function updateCamera(dt){
 
 /* ---------- simulation ---------- */
 function updatePlayer(dt){
-  const manual=keys.Space||keys.KeyW||keys.KeyA||keys.KeyS||keys.KeyD||keys.ArrowUp||keys.ArrowDown||keys.ArrowLeft||keys.ArrowRight;
-  if (P.pendingRoute){
-    if (manual){ routeRequest++; P.pendingRoute=false; }
-    else { P.speed=0; return; }
-  }
-  if (P.flight?.navigation && manual) P.flight=null;
   if (P.flight){ const f = P.flight; f.t += dt/f.dur; const t = Math.min(1,f.t), e = f.ease === 'glide' ? glideEase(t) : f.ease === 'out' ? 1 - (1-t)*(1-t) : t<.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;
     const prev = P.pos.clone(), next = flightPoint(f,e);
+    if (f.legacy){
+      P.pos.copy(next);
+      const d=P.pos.clone().sub(prev); if (d.x*d.x+d.z*d.z>1e-6) P.facing=Math.atan2(d.x,d.z);
+      if (t>=1){ P.flight=null; P.vel.set(0,0,0); P.onGround=true;
+        if (overWater(P.pos.x,P.pos.z)&&P.pos.y<WATER_Y+.1) dipIn(2.2);
+      }
+      P.speed=0; return;
+    }
     // Ground approaches can step onto the actual bank or path without snagging the rounded feet.
     const support = floorAt(next.x, next.z, prev.y, STEP_UP, groundH(next.x,next.z));
     const glide = f.ease === 'glide' || f.shore || f.walk;
@@ -1050,14 +1047,11 @@ function updatePlayer(dt){
     f.progress=e;
     const d = P.pos.clone().sub(prev); if (d.x*d.x+d.z*d.z > 1e-6) P.facing = Math.atan2(d.x,d.z);
     if (flightBlocked(motion,next,glide ? STEP_UP : 0)){
-      flyTo(f.requested||f.to,{walk:!!f.walk});
+      flyTo(f.requested||f.to);
       P.vel.set(0,0,0); P.onGround = motion.grounded;
       P.speed = 0; return;
     }
     if (t >= 1){
-      if (f.partial && f.from.distanceTo(f.to)>.3){
-        flyTo(f.requested,{walk:!!f.walk}); P.speed=0; return;
-      }
       P.flight = null; P.vel.set(0,0,0); P.flying = false;
       P.onGround = motion.grounded || Math.abs(supportAt(P.pos.x, P.pos.z, P.pos.y).h - P.pos.y) < .05;
       if (f.arrivalFacing !== undefined) P.facing = f.arrivalFacing;
@@ -1086,17 +1080,13 @@ function updatePlayer(dt){
   const horizontal = collisionWorld.moveBody(P.pos, new V3(nx, P.pos.y, nz), BODY_R, HEAD, step);
   nx = horizontal.position.x; nz = horizontal.position.z;
   const moved = Math.hypot(nx - P.pos.x, nz - P.pos.z);
-  if (P.target && moved < spd*dt*.25){ if ((P.stall += dt) > .3){
-    const destination = P.target.clone(); P.stall = 0;
-    flyTo(destination,{walk:true}); return;
-  } } else P.stall = 0;
+  if (P.target && moved < spd*dt*.25){ if ((P.stall += dt) > .5){ P.target=null; P.stall=0; } } else P.stall=0;
   /* stepping stones: walking off one over open air toward another just ahead hops across and lands a little way onto it */
   if (P.onGround && ml > 0 && supportAt(nx, nz, P.pos.y).h < P.pos.y - .9)
     for (let d=.3; d<2.9; d+=.2){ const a = supportAt(nx + mx*d, nz + mz*d, P.pos.y + .5);
       if (a.onPlatform && a.h > P.pos.y - .9){ const to = new V3(nx + mx*(d + .5), a.h, nz + mz*(d + .5)); if (supportAt(to.x, to.z, a.h).h !== a.h) to.set(nx + mx*d, a.h, nz + mz*d);
-        const route = planFlight(collisionWorld,P.pos,to,{ arc:.45 + Math.max(0,a.h-P.pos.y)*.5, minDuration:.3+d*.1 });
-        if (route){ P.flight = { ...route, home:P.pos.clone(), reroutes:0 }; P.vel.set(0,0,0); P.onGround = false; return; }
-        if (P.target){ flyTo(P.target,{walk:true}); return; }
+        P.flight={from:P.pos.clone(),to,t:0,dur:.3+d*.1,arc:.45+Math.max(0,a.h-P.pos.y)*.5,legacy:true};
+        P.vel.set(0,0,0); return;
       } }
   const dive = keys.ShiftLeft || keys.ShiftRight;
   P.flying = !!keys.Space && !P.onGround && (T - P.jumpT > .2) && P.energy > .005;
