@@ -93,18 +93,26 @@ export class Navigator {
     const floor = this.world.floorAt(p.x,p.z,p.y,.3,this.ground(p.x,p.z));
     return v(p.x,!floor.onPlatform && this.water(p.x,p.z) ? Math.max(floor.h,this.waterY) : floor.h,p.z);
   }
-  landing(p){ const point = this.support(p); return this.within(point)&&this.clear(point,point) ? point : null; }
-  destination(requested){
+  // Nothing solid in the given height above the head: no tree canopy or overhang to come down through or stand under.
+  open(p, headroom){
+    for (const [dx,dz] of [[0,0],[1,0],[-1,0],[0,1],[0,-1]]){
+      const from = v(p.x+dx*this.radius,p.y+this.height,p.z+dz*this.radius);
+      if (this.world.segmentHit(from,from.clone().setY(from.y+headroom),solid => solid.body)) return false;
+    }
+    return true;
+  }
+  landing(p, headroom=0){ const point = this.support(p); return this.within(point)&&this.clear(point,point)&&(!headroom||this.open(point,headroom)) ? point : null; }
+  destination(requested, { headroom=0, rim=this.extent-.5 }={}){
     const target = requested.clone(), r = Math.hypot(target.x,target.z);
-    if (r>this.extent-.5){ target.x *= (this.extent-.5)/r; target.z *= (this.extent-.5)/r; }
+    if (r>rim){ target.x *= rim/r; target.z *= rim/r; }
     target.y = Math.min(this.ceiling,target.y);
-    const exact = this.landing(target); if (exact) return exact;
+    const exact = this.landing(target,headroom); if (exact) return exact;
     // Clicks on a wall or a crowded rim mean "go here", not "stand inside this triangle".
     for (const distance of [.6,1.2,1.8,2.4,3.6,5,7,10]){
       const candidates = [];
       for (let i=0;i<16;i++){
         const angle = i/16*Math.PI*2, point = target.clone().add(v(Math.cos(angle)*distance,0,Math.sin(angle)*distance));
-        const landing = this.landing(point); if (landing) candidates.push(landing);
+        const landing = this.landing(point,headroom); if (landing) candidates.push(landing);
       }
       if (candidates.length) return candidates.sort((a,b)=>a.distanceToSquared(target)-b.distanceToSquared(target))[0];
     }
@@ -280,9 +288,9 @@ export class Navigator {
   }
   // With `fly:false` only a ground route is sought; when there is none, `{ hop }` names the supported
   // landing so the caller can use its own flight.
-  *planSteps(from,requested,{walk=true,fly=true}={}){
+  *planSteps(from,requested,{walk=true,fly=true,landing}={}){
     this.fresh();
-    const goal=this.destination(requested);
+    const goal=this.destination(requested,landing);
     const finish = route => ({...route,navigation:true,requested:requested.clone()});
     if (walk && (!fly || Math.abs(from.y-goal.y)<1)){
       const start=this.settle(from,STEP), lead=start.equals(from) ? [] : [from.clone()];

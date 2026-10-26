@@ -714,7 +714,7 @@ function walkTo(dest){
   const coast = P.flight?.navigation ? P.flight : null, request = ++routeRequest;
   P.walkGoal=null; P.dip=null; P.target=null; P.flying=false;
   P.flight=coast; if (coast) coast.stopping=true; P.pendingRoute=true;
-  return navigator.planAsync(P.pos.clone(),dest,{fly:false},()=>request!==routeRequest).then(route=>{
+  return navigator.planAsync(P.pos.clone(),dest,{fly:false,landing:LANDING},()=>request!==routeRequest).then(route=>{
     if (!route||request!==routeRequest) return false;
     P.pendingRoute=false;
     if (route.hop) return flyTo(route.hop);
@@ -723,6 +723,10 @@ function walkTo(dest){
   });
 }
 function landed(){ if (P.walkGoal && !P.dip && !P.flight){ const goal = P.walkGoal; P.walkGoal = null; walkTo(goal); } }
+/* Click flights and walks end where the whole body fits, inside the walkable rim, with open sky overhead,
+   so an arc never comes down through a tree's tiers and a walk never stops tucked under one. */
+const LANDING = { headroom:5, rim:WORLD_R - .3 };
+function openLanding(p){ return navigator.destination(p, LANDING); }
 /* Leave the lake for dry ground: a low glide off the bank, or with a higher arc, a hop back out after touching the water. */
 function dipIn(power){ P.dip = { t:0 }; P.target = null; P.flying = false; splashLake(P.pos, power); }
 function glideToShore(arc=.35){
@@ -953,7 +957,7 @@ function clickAt(cx, cy){
   /* the lake: the ray hits the bed under the water, so aim at the surface above it and always jump there */
   if (p.y < WATER_Y && ray.ray.direction.y < 0){ const k = (WATER_Y - ray.ray.origin.y)/ray.ray.direction.y; p.copy(ray.ray.origin).addScaledVector(ray.ray.direction, k);
     if (overWater(p.x, p.z)){ flyTo(p); return; } p.copy(h.point); }
-  if (Math.abs(p.y-P.pos.y)>2.4) flyTo(p); else walkTo(p);
+  if (Math.abs(p.y-P.pos.y)>2.4) flyTo(openLanding(p)); else walkTo(p);
 }
 /* which star the pointer is over, if any (checked once per frame) */
 let hoverStar = null;
@@ -1113,8 +1117,10 @@ function updatePlayer(dt){
   const rate = P.onGround ? 14 : P.soared ? 6 : 4;
   const x = dampedMotion(P.vel.x, mx*spd, rate, dt), z = dampedMotion(P.vel.z, mz*spd, rate, dt);
   P.vel.x = x.velocity; P.vel.z = z.velocity;
-  let nx = P.pos.x + x.distance, nz = P.pos.z + z.distance; const nr = Math.hypot(nx,nz);
-  const lim = P.onGround ? WORLD_R : AIR_R; if (nr > lim){ nx *= lim/nr; nz *= lim/nr; }
+  let nx = P.pos.x + x.distance, nz = P.pos.z + z.distance; const nr = Math.hypot(nx,nz), r0 = Math.hypot(P.pos.x,P.pos.z);
+  /* Past the walkable rim, a wanderer on or just above the bank slides smoothly back down to it instead of snapping inward. */
+  const onRim = r0 > WORLD_R && !P.flying && P.pos.y - supportAt(P.pos.x,P.pos.z,P.pos.y).h < 1;
+  const lim = onRim ? WORLD_R + (r0 - WORLD_R)*Math.exp(-dt*4) : P.onGround ? WORLD_R : AIR_R; if (nr > lim){ nx *= lim/nr; nz *= lim/nr; }
   /* The full airborne body meets the rendered faces; only walking gets a step allowance. */
   const step = P.onGround ? STEP_UP : 0;
   const horizontal = collisionWorld.moveBody(P.pos, new V3(nx, P.pos.y, nz), BODY_R, HEAD, step);
@@ -1153,6 +1159,11 @@ function updatePlayer(dt){
   P.pos.copy(motion.position);
   slideVelocity(P.vel, horizontal.contacts.concat(motion.contacts));
   P.onGround ||= motion.grounded;
+  /* Wedged inside scenery (say, under a tree's tiers), collision can only push from face to face and the body shakes in place:
+     after a moment, hop out to the nearest open spot instead. */
+  P.wedged = P.onGround && collisionWorld.moveBody(P.pos,P.pos,BODY_R,HEAD,STEP_UP).position.distanceTo(P.pos) > .03 ? (P.wedged||0) + dt : 0;
+  if (P.wedged > .2){ const to = openLanding(P.pos); P.wedged = 0;
+    if (to.distanceTo(P.pos) > .05){ stopRoute(); P.target = null; P.vel.set(0,0,0); P.flight = { from:P.pos.clone(), to, t:0, dur:.35 + to.distanceTo(P.pos)*.08, arc:.5, legacy:true }; P.speed = 0; return; } }
   P.speed = Math.hypot(P.vel.x, P.vel.z);
   let want = null;
   if (mode === 'aim') want = camS.yaw + Math.PI;
