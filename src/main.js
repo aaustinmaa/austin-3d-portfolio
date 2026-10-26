@@ -8,6 +8,7 @@ import { ABOUT, RELICS, INTENTS, FALLBACK, SKILLS, LINES, FINALE, NOTE, starLine
 import { collisionWorld, colliders, addMesh, floorAt, ceilingAt, pushOut, slideVelocity } from './colliders.js';
 import { guidedRelic, relicArrowHit } from './relic-targeting.js';
 import { flightPoint, flightStops, flightBlocked } from './flight-path.js';
+import { Navigator, advanceRoute, routeHeading } from './navigation.js';
 import { resolveBowAim } from './bow-aim.js';
 import { createOracle } from './oracle.js';
 import { createConstellation } from './constellation.js';
@@ -690,17 +691,38 @@ const P = { pos:new V3(0,0,21.5), vel:new V3(), onGround:true, facing:Math.PI, t
   energy:1, flying:false, soared:false, jumpT:-9, stall:0 };
 P.pos.y = floorAt(P.pos.x, P.pos.z, groundH(P.pos.x, P.pos.z), .6, groundH(P.pos.x, P.pos.z)).h;
 const SPEED = 7, GRAV = 26, JUMP = 9.6, STEP_UP = .6, ASCEND = 7.5, CEILING = 47, AIR_R = 33, FLY_SECONDS = 7.5, BODY_R = .46, HEAD = 1.7;
-function jumpPress(){ if (P.flight) return; skipIntro(); if (P.onGround){ P.vel.y = JUMP; P.onGround = false; P.jumpT = T; } else P.jumpT = T - 1; }
+const navigator = new Navigator(collisionWorld,{ground:groundH,water:overWater,waterY:WATER_Y,radius:BODY_R,height:HEAD,extent:AIR_R,ceiling:CEILING});
+let routeRequest=0;
+/* drop a click-walk that is planned or under way */
+function stopRoute(){ routeRequest++; P.pendingRoute=false; P.walkGoal=null; if (P.flight?.navigation) P.flight=null; }
+function jumpPress(){ stopRoute(); if (P.flight) return; skipIntro(); if (P.onGround){ P.vel.y = JUMP; P.onGround = false; P.jumpT = T; } else P.jumpT = T - 1; }
 function supportAt(x,z,y){ return floorAt(x, z, y, STEP_UP, groundH(x,z)); }
 function flyTo(dest, { groundGlide=false }={}){
   const from = P.pos.clone(), to = dest.clone();
-  P.dip=null; P.target=null; P.flying=false; P.vel.set(0,0,0);
+  stopRoute(); P.dip=null; P.target=null; P.flying=false; P.vel.set(0,0,0);
   if (groundGlide){ to.y=floorAt(to.x,to.z,to.y,.25,to.y).h; P.flight={from,to,t:0,dur:1,arc:0}; return true; }
   const distance=from.distanceTo(to);
   // Directly animate the original arc, without planning or in-flight body collision.
   P.flight={from,to,t:0,dur:Math.min(3.6,Math.max(1.2,distance/12)),arc:2+distance*.12,legacy:true};
   P.onGround=false; return true;
 }
+/* Flat-ground clicks walk a checked ground route around scenery (navigation.js) instead of pressing straight into it.
+   A walk already under way eases to a stop along its own path while the next route is found, then carries its momentum on.
+   Where no way round on foot exists, the original hop flies there. A click during a flight walks on after landing. */
+function walkTo(dest){
+  if ((P.flight && !P.flight.navigation) || P.dip){ stopRoute(); P.walkGoal = dest.clone(); return true; }
+  const coast = P.flight?.navigation ? P.flight : null, request = ++routeRequest;
+  P.walkGoal=null; P.dip=null; P.target=null; P.flying=false;
+  P.flight=coast; if (coast) coast.stopping=true; P.pendingRoute=true;
+  return navigator.planAsync(P.pos.clone(),dest,{fly:false},()=>request!==routeRequest).then(route=>{
+    if (!route||request!==routeRequest) return false;
+    P.pendingRoute=false;
+    if (route.hop) return flyTo(route.hop);
+    const moving = coast && P.flight===coast ? coast.v : 0;
+    P.flight=navigator.resume(route,P.pos,moving,P.facing); P.vel.set(0,0,0); P.onGround=true; return true;
+  });
+}
+function landed(){ if (P.walkGoal && !P.dip && !P.flight){ const goal = P.walkGoal; P.walkGoal = null; walkTo(goal); } }
 /* Leave the lake for dry ground: a low glide off the bank, or with a higher arc, a hop back out after touching the water. */
 function dipIn(power){ P.dip = { t:0 }; P.target = null; P.flying = false; splashLake(P.pos, power); }
 function glideToShore(arc=.35){
@@ -913,6 +935,7 @@ canvas.addEventListener('pointerup', e => { if (!drag) return; const was = drag.
 canvas.addEventListener('pointercancel', () => { drag = null; P.drawing = false; canvas.classList.remove('dragging'); unlockPointer(); });
 canvas.addEventListener('wheel', e => { e.preventDefault(); craneApproach = null; camS.dist = Math.min(20, Math.max(4, camS.dist*(1 + e.deltaY*.0011))); }, { passive:false });
 function clickAt(cx, cy){
+  P.blocked = null;
   ndc.set(cx/innerWidth*2-1, -(cy/innerHeight)*2+1); ray.setFromCamera(ndc, camera);
   const hits = ray.intersectObjects(pickables.concat(sky.hits), false); if (!hits.length) return;
   const relicHit = hits.find(h => h.object.userData.relic && h.object.parent.visible);
@@ -924,13 +947,13 @@ function clickAt(cx, cy){
   /* Original click behavior: walk on the same stone, otherwise fly to the clicked top or its centre. */
   const st = h.object.userData.stone && stoneAt(h.point);
   if (st){ const p = Math.abs(h.point.y - st.y) < .02 ? h.point.clone() : new V3(st.x, st.y, st.z);
-    if (Math.abs(P.pos.y - st.y) < .05 && Math.hypot(P.pos.x - st.x, P.pos.z - st.z) < st.reach) P.target=p;
+    if (Math.abs(P.pos.y - st.y) < .05 && Math.hypot(P.pos.x - st.x, P.pos.z - st.z) < st.reach){ stopRoute(); P.target=p; }
     else flyTo(p); return; }
   const p = h.point.clone();
   /* the lake: the ray hits the bed under the water, so aim at the surface above it and always jump there */
   if (p.y < WATER_Y && ray.ray.direction.y < 0){ const k = (WATER_Y - ray.ray.origin.y)/ray.ray.direction.y; p.copy(ray.ray.origin).addScaledVector(ray.ray.direction, k);
     if (overWater(p.x, p.z)){ flyTo(p); return; } p.copy(h.point); }
-  if (Math.abs(p.y-P.pos.y)>2.4) flyTo(p); else P.target=p;
+  if (Math.abs(p.y-P.pos.y)>2.4) flyTo(p); else walkTo(p);
 }
 /* which star the pointer is over, if any (checked once per frame) */
 let hoverStar = null;
@@ -1025,13 +1048,23 @@ function updateCamera(dt){
 
 /* ---------- simulation ---------- */
 function updatePlayer(dt){
-  if (P.flight){ const f = P.flight; f.t += dt/f.dur; const t = Math.min(1,f.t), e = f.ease === 'glide' ? glideEase(t) : f.ease === 'out' ? 1 - (1-t)*(1-t) : t<.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2;
+  const manual=keys.Space||keys.KeyW||keys.KeyA||keys.KeyS||keys.KeyD||keys.ArrowUp||keys.ArrowDown||keys.ArrowLeft||keys.ArrowRight;
+  if (manual && (P.pendingRoute || P.walkGoal || P.flight?.navigation)){ const flight = P.flight?.navigation ? null : P.flight; stopRoute(); P.flight = flight; }
+  if (P.pendingRoute && !P.flight){ P.speed=0; return; }
+  if (P.flight){ const f = P.flight; let t, e;
+    if (f.speed){
+      /* click-walks ease in, cruise, slow for bends and ease out in real seconds, turning toward the way ahead */
+      const ahead = routeHeading(f), turn = ahead === null ? 0 : Math.atan2(Math.sin(ahead - P.facing), Math.cos(ahead - P.facing));
+      t = e = f.t = advanceRoute(f, dt, { align:Math.max(.12, Math.cos(turn)), stop:f.stopping });
+      P.facing += Math.max(-9*dt, Math.min(9*dt, turn*(-Math.expm1(-dt*10))));
+    } else { f.t += dt/f.dur; t = Math.min(1,f.t); e = f.ease === 'glide' ? glideEase(t) : f.ease === 'out' ? 1 - (1-t)*(1-t) : t<.5 ? 2*t*t : 1-Math.pow(-2*t+2,2)/2; }
     const prev = P.pos.clone(), next = flightPoint(f,e);
     if (f.legacy){
       P.pos.copy(next);
       const d=P.pos.clone().sub(prev); if (d.x*d.x+d.z*d.z>1e-6) P.facing=Math.atan2(d.x,d.z);
       if (t>=1){ P.flight=null; P.vel.set(0,0,0); P.onGround=true;
         if (overWater(P.pos.x,P.pos.z)&&P.pos.y<WATER_Y+.1) dipIn(2.2);
+        landed();
       }
       P.speed=0; return;
     }
@@ -1039,23 +1072,30 @@ function updatePlayer(dt){
     const support = floorAt(next.x, next.z, prev.y, STEP_UP, groundH(next.x,next.z));
     const glide = f.ease === 'glide' || f.shore || f.walk;
     if (glide) next.y = t >= 1 ? support.h : Math.max(next.y, support.h);
+    // Sweep to the same floor-lifted point the blocked check below compares against, or a raised stone reads as a wall.
+    const stops = f.points ? flightStops(f,f.progress||0,e) : [next]; stops[stops.length-1] = next;
     let motion;
-    for (const point of f.points ? flightStops(f,f.progress||0,e) : [next]){
+    for (const point of stops){
       motion = collisionWorld.moveBody(P.pos,point,BODY_R,HEAD,glide?STEP_UP:0); P.pos.copy(motion.position);
       if (flightBlocked(motion,point,glide?STEP_UP:0)) break;
     }
     f.progress=e;
-    const d = P.pos.clone().sub(prev); if (d.x*d.x+d.z*d.z > 1e-6) P.facing = Math.atan2(d.x,d.z);
+    const d = P.pos.clone().sub(prev); if (!f.speed && d.x*d.x+d.z*d.z > 1e-6) P.facing = Math.atan2(d.x,d.z);
     if (flightBlocked(motion,next,glide ? STEP_UP : 0)){
-      flyTo(f.requested||f.to);
+      if (f.navigation){
+        /* something moved into the way: walk round it to the same click, but never keep retrying from one spot */
+        const again = P.blocked && P.blocked.at.distanceTo(P.pos) < .25; P.blocked = { at:P.pos.clone(), n:again ? P.blocked.n + 1 : 1 };
+        P.flight = null; if (!f.stopping && P.blocked.n <= 3) walkTo(f.requested);
+      } else { const goal = P.walkGoal; flyTo(f.requested||f.to); P.walkGoal = goal; }
       P.vel.set(0,0,0); P.onGround = motion.grounded;
       P.speed = 0; return;
     }
     if (t >= 1){
-      P.flight = null; P.vel.set(0,0,0); P.flying = false;
+      P.flight = null; P.blocked = null; P.vel.set(0,0,0); P.flying = false;
       P.onGround = motion.grounded || Math.abs(supportAt(P.pos.x, P.pos.z, P.pos.y).h - P.pos.y) < .05;
       if (f.arrivalFacing !== undefined) P.facing = f.arrivalFacing;
       if (overWater(P.pos.x, P.pos.z) && P.pos.y < WATER_Y + .1) dipIn(2.2);
+      landed();
     }
     P.speed = f.walk && t<1 ? Math.hypot(d.x,d.z)/dt : 0;
     if (f.walk){ P.onGround=true; if (t<1) P.vel.copy(d).divideScalar(dt); } return; }
@@ -1362,6 +1402,6 @@ setTimeout(() => oracleSay(LINES.intro), reduceMotion ? 200 : 2000);
 if (!intro) welcome();
 
 /* dev-only handle for poking at the scene from the browser console; stripped from production builds */
-if (import.meta.env.DEV) window.__valley = { P, camS, RELICS, sky, oracle, world, colliders, collisionWorld, bird, braziers, stones, openLetter, closeLetter, summon, setGaze, scene, camera, renderer, keys, fireArrow, fireManual, manualAim, arrows, flyTo,
+if (import.meta.env.DEV) window.__valley = { P, camS, RELICS, sky, oracle, world, colliders, collisionWorld, bird, braziers, stones, openLetter, closeLetter, summon, setGaze, scene, camera, renderer, keys, fireArrow, fireManual, manualAim, arrows, flyTo, walkTo, navigator,
   cameraDebug(){ return { intro:intro && intro.t, position:camPos.toArray(), desired:wantPos.toArray() }; },
   advance(seconds=1){ advance(seconds); reflectLake(); renderer.render(scene, camera); } };
