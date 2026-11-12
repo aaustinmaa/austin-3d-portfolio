@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { NOTE_ID } from './note-rules.js';
 
-/* Notes left on the paper crane, once Austin publishes them, are a few more of the soft lights drifting in the
-   open air beneath the star. From below they look like any other mote; only a wanderer who climbs or flies up among them
-   finds that some brighten as they come near and can be read. A note shows there for its writer at once (their
+/* Notes left on the paper crane, once Austin publishes them, are small paper slips tied under the glowing bands of
+   the wish pillars in the meadow. From afar they are dim flecks on the stone; only a wanderer who walks up to a pillar
+   sees the paper catch the light, and can open a slip to read it. A note shows there for its writer at once (their
    browser keeps it); other visitors see it once Austin has published it, with his reply. The writer keeps one note,
    folded inside the paper crane, and can open the crane to change it or take it back. */
 
@@ -14,6 +14,7 @@ let own;
 const validOwn = n => n && NOTE_ID.test(n.id) && typeof n.key === 'string' && typeof n.message === 'string' && Number.isFinite(n.at);
 export function ownNote(){
   if (own !== undefined) return own;
+  try { localStorage.removeItem('valley:notes:v1'); } catch { /* an earlier format, without keys */ }
   try { const saved = JSON.parse(localStorage.getItem(OWN_KEY) || 'null'); own = validOwn(saved) ? saved : null; } catch { own = null; }
   return own;
 }
@@ -77,80 +78,98 @@ export async function loadNotes(endpoint, fetcher = fetch){
   } catch { return []; }
 }
 
-/* ---------- the lights ---------- */
-/* where a note rests, the same for every visitor: in the open air beneath the star, outside its column of light and
-   inside the spiral stair, a little above the stair's top so a wanderer has to climb, and mostly fly, to reach them */
-function slotOf(id){
+/* ---------- the slips on the wish pillars ---------- */
+/* A published note is a small folded paper slip tied under the glowing band of one of the wish pillars, made of the same
+   pale paper as the crane. From across the meadow a slip is a dim fleck against the stone; only a wanderer who walks up
+   to a pillar sees the paper catch the band's light, and can open it to read. Each note keeps the same place for every
+   visitor: a pillar and a spot around its band chosen from the note's id, the oldest note keeping its spot when two meet. */
+function hashOf(id){
   let h = 2166136261;
   for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
-  const r = () => { h = Math.imul(h ^ (h >>> 15), 2246822519); h = Math.imul(h ^ (h >>> 13), 3266489917); return ((h ^= h >>> 16) >>> 0)/4294967296; };
-  const a = r()*Math.PI*2, d = 5 + r()*5.5;
-  return { x:Math.sin(a)*d, y:36.5 + r()*8.5, z:Math.cos(a)*d, ph:r(), hue:r() };
+  return () => { h = Math.imul(h ^ (h >>> 15), 2246822519); h = Math.imul(h ^ (h >>> 13), 3266489917); return ((h ^= h >>> 16) >>> 0)/4294967296; };
 }
 
-const CAP = 96, REACH = 9, NOTICE = 13;
-const PALETTE = ['#7FE9F2', '#8FA8FF', '#B49CFF', '#D8E2FF'].map(c => new THREE.Color(c));
+const CAP = 96, AROUND = 10, REACH = 8, NOTICE = 16;
+const DIM = new THREE.Color(0x3C4064), PAPER = new THREE.Color(0xE4E1F2);
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a)/(b - a))); return t*t*(3 - 2*t); };
 
-export function createNoteLights(scene, { scale, reduceMotion }){
-  const g = new THREE.BufferGeometry(), pos = new Float32Array(CAP*3), col = new Float32Array(CAP*3), ph = new Float32Array(CAP);
-  const lift = new Float32Array(CAP), alpha = new Float32Array(CAP);
+/* a narrow strip folded lengthwise and to a point, its top turned over the band; local +z faces out from the pillar.
+   Each facet carries its own even shade, like the crane, instead of taking the scene's lights. */
+const W = .065, TOP = .075, LOW = -.32, TIP = -.4, OUT = .016, BACK = -.045;
+const SLIP = [
+  /* the two halves of the lengthwise fold */
+  [[-W, TOP, 0], [0, TOP, OUT], [-W, LOW, 0], .9], [[0, TOP, OUT], [0, LOW, OUT], [-W, LOW, 0], .9],
+  [[0, TOP, OUT], [W, TOP, 0], [W, LOW, 0], .74], [[0, TOP, OUT], [W, LOW, 0], [0, LOW, OUT], .74],
+  /* the pointed end */
+  [[-W, LOW, 0], [0, LOW, OUT], [0, TIP, OUT*.6], .82], [[0, LOW, OUT], [W, LOW, 0], [0, TIP, OUT*.6], .66],
+  /* turned over the top of the band */
+  [[-W, TOP, 0], [-W, TOP, BACK], [W, TOP, 0], 1], [[W, TOP, 0], [-W, TOP, BACK], [W, TOP, BACK], 1],
+];
+const PER = SLIP.length*3;
+
+/* pillars: [{ x, z, band, r }] with the world height of each glowing band and its radius */
+export function createNoteSlips(scene, pillars){
+  /* all slips share one small buffer, rewritten when the notes change; their colour brightens as the wanderer comes near */
+  const g = new THREE.BufferGeometry(), pos = new Float32Array(CAP*PER*3), col = new Float32Array(CAP*PER*3);
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
-  g.setAttribute('col', new THREE.BufferAttribute(col, 3)); g.setAttribute('ph', new THREE.BufferAttribute(ph, 1));
-  g.setAttribute('lift', new THREE.BufferAttribute(lift, 1).setUsage(THREE.DynamicDrawUsage));
-  g.setAttribute('alpha', new THREE.BufferAttribute(alpha, 1).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3).setUsage(THREE.DynamicDrawUsage));
   g.setDrawRange(0, 0);
-  /* drawn like the motes around it (same size, palette and pulse); a light within reach swells a little and breathes slowly */
-  const mat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending,
-    uniforms:{ t:{ value:0 }, glow:{ value:.65 }, scale, still:{ value:reduceMotion ? 1 : 0 } },
-    vertexShader:`attribute vec3 col; attribute float ph; attribute float lift; attribute float alpha; uniform float t; uniform float glow; uniform float scale; uniform float still;
-      varying vec3 vC; varying float vA;
-      void main(){ float s = .5 + .5*sin(t*(.45 + fract(ph*3.7)*.9) + ph*40.), b = .6 + .4*sin(t*.9 + ph*20.);
-        s = mix(s, mix(b, .8, still), lift);
-        vA = (.3 + .7*s*s)*glow*(1. + .9*lift)*alpha;
-        vC = col; vec4 mv = modelViewMatrix*vec4(position, 1.); gl_PointSize = 1.05*(.75 + .25*s)*(1. + .45*lift)*scale/-mv.z; gl_Position = projectionMatrix*mv; }`,
-    fragmentShader:`varying vec3 vC; varying float vA; void main(){ vec2 q = gl_PointCoord - .5; float d = dot(q, q); float a = (exp(-d*36.) + exp(-d*9.)*.3)*vA; gl_FragColor = vec4(vC*a, a); }` });
-  const points = new THREE.Points(g, mat); points.frustumCulled = false; scene.add(points);
+  const mesh = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors:true, side:THREE.DoubleSide }));
+  mesh.frustumCulled = false; scene.add(mesh);
 
   let notes = [], shared = [];
-  const v = new THREE.Vector3();
-  /* the writer's own notes first, so they are never crowded out; each note keeps its place */
+  const v = new THREE.Vector3(), c = new THREE.Color(), m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), one = new THREE.Vector3(1, 1, 1);
+  /* where each note is tied: oldest first, so a new note never moves an older one */
+  function place(list){
+    const taken = new Set();
+    return [...list].sort((a, b) => a.at - b.at || (a.id < b.id ? -1 : 1)).map(n => {
+      const r = hashOf(n.id);
+      let p = Math.floor(r()*pillars.length), k = Math.floor(r()*AROUND);
+      for (let tries = 0; taken.has(`${p}:${k}`) && tries < pillars.length*AROUND; tries++){ k = (k + 3) % AROUND; if (tries % AROUND === AROUND - 1) p = (p + 1) % pillars.length; }
+      taken.add(`${p}:${k}`);
+      const pillar = pillars[p], a = (k + .5 + (r() - .5)*.4)/AROUND*Math.PI*2, d = pillar.r + .012;
+      return { ...n, a, pos:new THREE.Vector3(pillar.x + Math.sin(a)*d, pillar.band - .15, pillar.z + Math.cos(a)*d),
+        tie:new THREE.Vector3(pillar.x + Math.sin(a)*d, pillar.band, pillar.z + Math.cos(a)*d),
+        out:new THREE.Vector3(Math.sin(a), 0, Math.cos(a)), tilt:(r() - .5)*.16, lean:-(.04 + r()*.05), seen:0, reach:false };
+    });
+  }
+  /* the writer's own note first, so it is never crowded out */
   function set(list = shared){
     shared = list;
-    const prior = new Map(notes.map(n => [n.id, n])), merged = new Map();
+    const merged = new Map();
     for (const n of [...ownNotes().map(o => ({ ...o, own:true })), ...list]) if (!merged.has(n.id)) merged.set(n.id, n);
-    notes = [...merged.values()].slice(0, CAP).map(n => {
-      const before = prior.get(n.id), slot = before?.slot ?? slotOf(n.id);
-      return { ...n, slot, pos:before?.pos ?? new THREE.Vector3(slot.x, slot.y, slot.z), near:before?.near ?? 0, reach:false };
-    });
-    notes.forEach((n, i) => { const c = PALETTE[Math.floor(n.slot.hue*PALETTE.length)]; col.set([c.r, c.g, c.b], i*3); ph[i] = n.slot.ph; });
-    g.attributes.col.needsUpdate = g.attributes.ph.needsUpdate = true; g.setDrawRange(0, notes.length);
-  }
-  function update(dt, T, hero){
-    mat.uniforms.t.value = T;
+    const seen = new Map(notes.map(n => [n.id, n.seen]));
+    notes = place([...merged.values()].slice(0, CAP));
     notes.forEach((n, i) => {
-      const s = n.slot;
-      n.pos.set(s.x, s.y, s.z);
-      if (!reduceMotion) n.pos.add(v.set(Math.sin(T*.13 + s.ph*6.3), Math.sin(T*.09 + s.ph*9.1)*.5, Math.cos(T*.11 + s.ph*4.7)).multiplyScalar(1.2));
-      const d = n.pos.distanceTo(hero);
-      /* kept clear of the wanderer like the other motes; within reach it brightens */
-      n.near += (smooth(NOTICE, REACH - 1, d) - n.near)*(1 - Math.exp(-dt*3));
-      n.reach = d <= REACH;
-      pos.set([n.pos.x, n.pos.y, n.pos.z], i*3); lift[i] = n.near; alpha[i] = smooth(1.2, 2.4, d);
+      n.seen = seen.get(n.id) ?? 0;
+      m.compose(n.tie, q.setFromEuler(e.set(n.lean, n.a, n.tilt, 'YXZ')), one);
+      SLIP.forEach((f, k) => { for (let j = 0; j < 3; j++) pos.set(v.fromArray(f[j]).applyMatrix4(m).toArray(), ((i*SLIP.length + k)*3 + j)*3); });
     });
-    g.attributes.position.needsUpdate = g.attributes.lift.needsUpdate = g.attributes.alpha.needsUpdate = true;
+    g.setDrawRange(0, notes.length*PER); g.attributes.position.needsUpdate = true;
+  }
+  /* a slip catches the band's light as the wanderer comes near */
+  function update(dt, hero){
+    notes.forEach((n, i) => {
+      const d = n.pos.distanceTo(hero);
+      n.seen += (smooth(NOTICE, REACH - 2, d) - n.seen)*(1 - Math.exp(-dt*2.5));
+      n.reach = d <= REACH;
+      c.copy(DIM).lerp(PAPER, n.seen);
+      for (let k = 0; k < SLIP.length; k++){ const shade = SLIP[k][3];
+        for (let j = 0, o = (i*SLIP.length + k)*9; j < 3; j++, o += 3){ col[o] = c.r*shade; col[o + 1] = c.g*shade; col[o + 2] = c.b*shade; } }
+    });
+    if (notes.length) g.attributes.color.needsUpdate = true;
   }
 
-  /* the note under the pointer, if one is within reach of the wanderer */
+  /* the slip under the pointer, if it is within the wanderer's reach and faces the camera (not behind its pillar) */
   function pick(ndc, camera){
-    let best = null, bd = 26;
+    let best = null, bd = 28;
     for (const n of notes){
-      if (!n.reach) continue;
+      if (!n.reach || v.copy(camera.position).sub(n.pos).dot(n.out) <= 0) continue;
       v.copy(n.pos).project(camera); if (v.z > 1) continue;
       const d = Math.hypot((v.x - ndc.x)*innerWidth/2, (v.y - ndc.y)*innerHeight/2);
       if (d < bd){ bd = d; best = n; }
     }
     return best;
   }
-  return { set, update, pick, mat, get notes(){ return notes; } };
+  return { set, update, pick, mesh, get notes(){ return notes; } };
 }

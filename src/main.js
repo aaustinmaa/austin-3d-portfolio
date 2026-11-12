@@ -15,7 +15,7 @@ import { createConstellation } from './constellation.js';
 import { buildForm } from './relics.js';
 import { buildHero, animateHero } from './hero.js';
 import { createPaperBird } from './paperbird.js';
-import { createNoteLights, saveNote, loadNotes, ownNote, refreshOwn } from './notes.js';
+import { createNoteSlips, saveNote, loadNotes, ownNote, refreshOwn } from './notes.js';
 import { createBrazier } from './braziers.js';
 import { advanceTime, exponentialMotion } from './animation-time.js';
 import { dampedMotion, acceleratedMotion, dampedAcceleration } from './motion-time.js';
@@ -278,10 +278,12 @@ const bandMat = new THREE.MeshBasicMaterial({ color:0x78E6F0, transparent:true, 
   PILLARS.forEach(o => { const h = 6 + sq()*3, gy = groundH(o.x, o.z) - .2, rot = sq()*Math.PI;
     const shaft = new THREE.Mesh(new THREE.CylinderGeometry(.55,.7,h,8).translate(0,h/2,0), stone); shaft.position.set(o.x, gy, o.z); shaft.rotation.y = rot; scene.add(shaft);
     const cap = new THREE.Mesh(new THREE.BoxGeometry(1.7,.4,1.7), stone); cap.position.y = h + .2; shaft.add(cap);
-    const band = new THREE.Mesh(new THREE.CylinderGeometry(.6,.6,.12,24,1,true), bandMat); band.position.y = h*.62; shaft.add(band);
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(.6,.6,.12,24,1,true), bandMat); band.position.y = h*.62; shaft.add(band); o.band = gy + h*.62; o.r = .6;
     [shaft, cap].forEach(m => { m.castShadow = m.receiveShadow = true; m.userData.perch = new V3(o.x, gy + h + .4, o.z); pickables.push(m); });
     addMesh(shaft, { name:'wish-pillar', filter:m => m !== band }); });
 }
+/* notes Austin has published, as paper slips tied under the pillars' bands (and the visitor's own note, at once) */
+const noteSlips = createNoteSlips(scene, PILLARS); noteSlips.set([]);
 
 /* ---------- spiral stair, landings, braziers ---------- */
 const pathLights = [];
@@ -461,9 +463,6 @@ function lightPoints(items, { size, near=0, drift=0, base=.6 }){
   for (let i=0;i<170;i++){ const a = sh()*6.283, d = 8 + sh()*8; high.push({ x:Math.cos(a)*d, y:5 + sh()*32, z:Math.sin(a)*d, c:palette[Math.floor(sh()*palette.length)], ph:sh() }); }
   for (let i=0;i<260;i++){ const a = sh()*6.283, d = Math.sqrt(sh())*34; high.push({ x:Math.cos(a)*d, y:16 + sh()*40, z:Math.sin(a)*d, c:palette[Math.floor(sh()*palette.length)], ph:sh() }); }
   lightPoints(high, { size:1.05, near:3, drift:2.2, base:.65 }); }
-/* notes visitors have sent: a few more of those lights, drifting beneath the star (src/notes.js) */
-const noteLights = createNoteLights(scene, { scale:wispScale, reduceMotion });
-noteLights.mat.userData.base = .65; lightPointMats.push(noteLights.mat); noteLights.set([]);
 const MIST = 26; const mists = []; for (let i=0;i<MIST;i++){ const a=rand()*6.283, d=10+rand()*20; const s = new THREE.Sprite(new THREE.SpriteMaterial({ map:softTex, color:0x4A4E8E, transparent:true, opacity:.11, depthWrite:false }));
   s.position.set(Math.sin(a)*d, groundH(Math.sin(a)*d, Math.cos(a)*d)+1.2, Math.cos(a)*d); s.scale.set(16,4,1); scene.add(s); mists.push({ s, a, d, sp:(rand()-.5)*.02 }); }
 
@@ -945,7 +944,7 @@ canvas.addEventListener('wheel', e => { e.preventDefault(); craneApproach = null
 function clickAt(cx, cy){
   P.blocked = null;
   ndc.set(cx/innerWidth*2-1, -(cy/innerHeight)*2+1); ray.setFromCamera(ndc, camera);
-  const note = noteLights.pick(ndc, camera); if (note){ showNoteCard(note); return; }
+  const note = noteSlips.pick(ndc, camera); if (note){ showNoteCard(note); return; }
   const hits = ray.intersectObjects(pickables.concat(sky.hits), false); if (!hits.length) return;
   const relicHit = hits.find(h => h.object.userData.relic && h.object.parent.visible);
   if (relicHit){ const r = relicHit.object.userData.relic; if (r.state === 'open' || r.state === 'falling') showRelicCard(r); else if (r.state === 'orbit' || r.state === 'rising') autoShoot(r); return; }
@@ -969,7 +968,7 @@ let hoverStar = null;
 function updateHover(){
   if (!pointer || !pointer.dirty || drag) return; pointer.dirty = false;
   ndc.set(pointer.x/innerWidth*2-1, -(pointer.y/innerHeight)*2+1); ray.setFromCamera(ndc, camera);
-  const h = ray.intersectObjects(sky.hits.concat(bird.pick), false)[0]; hoverStar = h && h.object.userData.star || null; canvas.classList.toggle('pointing', (!!h || !!noteLights.pick(ndc, camera)) && mode !== 'aim');
+  const h = ray.intersectObjects(sky.hits.concat(bird.pick), false)[0]; hoverStar = h && h.object.userData.star || null; canvas.classList.toggle('pointing', (!!h || !!noteSlips.pick(ndc, camera)) && mode !== 'aim');
 }
 /* a star touched (or a skill named in the chat): the Oracle says which relics use it */
 function touchStar(s, asked){
@@ -1344,17 +1343,17 @@ letterForm.addEventListener('submit', async e => { e.preventDefault(); if (lette
     /* the paper folds back up inside the crane, which keeps the note for the next visit */
     writing = false; letter.hidden = true; document.body.classList.remove('writing'); bird.keep(); canvas.focus({ preventScroll:true });
     showToast(result.state === 'removed' ? NOTE.removed : mine ? NOTE.saved : NOTE.sent);
-    noteLights.set();
+    noteSlips.set();
     cardBeforeNote = null; craneCardPending = false; }
   else letterStatus.textContent = NOTE[result.state] || NOTE.failed; });
 
-/* ---------- the notes beneath the star: fetched once the wanderer starts to climb, read by touching a light ---------- */
+/* ---------- the slips on the wish pillars: fetched once the valley has settled, read by touching a slip ---------- */
 let notesAsked = false;
 function updateNotes(dt){
-  if (!notesAsked && NOTE.endpoint && P.pos.y > 18){ notesAsked = true;
-    void Promise.all([loadNotes(NOTE.endpoint), refreshOwn(NOTE.endpoint)]).then(([list]) => noteLights.set(list)); }
-  noteLights.update(dt, T, P.pos);
-  if (cardFor && cardFor.noteId){ const n = noteLights.notes.find(x => x.id === cardFor.noteId); if (!n || n.pos.distanceTo(P.pos) > 16) hideCard(); }
+  if (!notesAsked && NOTE.endpoint && T > 5){ notesAsked = true;
+    void Promise.all([loadNotes(NOTE.endpoint), refreshOwn(NOTE.endpoint)]).then(([list]) => noteSlips.set(list)); }
+  noteSlips.update(dt, P.pos);
+  if (cardFor && cardFor.noteId){ const n = noteSlips.notes.find(x => x.id === cardFor.noteId); if (!n || n.pos.distanceTo(P.pos) > 14) hideCard(); }
 }
 const noteDate = at => new Date(at).toLocaleDateString(undefined, { year:'numeric', month:'short', day:'numeric' });
 function showNoteCard(n){
@@ -1459,6 +1458,6 @@ setTimeout(() => oracleSay(LINES.intro), reduceMotion ? 200 : 2000);
 if (!intro) welcome();
 
 /* dev-only handle for poking at the scene from the browser console; stripped from production builds */
-if (import.meta.env.DEV) window.__valley = { P, camS, RELICS, sky, oracle, world, noteLights, showNoteCard, colliders, collisionWorld, bird, braziers, stones, openLetter, closeLetter, summon, setGaze, scene, camera, renderer, keys, fireArrow, fireManual, manualAim, arrows, flyTo, walkTo, navigator,
+if (import.meta.env.DEV) window.__valley = { P, camS, RELICS, sky, oracle, world, noteSlips, showNoteCard, colliders, collisionWorld, bird, braziers, stones, openLetter, closeLetter, summon, setGaze, scene, camera, renderer, keys, fireArrow, fireManual, manualAim, arrows, flyTo, walkTo, navigator,
   cameraDebug(){ return { intro:intro && intro.t, position:camPos.toArray(), desired:wantPos.toArray() }; },
   advance(seconds=1){ advance(seconds); reflectLake(); renderer.render(scene, camera); } };

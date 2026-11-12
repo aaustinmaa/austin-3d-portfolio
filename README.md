@@ -52,7 +52,7 @@ Each brazier is a plain faceted stone bowl on an eight-sided stem, in the same b
 
 ## Visitor notes
 
-Each visitor keeps one note. Sending folds the paper back into the crane, and opening the crane again shows the note, with Austin's reply beneath it, to change; folding an empty paper takes it back. Published notes are a few more of the soft lights drifting in the open air beneath the star, a little above the top of the stair. From below they look like any other mote. A wanderer who climbs and flies up among them finds that some brighten as they come within reach, and clicking one opens the note. Nothing on the page points to them: it is meant to be found.
+Each visitor keeps one note. Sending folds the paper back into the crane, and opening the crane again shows the note, with Austin's reply beneath it, to change; folding an empty paper takes it back. Published notes are small folded paper slips, in the same pale paper as the crane, tied under the glowing bands of the wish pillars in the meadow. From across the meadow they are dim flecks on the stone. A wanderer who walks up to a pillar sees the paper catch the band's light, and clicking a slip opens the note. Nothing on the page points to them: it is meant to be found.
 
 - **The writer** always sees their own note there. The browser keeps a copy and a private key, looks up Austin's reply by the note's id, and uses the key to change or take back the note.
 - **Other visitors** see a note only after Austin publishes it. New and changed notes wait for review.

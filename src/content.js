@@ -126,14 +126,14 @@ export const NOTE = {
   failed: "That didn't go through. Please try again in a moment.",
   empty: 'Write a few words first.',
   offline: "Notes aren't connected yet. For now, the résumé and LinkedIn links above are the best way to reach Austin.",
-  limited: 'The star is already holding your notes for today. Come back another day to leave another.',
-  full: 'The star is holding all the notes it can for now. Please come back in a few days.',
-  /* found later, among the lights beneath the star */
-  kicker: 'A note left for the star',
+  limited: 'The crane has carried enough notes from here for today. Come back another day.',
+  full: 'The crane is carrying all the notes it can for now. Please come back in a few days.',
+  /* found later, as paper slips tied under the bands of the wish pillars */
+  kicker: 'A wish tied to the pillar',
   ownKicker: 'Your note',
   anonymous: 'A visitor',
-  pending: 'Only you can see this light until Austin reads it.',
-  shared: 'Austin has let it shine here for everyone who finds it.',
+  pending: 'Only you can see this slip until Austin reads it.',
+  shared: 'Austin has tied it here for everyone who finds it.',
   kept: 'Austin read it and kept it between you.',
   reply: 'Austin',
 };
