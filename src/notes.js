@@ -1,58 +1,80 @@
 import * as THREE from 'three';
 import { NOTE_ID } from './note-rules.js';
 
-/* Notes left on the paper crane fly off to the star and stay there, as a few more of the soft lights drifting in the
-   open air beneath it. From below they look like any other mote; only a wanderer who climbs or flies up among them
+/* Notes left on the paper crane, once Austin publishes them, are a few more of the soft lights drifting in the
+   open air beneath the star. From below they look like any other mote; only a wanderer who climbs or flies up among them
    finds that some brighten as they come near and can be read. A note shows there for its writer at once (their
-   browser keeps it); other visitors see it once Austin has published it, with his reply. */
+   browser keeps it); other visitors see it once Austin has published it, with his reply. The writer keeps one note,
+   folded inside the paper crane, and can open the crane to change it or take it back. */
 
-/* ---------- the writer's own notes, kept in this browser (or in memory when storage is unavailable) ---------- */
-const OWN_KEY = 'valley:notes:v1', OWN_MAX = 24;
-let own = null;
-const validOwn = n => n && NOTE_ID.test(n.id) && typeof n.message === 'string' && Number.isFinite(n.at);
-export function ownNotes(){
-  if (own) return own;
-  try { const saved = JSON.parse(localStorage.getItem(OWN_KEY) || '[]'); own = Array.isArray(saved) ? saved.filter(validOwn).slice(0, OWN_MAX) : []; }
-  catch { own = []; }
+/* ---------- the writer's own note: one per visitor, kept in this browser (or in memory when storage is unavailable)
+   with the key that lets them change or take it back ---------- */
+const OWN_KEY = 'valley:note:v2';
+let own;
+const validOwn = n => n && NOTE_ID.test(n.id) && typeof n.key === 'string' && typeof n.message === 'string' && Number.isFinite(n.at);
+export function ownNote(){
+  if (own !== undefined) return own;
+  try { const saved = JSON.parse(localStorage.getItem(OWN_KEY) || 'null'); own = validOwn(saved) ? saved : null; } catch { own = null; }
   return own;
 }
-function keepOwn(list){
-  own = list.slice(0, OWN_MAX);
-  try { localStorage.setItem(OWN_KEY, JSON.stringify(own)); } catch { /* still kept for this visit */ }
+export const ownNotes = () => ownNote() ? [ownNote()] : [];
+function keepOwn(note){
+  own = note;
+  try { if (note) localStorage.setItem(OWN_KEY, JSON.stringify(note)); else localStorage.removeItem(OWN_KEY); } catch { /* still kept for this visit */ }
 }
 
 /* ---------- the notes API ---------- */
-export async function sendNote(endpoint, { name, message }, fetcher = fetch){
+/* Save what is on the paper: a new note, a change to the visitor's note, or (an empty paper) taking it back. */
+export async function saveNote(endpoint, { name, message }, fetcher = fetch){
+  const mine = ownNote();
+  if (!message && !mine) return { state:'empty' };
+  const method = !mine ? 'POST' : message ? 'PUT' : 'DELETE';
+  if (mine && method === 'PUT' && mine.message === message && (mine.name || '') === name) return { state:'kept', note:mine };
   try {
-    const res = await fetcher(endpoint, { method:'POST', headers:{ 'Content-Type':'application/json', Accept:'application/json' },
-      body:JSON.stringify({ name, message }), signal:AbortSignal.timeout(8_000) });
+    const res = await fetcher(endpoint, { method, headers:{ 'Content-Type':'application/json', Accept:'application/json' },
+      body:JSON.stringify(mine ? { id:mine.id, key:mine.key, name, message } : { name, message }), signal:AbortSignal.timeout(8_000) });
     if (res.status === 429) return { state:'limited' };
-    if (res.status === 404 || res.status === 405) return { state:'offline' };
+    if (res.status === 405 || (res.status === 404 && !mine)) return { state:'offline' };
+    /* Austin removed it: start a fresh note */
+    if (res.status === 404){ keepOwn(null); return method === 'DELETE' ? { state:'removed' } : saveNote(endpoint, { name, message }, fetcher); }
     if (res.status === 503) return { state:(await res.json().catch(() => ({}))).error === 'full' ? 'full' : 'failed' };
     if (!res.ok) return { state:'failed' };
-    const { id, at } = await res.json();
-    if (!NOTE_ID.test(id) || !Number.isFinite(at)) return { state:'failed' };
-    const note = { id, at, name, message, status:'pending', own:true };
-    keepOwn([note, ...ownNotes().filter(n => n.id !== id)]);
-    return { state:'sent', note };
+    if (method === 'DELETE'){ keepOwn(null); return { state:'removed' }; }
+    const body = await res.json();
+    if (method === 'POST'){
+      if (!NOTE_ID.test(body.id) || typeof body.key !== 'string' || !Number.isFinite(body.at)) return { state:'failed' };
+      keepOwn({ id:body.id, key:body.key, at:body.at, name, message, status:'pending', reply:'', replyAt:0 });
+    } else keepOwn({ ...mine, name, message, status:['pending','public','private'].includes(body.status) ? body.status : 'pending' });
+    return { state:'sent', note:ownNote() };
   } catch { return { state:'failed' }; }
+}
+
+/* Austin's reply to the visitor's note, if any (and whether he still has it) */
+export async function refreshOwn(endpoint, fetcher = fetch){
+  const mine = ownNote();
+  if (!mine) return null;
+  try {
+    const res = await fetcher(`${endpoint}?mine=${mine.id}`, { headers:{ Accept:'application/json' }, signal:AbortSignal.timeout(8_000) });
+    if (!res.ok) return mine;
+    const found = (await res.json()).mine?.find(n => n.id === mine.id);
+    if (!found) return mine;
+    keepOwn({ ...mine, status:['pending','public','private'].includes(found.status) ? found.status : mine.status,
+      reply:typeof found.reply === 'string' ? found.reply.slice(0, 1500) : '', replyAt:Number.isFinite(found.replyAt) ? found.replyAt : 0 });
+    return ownNote();
+  } catch { return mine; }
 }
 
 const text = (v, max) => typeof v === 'string' ? v.slice(0, max) : '';
 const fromServer = n => n && NOTE_ID.test(n.id) && typeof n.message === 'string' && Number.isFinite(n.at)
   ? { id:n.id, name:text(n.name, 80), message:text(n.message, 1500), at:n.at, reply:text(n.reply, 1500), replyAt:Number.isFinite(n.replyAt) ? n.replyAt : 0 } : null;
 
-/* the published notes plus the writer's own (with any reply Austin left on them) */
+/* the notes Austin has published */
 export async function loadNotes(endpoint, fetcher = fetch){
-  const get = async url => { try { const r = await fetcher(url, { headers:{ Accept:'application/json' }, signal:AbortSignal.timeout(8_000) }); return r.ok ? r.json() : null; } catch { return null; } };
-  const mineIds = ownNotes().map(n => n.id);
-  const [shared, mine] = await Promise.all([get(endpoint), mineIds.length ? get(`${endpoint}?mine=${mineIds.join(',')}`) : null]);
-  if (Array.isArray(mine?.mine)){
-    const latest = new Map(mine.mine.map(n => [n.id, n]));
-    keepOwn(ownNotes().map(n => { const s = latest.get(n.id); return s ? { ...n, status:['pending','public','private'].includes(s.status) ? s.status : n.status,
-      reply:text(s.reply, 1500), replyAt:Number.isFinite(s.replyAt) ? s.replyAt : 0 } : n; }));
-  }
-  return Array.isArray(shared?.notes) ? shared.notes.map(fromServer).filter(Boolean) : [];
+  try {
+    const res = await fetcher(endpoint, { headers:{ Accept:'application/json' }, signal:AbortSignal.timeout(8_000) });
+    const shared = res.ok ? await res.json() : null;
+    return Array.isArray(shared?.notes) ? shared.notes.map(fromServer).filter(Boolean) : [];
+  } catch { return []; }
 }
 
 /* ---------- the lights ---------- */
@@ -70,7 +92,7 @@ const CAP = 96, REACH = 9, NOTICE = 13;
 const PALETTE = ['#7FE9F2', '#8FA8FF', '#B49CFF', '#D8E2FF'].map(c => new THREE.Color(c));
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a)/(b - a))); return t*t*(3 - 2*t); };
 
-export function createNoteLights(scene, { star, scale, reduceMotion }){
+export function createNoteLights(scene, { scale, reduceMotion }){
   const g = new THREE.BufferGeometry(), pos = new Float32Array(CAP*3), col = new Float32Array(CAP*3), ph = new Float32Array(CAP);
   const lift = new Float32Array(CAP), alpha = new Float32Array(CAP);
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
@@ -99,34 +121,22 @@ export function createNoteLights(scene, { star, scale, reduceMotion }){
     for (const n of [...ownNotes().map(o => ({ ...o, own:true })), ...list]) if (!merged.has(n.id)) merged.set(n.id, n);
     notes = [...merged.values()].slice(0, CAP).map(n => {
       const before = prior.get(n.id), slot = before?.slot ?? slotOf(n.id);
-      return { ...n, slot, pos:before?.pos ?? new THREE.Vector3(slot.x, slot.y, slot.z), born:before?.born ?? -1, delay:before?.delay ?? 0, near:before?.near ?? 0, reach:false };
+      return { ...n, slot, pos:before?.pos ?? new THREE.Vector3(slot.x, slot.y, slot.z), near:before?.near ?? 0, reach:false };
     });
     notes.forEach((n, i) => { const c = PALETTE[Math.floor(n.slot.hue*PALETTE.length)]; col.set([c.r, c.g, c.b], i*3); ph[i] = n.slot.ph; });
     g.attributes.col.needsUpdate = g.attributes.ph.needsUpdate = true; g.setDrawRange(0, notes.length);
   }
-  /* a note just sent (already kept as the writer's own): it reaches the star with the crane, then drifts down to its place */
-  function arrive(id, delay){
-    set(); const n = notes.find(x => x.id === id);
-    if (n){ n.born = 0; n.delay = reduceMotion ? 0 : delay; }
-  }
-
   function update(dt, T, hero){
     mat.uniforms.t.value = T;
     notes.forEach((n, i) => {
       const s = n.slot;
-      let fade = 1;
       n.pos.set(s.x, s.y, s.z);
       if (!reduceMotion) n.pos.add(v.set(Math.sin(T*.13 + s.ph*6.3), Math.sin(T*.09 + s.ph*9.1)*.5, Math.cos(T*.11 + s.ph*4.7)).multiplyScalar(1.2));
-      if (n.born >= 0){
-        n.born += dt;
-        if (reduceMotion || n.born >= n.delay + 3.5) n.born = -1;
-        else { fade = smooth(n.delay - .4, n.delay + .6, n.born); const k = smooth(n.delay, n.delay + 3.5, n.born); n.pos.lerpVectors(star, n.pos, k); }
-      }
       const d = n.pos.distanceTo(hero);
       /* kept clear of the wanderer like the other motes; within reach it brightens */
-      n.near += ((fade < 1 ? 0 : smooth(NOTICE, REACH - 1, d)) - n.near)*(1 - Math.exp(-dt*3));
-      n.reach = d <= REACH && fade >= 1;
-      pos.set([n.pos.x, n.pos.y, n.pos.z], i*3); lift[i] = n.near; alpha[i] = Math.min(fade, smooth(1.2, 2.4, d));
+      n.near += (smooth(NOTICE, REACH - 1, d) - n.near)*(1 - Math.exp(-dt*3));
+      n.reach = d <= REACH;
+      pos.set([n.pos.x, n.pos.y, n.pos.z], i*3); lift[i] = n.near; alpha[i] = smooth(1.2, 2.4, d);
     });
     g.attributes.position.needsUpdate = g.attributes.lift.needsUpdate = g.attributes.alpha.needsUpdate = true;
   }
@@ -142,5 +152,5 @@ export function createNoteLights(scene, { star, scale, reduceMotion }){
     }
     return best;
   }
-  return { set, arrive, update, pick, mat, get notes(){ return notes; } };
+  return { set, update, pick, mat, get notes(){ return notes; } };
 }

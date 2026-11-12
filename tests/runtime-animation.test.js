@@ -41,17 +41,21 @@ test('paper unfolding, writing and refolding keep the same pose across stage cro
   }
 });
 
-test('a returning paper crane uses the time left after its delivery animation', () => {
-  const pose = fps => {
-    const bird = createPaperBird(new Scene(),{ perch:new Vector3(), star:() => new Vector3(0,100,0), reduceMotion:false });
-    bird.setNear(true); bird.send();
-    advance(5.2,fps,(dt,T) => bird.update(dt,T,camera));
+test('a kept note folds back into the crane at the same pace at any frame rate, and stays folded while near', () => {
+  const pose = (fps, seconds) => {
+    const bird = createPaperBird(new Scene(),{ perch:new Vector3(), reduceMotion:false });
+    bird.setNear(true); bird.setWriting(true,new Vector3(0,2,3));
+    advance(4,fps,(dt,T) => bird.update(dt,T,camera));
+    bird.keep();
+    advance(seconds,fps,(dt,T) => bird.update(dt,T,camera));
     return bird;
   };
-  const expected = pose(1/10); assert.equal(expected.busy,false); close(expected.k,.2775);
+  const expected = pose(1/10,1.6); assert.ok(expected.k > 0 && expected.k < 1);
   for (const fps of [15,30,60,144,240]){
-    const actual = pose(fps); close(actual.k,expected.k); assert.ok(actual.position.distanceTo(expected.position)<1e-9);
+    const actual = pose(fps,1.6); close(actual.k,expected.k); assert.ok(actual.position.distanceTo(expected.position)<1e-9);
   }
+  const later = pose(60,6); assert.equal(later.k,0); assert.equal(later.cardReady,false);
+  later.setWriting(true,new Vector3(0,2,3)); advance(3,60,(dt,T) => later.update(dt,T,camera)); assert.equal(later.ready,true);
 });
 
 test('Oracle light trails preserve the original 200 FPS spacing at different frame rates', () => {

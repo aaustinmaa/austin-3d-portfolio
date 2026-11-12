@@ -52,12 +52,12 @@ Each brazier is a plain faceted stone bowl on an eight-sided stem, in the same b
 
 ## Visitor notes
 
-Notes written on the crane's paper fold up and fly to the star. They stay there as a few more of the soft lights drifting in the open air beneath it, a little above the top of the stair. From below they look like any other mote. A wanderer who climbs and flies up among them finds that some brighten as they come within reach, and clicking one opens the note. Nothing on the page points to them: it is meant to be found.
+Each visitor keeps one note. Sending folds the paper back into the crane, and opening the crane again shows the note, with Austin's reply beneath it, to change; folding an empty paper takes it back. Published notes are a few more of the soft lights drifting in the open air beneath the star, a little above the top of the stair. From below they look like any other mote. A wanderer who climbs and flies up among them finds that some brighten as they come within reach, and clicking one opens the note. Nothing on the page points to them: it is meant to be found.
 
-- **The writer** always sees their own note there. The browser keeps a copy, and looks up Austin's reply by the note's id.
-- **Other visitors** see a note only after Austin publishes it. New notes wait for review.
+- **The writer** always sees their own note there. The browser keeps a copy and a private key, looks up Austin's reply by the note's id, and uses the key to change or take back the note.
+- **Other visitors** see a note only after Austin publishes it. New and changed notes wait for review.
 - **Austin** reviews notes on `notes-admin.html` (not linked anywhere). He can publish a note, keep it private (only its writer sees it, with the reply), reply, or delete it. The page asks for `NOTES_ADMIN_TOKEN`.
-- **Limits**: 3 notes a day and 8 a month per IPv4 address or IPv6 /64, 40 a day across the site, and at most 150 waiting for review. Notes are plain text, up to 1,500 characters, with an optional name of up to 80.
+- **Limits**: 3 notes a day and 8 a month per IPv4 address or IPv6 /64, 40 a day across the site, and at most 150 waiting for review. Each note can be changed 30 times a day. Notes are plain text, up to 1,500 characters, with an optional name of up to 80.
 
 `api/notes.js` and `api/notes-admin.js` (logic in `server/notes.js`) store notes in the same Upstash Redis database as the Oracle's counters, under `portfolio:notes:v1:*`. Set `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` and a long random `NOTES_ADMIN_TOKEN` in Vercel. `npm run dev` serves the same API from memory, so notes can be tried locally; the local admin token is `local-notes-admin`.
 

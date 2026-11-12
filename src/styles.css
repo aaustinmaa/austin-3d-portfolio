@@ -96,6 +96,9 @@ button,input{font:inherit;color:inherit}
 .sheet textarea{flex:1;min-height:0;resize:none;border:0;outline:none;padding:0 2px;font-family:var(--f-display);font-size:23px;line-height:36px;color:#262A4E;
   background:transparent repeating-linear-gradient(to bottom,transparent 0 35px,rgba(60,58,98,.22) 35px 36px);background-attachment:local;-webkit-user-select:text;user-select:text}
 .sheet textarea::placeholder{color:rgba(38,42,78,.42);font-style:italic}
+.sheet .reply{flex:none;max-height:28%;overflow-y:auto;border-left:2px solid rgba(92,80,150,.35);padding:2px 0 2px 14px;font-family:var(--f-display);color:#4A4280}
+.sheet .reply .who{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:rgba(74,66,128,.75)}
+.sheet .reply p{margin:2px 0 0;font-size:19px;font-style:italic;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}
 .sheet .from{display:flex;align-items:baseline;gap:10px;font-family:var(--f-display);font-size:24px}
 .sheet .from input{flex:1;min-width:0;border:0;border-bottom:1px solid rgba(60,58,98,.32);background:transparent;outline:none;font-family:var(--f-display);font-style:italic;font-size:21px;color:#262A4E;padding:2px 2px 5px;-webkit-user-select:text;user-select:text}
 .sheet .from input::placeholder{color:rgba(38,42,78,.42)}

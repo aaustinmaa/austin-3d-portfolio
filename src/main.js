@@ -15,7 +15,7 @@ import { createConstellation } from './constellation.js';
 import { buildForm } from './relics.js';
 import { buildHero, animateHero } from './hero.js';
 import { createPaperBird } from './paperbird.js';
-import { createNoteLights, sendNote, loadNotes } from './notes.js';
+import { createNoteLights, saveNote, loadNotes, ownNote, refreshOwn } from './notes.js';
 import { createBrazier } from './braziers.js';
 import { advanceTime, exponentialMotion } from './animation-time.js';
 import { dampedMotion, acceleratedMotion, dampedAcceleration } from './motion-time.js';
@@ -382,7 +382,7 @@ const braziers = [];
 
 /* ---------- the paper crane: a way to leave Austin a note, on the last lantern on the right, where the path turns up to the stair ---------- */
 const CRANE_LANTERN = { x:Math.sin(11.4*.35)*.8 + 1.75, z:11.4 };
-const bird = createPaperBird(scene, { perch:new V3(CRANE_LANTERN.x, groundH(CRANE_LANTERN.x, CRANE_LANTERN.z) + 1.83, CRANE_LANTERN.z), star:() => oracle.position, hint:NOTE.crane, reduceMotion });
+const bird = createPaperBird(scene, { perch:new V3(CRANE_LANTERN.x, groundH(CRANE_LANTERN.x, CRANE_LANTERN.z) + 1.83, CRANE_LANTERN.z), hint:NOTE.crane, reduceMotion });
 pickables.push(...bird.pick);
 bird.solids.forEach(m => addMesh(m, { name:'paper-crane', dynamic:true, deforming:true, twoSided:true, stand:false }));
 
@@ -462,7 +462,7 @@ function lightPoints(items, { size, near=0, drift=0, base=.6 }){
   for (let i=0;i<260;i++){ const a = sh()*6.283, d = Math.sqrt(sh())*34; high.push({ x:Math.cos(a)*d, y:16 + sh()*40, z:Math.sin(a)*d, c:palette[Math.floor(sh()*palette.length)], ph:sh() }); }
   lightPoints(high, { size:1.05, near:3, drift:2.2, base:.65 }); }
 /* notes visitors have sent: a few more of those lights, drifting beneath the star (src/notes.js) */
-const noteLights = createNoteLights(scene, { star:new V3(0, ORACLE_Y, 0), scale:wispScale, reduceMotion });
+const noteLights = createNoteLights(scene, { scale:wispScale, reduceMotion });
 noteLights.mat.userData.base = .65; lightPointMats.push(noteLights.mat); noteLights.set([]);
 const MIST = 26; const mists = []; for (let i=0;i<MIST;i++){ const a=rand()*6.283, d=10+rand()*20; const s = new THREE.Sprite(new THREE.SpriteMaterial({ map:softTex, color:0x4A4E8E, transparent:true, opacity:.11, depthWrite:false }));
   s.position.set(Math.sin(a)*d, groundH(Math.sin(a)*d, Math.cos(a)*d)+1.2, Math.cos(a)*d); s.scale.set(16,4,1); scene.add(s); mists.push({ s, a, d, sp:(rand()-.5)*.02 }); }
@@ -1282,7 +1282,16 @@ document.getElementById('letterTo').textContent = NOTE.to; letterMsg.placeholder
 let writing = false, cardBeforeNote = null;
 function openLetter(){ if (writing || bird.busy) return; writing = true; cardBeforeNote = card.hidden ? null : cardFor; hideCard(); if (gaze) setGaze(false); P.drawing = false; P.target = null;
   const f = camera.getWorldDirection(new V3()); bird.setWriting(true, camera.position.clone().addScaledVector(f, 2.4).add(new V3(0, -.12, 0)));
-  letterStatus.textContent = ''; document.body.classList.add('writing'); }
+  letterStatus.textContent = ''; document.body.classList.add('writing'); takeBack = false; showReply(ownNote()); letterSend.textContent = ownNote() ? NOTE.update : NOTE.send;
+  void refreshOwn(NOTE.endpoint).then(n => { if (writing && n && !letterSend.disabled) showReply(n); }); }
+/* the paper holds the visitor's one note: opening the crane again shows it to change, with Austin's reply beneath */
+const letterReply = document.createElement('div'); letterReply.className = 'reply'; letterReply.hidden = true;
+letterReply.innerHTML = '<span class="who"></span><p></p>'; letterReply.querySelector('.who').textContent = NOTE.reply; letterMsg.after(letterReply);
+let takeBack = false;
+function showReply(n){ letterReply.hidden = !n?.reply; letterReply.querySelector('p').textContent = n?.reply || ''; }
+/* an unsent draft stays on the paper while the page is open; a fresh page starts from the saved note */
+function fillLetter(n){ letterMsg.value = n ? n.message : ''; letterFrom.value = n ? n.name || '' : ''; showReply(n); }
+fillLetter(ownNote());
 function closeLetter(){ if (!writing) return; writing = false; letter.hidden = true; document.body.classList.remove('writing'); bird.setWriting(false); canvas.focus({ preventScroll:true });
   if (cardBeforeNote === ABOUT) craneCardPending = byBird; cardBeforeNote = null; }
 /* Follow the line from the wanderer to the crane, stopping short while still facing along that same line. */
@@ -1321,23 +1330,29 @@ document.getElementById('letterClose').addEventListener('click', closeLetter);
 letter.addEventListener('click', e => { if (e.target === letter) closeLetter(); });
 letter.addEventListener('keydown', e => { if (e.key === 'Escape'){ e.stopPropagation(); closeLetter(); } });
 letterForm.addEventListener('submit', async e => { e.preventDefault(); if (letterForm.company.value || letterSend.disabled) return;
-  const message = letterMsg.value.trim(), name = letterFrom.value.trim();
-  if (!message){ letterStatus.textContent = NOTE.empty; return; }
+  const message = letterMsg.value.trim(), name = letterFrom.value.trim(), mine = ownNote();
+  if (!message && !mine){ letterStatus.textContent = NOTE.empty; return; }
+  /* an empty paper takes the note back, after asking once */
+  if (!message && !takeBack){ takeBack = true; letterStatus.textContent = NOTE.takeBack; return; }
   if (!NOTE.endpoint){ letterStatus.textContent = NOTE.offline; return; }
+  const label = letterSend.textContent;
   letterSend.disabled = true; letterSend.textContent = NOTE.sending; letterStatus.textContent = '';
-  const result = await sendNote(NOTE.endpoint, { name, message });
-  if (result.state === 'sent'){
-    letterMsg.value = ''; writing = false; letter.hidden = true; document.body.classList.remove('writing'); bird.send(); showToast(NOTE.sent);
-    /* it becomes one of the lights beneath the star, there for its writer from now on */
-    noteLights.arrive(result.note.id, bird.arrival);
-    if (cardBeforeNote === ABOUT) craneCardPending = byBird; cardBeforeNote = null; }
-  else letterStatus.textContent = NOTE[result.state] || NOTE.failed;
-  letterSend.disabled = false; letterSend.textContent = NOTE.send; });
+  const result = await saveNote(NOTE.endpoint, { name, message });
+  letterSend.disabled = false; letterSend.textContent = label; takeBack = false;
+  if (result.state === 'removed') fillLetter(null);
+  if (['sent', 'kept', 'removed'].includes(result.state)){
+    /* the paper folds back up inside the crane, which keeps the note for the next visit */
+    writing = false; letter.hidden = true; document.body.classList.remove('writing'); bird.keep(); canvas.focus({ preventScroll:true });
+    showToast(result.state === 'removed' ? NOTE.removed : mine ? NOTE.saved : NOTE.sent);
+    noteLights.set();
+    cardBeforeNote = null; craneCardPending = false; }
+  else letterStatus.textContent = NOTE[result.state] || NOTE.failed; });
 
 /* ---------- the notes beneath the star: fetched once the wanderer starts to climb, read by touching a light ---------- */
 let notesAsked = false;
 function updateNotes(dt){
-  if (!notesAsked && NOTE.endpoint && P.pos.y > 18){ notesAsked = true; void loadNotes(NOTE.endpoint).then(list => noteLights.set(list)); }
+  if (!notesAsked && NOTE.endpoint && P.pos.y > 18){ notesAsked = true;
+    void Promise.all([loadNotes(NOTE.endpoint), refreshOwn(NOTE.endpoint)]).then(([list]) => noteLights.set(list)); }
   noteLights.update(dt, T, P.pos);
   if (cardFor && cardFor.noteId){ const n = noteLights.notes.find(x => x.id === cardFor.noteId); if (!n || n.pos.distanceTo(P.pos) > 16) hideCard(); }
 }

@@ -32,7 +32,7 @@ test('rejects malformed, cross-site and oversized notes', async () => {
     [post({ message:'hi' }, { headers:{ origin:'https://other.example' } }), 403],
     [post({ message:'hi' }, { headers:{ 'content-type':'text/plain' } }), 415],
     [post({ message:'hi' }, { ip:'' }), 503],
-    [new Request(`${origin}/api/notes`, { method:'DELETE' }), 405],
+    [new Request(`${origin}/api/notes`, { method:'PATCH' }), 405],
   ]) assert.equal((await visitor(req)).status, status);
 });
 
@@ -67,6 +67,38 @@ test('a new note stays private until Austin publishes it, but its writer can alw
 
   await austin(admin({ id, action:'delete' }));
   assert.deepEqual((await (await visitor(get(`?mine=${id}`))).json()).mine, []);
+});
+
+test('its writer can change or take back a note with its key, and a changed note waits for Austin again', async () => {
+  const { visitor, admin:austin } = setup();
+  const { id, key } = await (await visitor(post({ name:'Ana', message:'First draft' }))).json();
+  assert.match(key, /^[\w-]{32}$/);
+  const edit = (body, method = 'PUT') => visitor(new Request(`${origin}/api/notes`, { method,
+    headers:{ origin, 'content-type':'application/json', 'x-vercel-forwarded-for':'192.0.2.1' }, body:JSON.stringify(body) }));
+
+  await austin(admin({ id, action:'reply', reply:'Hi Ana' }));
+  await austin(admin({ id, action:'publish' }));
+  assert.equal((await edit({ id, key:'x'.repeat(32), message:'Spam' })).status, 404);
+  assert.equal((await edit({ id, message:'Spam' })).status, 404);
+  assert.equal((await edit({ id, key, message:'' })).status, 400);
+
+  const changed = await edit({ id, key, name:'Ana', message:'Second draft' });
+  assert.equal(changed.status, 200);
+  const after = await changed.json();
+  assert.equal(after.message, 'Second draft');
+  assert.equal(after.status, 'pending');
+  assert.equal(after.reply, 'Hi Ana');
+  assert.equal(after.key, undefined);
+  assert.deepEqual((await (await visitor(get())).json()).notes, []);
+  const listing = await (await austin(admin())).json();
+  assert.equal(listing.pending[0].message, 'Second draft');
+  assert.equal(listing.pending[0].key, undefined);
+  assert.ok(listing.pending[0].editedAt);
+
+  /* taking it back removes it everywhere */
+  assert.equal((await edit({ id, key }, 'DELETE')).status, 200);
+  assert.deepEqual((await (await visitor(get(`?mine=${id}`))).json()).mine, []);
+  assert.equal((await edit({ id, key, message:'again' })).status, 404);
 });
 
 test('each network can leave only a few notes a day and a month', async () => {

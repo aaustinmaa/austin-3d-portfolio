@@ -43,7 +43,8 @@ function render(){
       el('button', { type:'button', className:'danger', textContent:'Delete', onclick:act('delete') }),
     ].filter(Boolean);
     return el('article', { className:'note' },
-      el('div', { className:'head' }, el('b', { textContent:n.name || 'A visitor' }), el('span', { textContent:when(n.at) })),
+      el('div', { className:'head' }, el('b', { textContent:n.name || 'A visitor' }),
+        el('span', { textContent:n.editedAt ? `${when(n.at)} · changed ${when(n.editedAt)}` : when(n.at) })),
       el('p', { className:'msg', textContent:n.message }),
       ...(n.replyAt ? [el('div', { className:'replied', textContent:`Replied ${when(n.replyAt)}` })] : []),
       reply, el('div', { className:'row' }, ...buttons));

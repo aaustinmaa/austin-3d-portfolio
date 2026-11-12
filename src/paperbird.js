@@ -6,8 +6,8 @@ import { advanceTimeline, timelineTimeAt, timelineValueAt } from './animation-ti
 // last lantern on the right. It stands for Austin's name card. Walking up to it makes it rise and come undone the way a
 // real crane does: wings up, neck and tail back down into the bird base, the petals open into the square base, and the
 // square base opens toward you into a creased square of writing paper, while the name card opens. Touching that paper
-// brings it close so visitors can write Austin a note on it. Walking away folds it back into the crane; a sent note folds
-// up, flies off to the star, and a fresh crane settles on the lantern.
+// brings it close so visitors can write Austin a note on it. Walking away folds it back into the crane; a note that is sent folds
+// back up inside the crane, and opening the crane again shows it on the paper to change.
 const V3 = THREE.Vector3;
 const REST_YAW = Math.PI/2;   // on the lantern it faces the stair, so the path sees it in profile
 const smooth = t => { t = Math.min(1, Math.max(0, t)); return t*t*(3 - 2*t); };
@@ -141,7 +141,7 @@ function letterTexture(hint){
 const KEY = new V3(), UP = new V3(0,1,0), nW = new V3(), e1 = new V3(), e2 = new V3();
 function lightFacet(n, pulse){ return Math.min(1.1, .3 + .54*Math.max(0, n.dot(KEY)) + .1*Math.max(0, n.y) + pulse*.25); }
 
-export function createPaperBird(scene, { perch, star, hint, reduceMotion }){
+export function createPaperBird(scene, { perch, hint, reduceMotion }){
   const pick = [], group = new THREE.Group(); group.rotation.order = 'YXZ'; scene.add(group);
   const onlyVisible = function(r, out){ if (this.visible) THREE.Mesh.prototype.raycast.call(this, r, out); };
 
@@ -239,15 +239,14 @@ export function createPaperBird(scene, { perch, star, hint, reduceMotion }){
   const SWAP = .3, KS = [0, SWAP, .51, .7, 1], SECS = [.4, .35, .05, .23], REFOLD = SECS.reduce((a, b) => a + b);
   const kAt = t => timelineValueAt(t,KS,SECS);
   const CARD_K = kAt(REFOLD*.5);   // halfway through the timed unfolding, whose stages have different speeds
-  const refoldK = t => kAt(Math.max(0, REFOLD - t));
   function pose(k, light){
     crane.visible = k < SWAP; sheet.visible = !crane.visible;
     if (crane.visible) poseCrane(k/SWAP, light); else poseSheet(k, light);
   }
 
   /* k: unfolding above the lantern (0 perched, 1 open there); z: brought close to the viewer to write on (0 at the lantern, 1 close) */
-  const rest = perch.clone().add(new V3(0, .04, 0)), above = rest.clone().add(new V3(0, 1.3, 0)), close = rest.clone(), at = new V3(), toCam = new V3(), camR = new V3(), qw = new THREE.Quaternion();
-  let k = 0, z = 0, near = false, writing = false, pulse = 0, away = -1, side = 1;   // away: time since a sent note began to fold (-1 when not); side: which face of the bird base turns to you
+  const rest = perch.clone().add(new V3(0, .04, 0)), above = rest.clone().add(new V3(0, 1.3, 0)), close = rest.clone(), toCam = new V3(), camR = new V3(), qw = new THREE.Quaternion();
+  let k = 0, z = 0, near = false, writing = false, kept = false, pulse = 0, side = 1;   // kept: a note was just folded away inside it; side: which face of the bird base turns to you
   const faceYaw = () => Math.atan2(toCam.x, toCam.z) - side*Math.PI/2;
   function chooseSide(){ toCam.subVectors(camPos, rest); const y = Math.atan2(toCam.x, toCam.z); side = Math.abs(wrapA(y - Math.PI/2 - REST_YAW)) < Math.PI/2 ? 1 : -1; sheet.rotation.y = side*Math.PI/2; }
   const camPos = new V3();
@@ -257,17 +256,7 @@ export function createPaperBird(scene, { perch, star, hint, reduceMotion }){
   }
   function update(dt, T, camera){
     pulse = Math.max(0, pulse - dt); camPos.setFromMatrixPosition(camera.matrixWorld);
-    if (away >= 0){ /* a sent note: fold back into a crane where it is, fly off to the star, then a new crane settles on the lantern */
-      const F = REFOLD; away += reduceMotion ? F + 3.8 : dt; const fly = span(away, F, F + 2.5), back = span(away, F + 3, F + 3.8), s = star();
-      if (away < F + 2.8){ at.lerpVectors(close, s, fly); at.y += Math.sin(Math.PI*fly)*2; group.position.copy(at); group.scale.setScalar(Math.max(.001, 1 - fly*.9)); light(camera);
-        const fy = faceYaw(); group.rotation.set(-.3*fly, fy + wrapA(Math.atan2(s.x - at.x, s.z - at.z) - fy)*span(away, F, F + .7), 0); pose(refoldK(away), 0); }
-      else { group.position.copy(rest); group.rotation.set(0, REST_YAW, 0); group.scale.setScalar(Math.max(.001, back)); light(camera); pose(0, 0); }
-      glow.position.copy(group.position); glow.scale.setScalar(1.2); glow.material.opacity = away < F + 2.8 ? .4*(1 - fly) : .14*back;
-      if (back < 1) return;
-      dt = reduceMotion ? 0 : Math.max(0,away-(F+3.8));
-      away = -1; k = 0; z = 0; writing = false; group.scale.setScalar(1);
-    }
-    const wantK = near || writing ? 1 : 0;
+    const wantK = writing || (near && !kept) ? 1 : 0;
     if (k === 0 && wantK > 0) chooseSide();
     if (reduceMotion){ k = wantK; z = writing ? 1 : 0; }
     else {
@@ -294,16 +283,15 @@ export function createPaperBird(scene, { perch, star, hint, reduceMotion }){
     glow.scale.setScalar(1.2 + open*2.2); glow.material.opacity = .14 + open*.2 + pulse*.4;
   }
   return { pick, solids:[crane, sheetIn], update, position:group.position, sheetPosition:group.position,
-    get busy(){ return away >= 0; }, get unfolded(){ return away < 0 && k > .99 && z === 0; }, get ready(){ return writing && z > .97; },
-    get cardReady(){ return away < 0 && k >= CARD_K && z === 0; },
+    get busy(){ return false; }, get unfolded(){ return k > .99 && z === 0; }, get ready(){ return writing && z > .97; },
+    get cardReady(){ return !kept && k >= CARD_K && z === 0; },
     /* the wanderer is close: unfold above the lantern (or fold back up when they leave) */
-    setNear(on){ near = on; },
+    setNear(on){ near = on; if (!on) kept = false; },
     /* bring the sheet close to write on (to: a point in front of the camera), or send it back above the lantern */
-    setWriting(on, to){ if (away >= 0) return; if (on && !writing && to) close.copy(to); writing = on; },
-    /* the note is sent: fold up and fly to the star */
-    send(){ if (away < 0){ away = 0; writing = false; close.copy(group.position); } },
-    /* seconds from send() until the folded note reaches the star */
-    get arrival(){ return reduceMotion ? 0 : REFOLD + 2.5; },
+    setWriting(on, to){ if (on){ kept = false; if (!writing && to) close.copy(to); } writing = on; },
+    /* the note is kept: the paper goes back above the lantern and folds up into the crane, which stays folded until the
+       wanderer leaves (or opens it again to change the note) */
+    keep(){ writing = false; kept = true; },
     pulse(){ pulse = 1; },
     /* for checking the fold in the browser: set how far it has opened */
     get k(){ return k; }, set k(v){ k = v; } };
