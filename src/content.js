@@ -111,18 +111,28 @@ export const LINES = {
   finale: "Every relic is open and my light is whole again. Thank you for walking the whole valley. If you'd like to talk with Austin, his résumé, GitHub and LinkedIn are right here.",
 };
 // The note: the paper crane unfolds into a sheet of paper, and visitors can write Austin a note on it.
-// `endpoint` is where notes are posted as JSON ({ name, message }); leave it empty until a form service is chosen.
+// Notes are posted as JSON ({ name, message }) to `endpoint` (`api/notes.js`). Austin reviews them on `notes-admin.html`.
 export const NOTE = {
-  endpoint: '',
+  endpoint: '/api/notes',
   crane: 'Leave a note to Austin',
   to: 'To Austin,',
   placeholder: 'Write anything: hello, a question, an idea, a wish for the valley…',
-  from: 'your name or email (optional)',
+  from: 'your name (optional)',
   send: 'Fold & send', sending: 'Folding…',
   sent: 'Your note is folded and on its way to Austin.',
   failed: "That didn't go through. Please try again in a moment.",
   empty: 'Write a few words first.',
   offline: "Notes aren't connected yet. For now, the résumé and LinkedIn links above are the best way to reach Austin.",
+  limited: 'The star is already holding your notes for today. Come back another day to leave another.',
+  full: 'The star is holding all the notes it can for now. Please come back in a few days.',
+  /* found later, among the lights beneath the star */
+  kicker: 'A note left for the star',
+  ownKicker: 'Your note',
+  anonymous: 'A visitor',
+  pending: 'Only you can see this light until Austin reads it.',
+  shared: 'Austin has let it shine here for everyone who finds it.',
+  kept: 'Austin read it and kept it between you.',
+  reply: 'Austin',
 };
 export const FINALE = { id:'finale', kicker:'All six relics opened', color:'#F4D58D', title:'The valley is lit', meta:'Thanks for exploring',
   body:"You've opened every relic: Austin's internship at Aquanow, the apps he has built, and the skills that tie them together. The quickest way to reach him is below.",

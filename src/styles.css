@@ -75,6 +75,12 @@ button,input{font:inherit;color:inherit}
 .card .row{display:flex;gap:8px;flex-wrap:wrap}
 .pill{border:1px solid var(--edge);background:rgba(255,255,255,.03);border-radius:999px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer}
 .pill:hover{border-color:var(--cyan);color:var(--cyan)}
+.card .note-from{font-size:28px;line-height:1.1;padding-right:30px;overflow-wrap:anywhere}
+.card .note-text{white-space:pre-wrap;overflow-wrap:anywhere;max-height:min(40vh, 320px);overflow-y:auto}
+.card .note-reply{border-left:1px solid rgba(226,190,122,.5);padding:2px 0 2px 12px;display:flex;flex-direction:column;gap:4px}
+.card .note-reply .who{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--gold)}
+.card .note-reply p{white-space:pre-wrap;overflow-wrap:anywhere;color:#E6DCC6}
+.card .note-status{font-size:12px;font-style:italic;color:var(--text-soft)}
 .card .x{position:absolute;top:12px;right:12px;width:30px;height:30px;border-radius:50%;border:0;background:rgba(255,255,255,.06);cursor:pointer;font-size:16px}
 
 /* the crane's note: a large unfolded sheet of paper to write on, below the top bar */

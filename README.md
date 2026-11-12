@@ -50,6 +50,17 @@ The lake's bank follows the rendered terrain, so walking, low jumps and low flig
 
 Each brazier is a plain faceted stone bowl on an eight-sided stem, in the same basalt as the wish pillars, with no rings or ornament. It holds a golden fire that matches the valley's champagne-gold accents, never orange-red and never blue or violet. A volumetric shader shapes a single flame rising from glowing coals: a full, rounded base that fills the bowl and tapers to one pointed tip, its edge rippling and its tip flickering; the flame is dense, with a glaring white-hot heart that runs through gold to soft amber gold at the edges. The bowl hides the fire below its rim from every angle. Now and then a spark lifts off, beneath a soft halo and flickering local light. Lighting a brazier grows the flame up from the coals; with reduced motion the fire and lighting stay steady and no sparks rise.
 
+## Visitor notes
+
+Notes written on the crane's paper fold up and fly to the star. They stay there as a few more of the soft lights drifting in the open air beneath it, a little above the top of the stair. From below they look like any other mote. A wanderer who climbs and flies up among them finds that some brighten as they come within reach, and clicking one opens the note. Nothing on the page points to them: it is meant to be found.
+
+- **The writer** always sees their own note there. The browser keeps a copy, and looks up Austin's reply by the note's id.
+- **Other visitors** see a note only after Austin publishes it. New notes wait for review.
+- **Austin** reviews notes on `notes-admin.html` (not linked anywhere). He can publish a note, keep it private (only its writer sees it, with the reply), reply, or delete it. The page asks for `NOTES_ADMIN_TOKEN`.
+- **Limits**: 3 notes a day and 8 a month per IPv4 address or IPv6 /64, 40 a day across the site, and at most 150 waiting for review. Notes are plain text, up to 1,500 characters, with an optional name of up to 80.
+
+`api/notes.js` and `api/notes-admin.js` (logic in `server/notes.js`) store notes in the same Upstash Redis database as the Oracle's counters, under `portfolio:notes:v1:*`. Set `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` and a long random `NOTES_ADMIN_TOKEN` in Vercel. `npm run dev` serves the same API from memory, so notes can be tried locally; the local admin token is `local-notes-admin`.
+
 ## Project layout
 
 ```

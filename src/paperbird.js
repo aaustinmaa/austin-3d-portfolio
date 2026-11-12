@@ -302,6 +302,8 @@ export function createPaperBird(scene, { perch, star, hint, reduceMotion }){
     setWriting(on, to){ if (away >= 0) return; if (on && !writing && to) close.copy(to); writing = on; },
     /* the note is sent: fold up and fly to the star */
     send(){ if (away < 0){ away = 0; writing = false; close.copy(group.position); } },
+    /* seconds from send() until the folded note reaches the star */
+    get arrival(){ return reduceMotion ? 0 : REFOLD + 2.5; },
     pulse(){ pulse = 1; },
     /* for checking the fold in the browser: set how far it has opened */
     get k(){ return k; }, set k(v){ k = v; } };

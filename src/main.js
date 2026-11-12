@@ -15,6 +15,7 @@ import { createConstellation } from './constellation.js';
 import { buildForm } from './relics.js';
 import { buildHero, animateHero } from './hero.js';
 import { createPaperBird } from './paperbird.js';
+import { createNoteLights, sendNote, loadNotes } from './notes.js';
 import { createBrazier } from './braziers.js';
 import { advanceTime, exponentialMotion } from './animation-time.js';
 import { dampedMotion, acceleratedMotion, dampedAcceleration } from './motion-time.js';
@@ -460,6 +461,9 @@ function lightPoints(items, { size, near=0, drift=0, base=.6 }){
   for (let i=0;i<170;i++){ const a = sh()*6.283, d = 8 + sh()*8; high.push({ x:Math.cos(a)*d, y:5 + sh()*32, z:Math.sin(a)*d, c:palette[Math.floor(sh()*palette.length)], ph:sh() }); }
   for (let i=0;i<260;i++){ const a = sh()*6.283, d = Math.sqrt(sh())*34; high.push({ x:Math.cos(a)*d, y:16 + sh()*40, z:Math.sin(a)*d, c:palette[Math.floor(sh()*palette.length)], ph:sh() }); }
   lightPoints(high, { size:1.05, near:3, drift:2.2, base:.65 }); }
+/* notes visitors have sent: a few more of those lights, drifting beneath the star (src/notes.js) */
+const noteLights = createNoteLights(scene, { star:new V3(0, ORACLE_Y, 0), scale:wispScale, reduceMotion });
+noteLights.mat.userData.base = .65; lightPointMats.push(noteLights.mat); noteLights.set([]);
 const MIST = 26; const mists = []; for (let i=0;i<MIST;i++){ const a=rand()*6.283, d=10+rand()*20; const s = new THREE.Sprite(new THREE.SpriteMaterial({ map:softTex, color:0x4A4E8E, transparent:true, opacity:.11, depthWrite:false }));
   s.position.set(Math.sin(a)*d, groundH(Math.sin(a)*d, Math.cos(a)*d)+1.2, Math.cos(a)*d); s.scale.set(16,4,1); scene.add(s); mists.push({ s, a, d, sp:(rand()-.5)*.02 }); }
 
@@ -941,6 +945,7 @@ canvas.addEventListener('wheel', e => { e.preventDefault(); craneApproach = null
 function clickAt(cx, cy){
   P.blocked = null;
   ndc.set(cx/innerWidth*2-1, -(cy/innerHeight)*2+1); ray.setFromCamera(ndc, camera);
+  const note = noteLights.pick(ndc, camera); if (note){ showNoteCard(note); return; }
   const hits = ray.intersectObjects(pickables.concat(sky.hits), false); if (!hits.length) return;
   const relicHit = hits.find(h => h.object.userData.relic && h.object.parent.visible);
   if (relicHit){ const r = relicHit.object.userData.relic; if (r.state === 'open' || r.state === 'falling') showRelicCard(r); else if (r.state === 'orbit' || r.state === 'rising') autoShoot(r); return; }
@@ -964,7 +969,7 @@ let hoverStar = null;
 function updateHover(){
   if (!pointer || !pointer.dirty || drag) return; pointer.dirty = false;
   ndc.set(pointer.x/innerWidth*2-1, -(pointer.y/innerHeight)*2+1); ray.setFromCamera(ndc, camera);
-  const h = ray.intersectObjects(sky.hits.concat(bird.pick), false)[0]; hoverStar = h && h.object.userData.star || null; canvas.classList.toggle('pointing', !!h && mode !== 'aim');
+  const h = ray.intersectObjects(sky.hits.concat(bird.pick), false)[0]; hoverStar = h && h.object.userData.star || null; canvas.classList.toggle('pointing', (!!h || !!noteLights.pick(ndc, camera)) && mode !== 'aim');
 }
 /* a star touched (or a skill named in the chat): the Oracle says which relics use it */
 function touchStar(s, asked){
@@ -1315,17 +1320,43 @@ function goToCrane({ overlap=false }={}){
 document.getElementById('letterClose').addEventListener('click', closeLetter);
 letter.addEventListener('click', e => { if (e.target === letter) closeLetter(); });
 letter.addEventListener('keydown', e => { if (e.key === 'Escape'){ e.stopPropagation(); closeLetter(); } });
-letterForm.addEventListener('submit', async e => { e.preventDefault(); if (letterForm.company.value) return;
+letterForm.addEventListener('submit', async e => { e.preventDefault(); if (letterForm.company.value || letterSend.disabled) return;
   const message = letterMsg.value.trim(), name = letterFrom.value.trim();
   if (!message){ letterStatus.textContent = NOTE.empty; return; }
   if (!NOTE.endpoint){ letterStatus.textContent = NOTE.offline; return; }
   letterSend.disabled = true; letterSend.textContent = NOTE.sending; letterStatus.textContent = '';
-  try { const res = await fetch(NOTE.endpoint, { method:'POST', headers:{ 'Content-Type':'application/json', Accept:'application/json' }, body:JSON.stringify({ name, message }) });
-    if (!res.ok) throw new Error(res.status);
+  const result = await sendNote(NOTE.endpoint, { name, message });
+  if (result.state === 'sent'){
     letterMsg.value = ''; writing = false; letter.hidden = true; document.body.classList.remove('writing'); bird.send(); showToast(NOTE.sent);
+    /* it becomes one of the lights beneath the star, there for its writer from now on */
+    noteLights.arrive(result.note.id, bird.arrival);
     if (cardBeforeNote === ABOUT) craneCardPending = byBird; cardBeforeNote = null; }
-  catch { letterStatus.textContent = NOTE.failed; }
+  else letterStatus.textContent = NOTE[result.state] || NOTE.failed;
   letterSend.disabled = false; letterSend.textContent = NOTE.send; });
+
+/* ---------- the notes beneath the star: fetched once the wanderer starts to climb, read by touching a light ---------- */
+let notesAsked = false;
+function updateNotes(dt){
+  if (!notesAsked && NOTE.endpoint && P.pos.y > 18){ notesAsked = true; void loadNotes(NOTE.endpoint).then(list => noteLights.set(list)); }
+  noteLights.update(dt, T, P.pos);
+  if (cardFor && cardFor.noteId){ const n = noteLights.notes.find(x => x.id === cardFor.noteId); if (!n || n.pos.distanceTo(P.pos) > 16) hideCard(); }
+}
+const noteDate = at => new Date(at).toLocaleDateString(undefined, { year:'numeric', month:'short', day:'numeric' });
+function showNoteCard(n){
+  const status = n.own ? (n.status === 'public' ? NOTE.shared : n.status === 'private' ? NOTE.kept : NOTE.pending) : '';
+  card.innerHTML = `<button class="x" type="button" aria-label="Close">×</button>
+    <div class="kicker"><span class="gem" style="background:#9FD8F0;color:#9FD8F0"></span></div>
+    <h2 class="note-from"></h2><div class="meta"></div><p class="note-text"></p>`;
+  card.querySelector('.kicker').append(n.own ? NOTE.ownKicker : NOTE.kicker);
+  card.querySelector('.note-from').textContent = n.name || NOTE.anonymous;
+  card.querySelector('.meta').textContent = noteDate(n.at);
+  card.querySelector('.note-text').textContent = n.message;
+  if (n.reply){ const r = document.createElement('div'); r.className = 'note-reply'; const who = document.createElement('span'); who.className = 'who'; who.textContent = NOTE.reply;
+    const p = document.createElement('p'); p.textContent = n.reply; r.append(who, p); card.append(r); }
+  if (status){ const s = document.createElement('div'); s.className = 'note-status'; s.textContent = status; card.append(s); }
+  card.querySelector('.x').addEventListener('click', hideCard);
+  card.hidden = false; card.style.animation = 'none'; void card.offsetWidth; card.style.animation = ''; cardFor = { noteId:n.id };
+}
 /* Show the name card halfway through the crane's unfolding, once per visit. Leaving closes it immediately;
    the small distance margin keeps the paper from folding and reopening at the edge of the visit. */
 let byBird = false, craneCardPending = false;
@@ -1395,7 +1426,7 @@ function simulate(dt){
   T += dt;
   updateWorld(dt); updateRelics(dt); collisionWorld.updateDynamic();
   updatePlayer(dt); updateHero(dt); updateArrows(dt); updateSplashes(dt); updateCamera(dt);
-  updateBird(dt); collisionWorld.updateDynamic(); updateHover();
+  updateBird(dt); updateNotes(dt); collisionWorld.updateDynamic(); updateHover();
   sky.update(dt, T, camera, { showAll:gaze, hover:hoverStar, focus:openRelic });
   updateLabels(); updateCross(); updateStamina();
 }
@@ -1413,6 +1444,6 @@ setTimeout(() => oracleSay(LINES.intro), reduceMotion ? 200 : 2000);
 if (!intro) welcome();
 
 /* dev-only handle for poking at the scene from the browser console; stripped from production builds */
-if (import.meta.env.DEV) window.__valley = { P, camS, RELICS, sky, oracle, world, colliders, collisionWorld, bird, braziers, stones, openLetter, closeLetter, summon, setGaze, scene, camera, renderer, keys, fireArrow, fireManual, manualAim, arrows, flyTo, walkTo, navigator,
+if (import.meta.env.DEV) window.__valley = { P, camS, RELICS, sky, oracle, world, noteLights, showNoteCard, colliders, collisionWorld, bird, braziers, stones, openLetter, closeLetter, summon, setGaze, scene, camera, renderer, keys, fireArrow, fireManual, manualAim, arrows, flyTo, walkTo, navigator,
   cameraDebug(){ return { intro:intro && intro.t, position:camPos.toArray(), desired:wantPos.toArray() }; },
   advance(seconds=1){ advance(seconds); reflectLake(); renderer.render(scene, camera); } };
